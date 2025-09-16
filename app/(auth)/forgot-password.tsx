@@ -1,0 +1,243 @@
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  SafeAreaView,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
+} from 'react-native';
+import {
+  ArrowLeft,
+  Mail,
+  Package,
+  Send,
+} from 'lucide-react-native';
+import { router } from 'expo-router';
+import { useTheme } from '@/contexts/ThemeContext';
+
+export default function ForgotPasswordScreen() {
+  const { theme } = useTheme();
+  const [email, setEmail] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleResetPassword = async () => {
+    if (!email) {
+      Alert.alert('Error', 'Please enter your email address');
+      return;
+    }
+
+    if (!email.includes('@')) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
+    setIsLoading(true);
+
+    // Simulate API call
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    setIsLoading(false);
+
+    Alert.alert(
+      'Reset Link Sent',
+      'We\'ve sent a password reset link to your email address. Please check your inbox and follow the instructions.',
+      [
+        {
+          text: 'OK',
+          onPress: () => router.back(),
+        },
+      ]
+    );
+  };
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.colors.background,
+    },
+    keyboardAvoidingView: {
+      flex: 1,
+    },
+    header: {
+      paddingHorizontal: 20,
+      paddingTop: 16,
+      paddingBottom: 20,
+    },
+    backButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: theme.colors.surface,
+      justifyContent: 'center',
+      alignItems: 'center',
+      ...theme.shadows.medium,
+    },
+    content: {
+      flex: 1,
+      paddingHorizontal: 24,
+      justifyContent: 'center',
+    },
+    logoSection: {
+      alignItems: 'center',
+      marginBottom: 48,
+    },
+    logoContainer: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: theme.colors.primary,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 24,
+      ...theme.shadows.large,
+    },
+    title: {
+      fontSize: 28,
+      fontWeight: '700',
+      color: theme.colors.text,
+      marginBottom: 16,
+      textAlign: 'center',
+    },
+    subtitle: {
+      fontSize: 16,
+      color: theme.colors.textSecondary,
+      textAlign: 'center',
+      lineHeight: 24,
+      paddingHorizontal: 20,
+    },
+    form: {
+      marginBottom: 32,
+    },
+    inputGroup: {
+      marginBottom: 24,
+    },
+    inputLabel: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: 8,
+    },
+    inputContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.colors.surface,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 16,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      ...theme.shadows.small,
+    },
+    input: {
+      flex: 1,
+      fontSize: 16,
+      color: theme.colors.text,
+      marginLeft: 12,
+    },
+    resetButton: {
+      flexDirection: 'row',
+      backgroundColor: theme.colors.primary,
+      borderRadius: 12,
+      paddingVertical: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...theme.shadows.medium,
+    },
+    resetButtonDisabled: {
+      backgroundColor: theme.colors.textTertiary,
+    },
+    resetButtonText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: '#FFFFFF',
+      marginLeft: 8,
+    },
+    helpContainer: {
+      alignItems: 'center',
+    },
+    helpText: {
+      fontSize: 14,
+      color: theme.colors.textSecondary,
+    },
+    helpLink: {
+      color: theme.colors.primary,
+      fontWeight: '600',
+    },
+  });
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoidingView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}>
+            <ArrowLeft size={24} color="#1F2937" strokeWidth={2} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.content}>
+          {/* Logo */}
+          <View style={styles.logoSection}>
+            <View style={styles.logoContainer}>
+              <Package size={32} color="#FFFFFF" strokeWidth={2} />
+            </View>
+            <Text style={styles.title}>Forgot Password?</Text>
+            <Text style={styles.subtitle}>
+              Don't worry! Enter your email address and we'll send you a link to reset your password.
+            </Text>
+          </View>
+
+          {/* Form */}
+          <View style={styles.form}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Email Address</Text>
+              <View style={styles.inputContainer}>
+                <Mail size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter your email"
+                  placeholderTextColor={theme.colors.textTertiary}
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  editable={!isLoading}
+                />
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.resetButton, isLoading && styles.resetButtonDisabled]}
+              onPress={handleResetPassword}
+              disabled={isLoading}>
+              <Send size={20} color="#FFFFFF" strokeWidth={2} />
+              <Text style={styles.resetButtonText}>
+                {isLoading ? 'Sending...' : 'Send Reset Link'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Help Text */}
+          <View style={styles.helpContainer}>
+            <Text style={styles.helpText}>
+              Remember your password?{' '}
+              <TouchableOpacity onPress={() => router.back()}>
+                <Text style={styles.helpLink}>Back to Sign In</Text>
+              </TouchableOpacity>
+            </Text>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
