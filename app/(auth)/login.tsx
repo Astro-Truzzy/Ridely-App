@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Image,
 } from 'react-native';
 import {
   ArrowLeft,
@@ -21,9 +22,11 @@ import {
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLogo } from '@/hooks/useLogo';
 
 export default function LoginScreen() {
   const { theme } = useTheme();
+  const { logo } = useLogo();
   const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -86,7 +89,7 @@ export default function LoginScreen() {
           {/* Logo */}
           <View style={styles.logoSection}>
             <View style={[styles.logoContainer, { backgroundColor: theme.colors.primary }]}>
-              <Package size={32} color="#FFFFFF" strokeWidth={2} />
+              <Image source={logo} style={styles.logoImage} />
             </View>
             <Text style={[styles.title, { color: theme.colors.text }]}>Welcome Back</Text>
             <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Sign in to your Ridely account</Text>
@@ -225,6 +228,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
+  },
+  logoImage: {
+    width: 48,
+    height: 48,
+    resizeMode: 'contain',
   },
   title: {
     fontSize: 28,

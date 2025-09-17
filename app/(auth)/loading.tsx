@@ -10,9 +10,12 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../contexts/ThemeContext';
+import { Image } from 'react-native';
+import { useLogo } from '@/hooks/useLogo';
 
 export default function LoadingScreen() {
   const { theme } = useTheme();
+  const { logo } = useLogo();
   const router = useRouter();
   
   const scale = useSharedValue(1);
@@ -70,6 +73,11 @@ export default function LoadingScreen() {
       alignItems: 'center',
       marginBottom: 20,
     },
+    logoImage: {
+      width: '100%',
+      height: '100%',
+      borderRadius: 60,
+    },
     logoText: {
       fontSize: 32,
       fontWeight: 'bold',
@@ -87,7 +95,7 @@ export default function LoadingScreen() {
     <View style={styles.container}>
       <View style={styles.logoContainer}>
         <Animated.View style={[styles.logo, animatedStyle]}>
-          <Text style={styles.logoText}>R</Text>
+           <Image source={logo} style={styles.logoImage} />
         </Animated.View>
         <Text style={styles.title}>
           Ridely{'\n'}
