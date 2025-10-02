@@ -10,6 +10,7 @@ import {
   Platform,
   Alert,
   Image,
+  Pressable,
 } from 'react-native';
 import {
   ArrowLeft,
@@ -23,6 +24,7 @@ import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLogo } from '@/hooks/useLogo';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 
 export default function LoginScreen() {
   const { theme } = useTheme();
@@ -71,6 +73,15 @@ export default function LoginScreen() {
     Alert.alert('Social Login', `${provider} login coming soon!`);
   };
 
+  // Animated scale for button feedback
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: withSpring(scale.value) }],
+    };
+  });
+
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
@@ -92,18 +103,7 @@ export default function LoginScreen() {
         <View style={styles.content}>
           {/* Logo */}
           <View style={styles.logoSection}>
-            <View
-              style={[
-                styles.logoContainer,
-                {
-                  backgroundColor:
-                    theme.colors
-                      .primary ?? theme.colors.surface,
-                },
-              ]}
-            >
-              <Image source={logo} style={styles.logoImage} />
-            </View>
+            <Image source={logo} style={styles.logoImage} />
             <Text style={[styles.title, { color: theme.colors.text }]}>
               Welcome Back
             </Text>
@@ -208,19 +208,24 @@ export default function LoginScreen() {
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[
-                styles.loginButton,
-                { backgroundColor: theme.colors.primary },
-                isLoading && { backgroundColor: theme.colors.textTertiary },
-              ]}
-              onPress={handleLogin}
+            <Pressable
+              onPressIn={() => (scale.value = 0.95)}
+              onPressOut={() => (scale.value = 1)}
               disabled={isLoading}
             >
-              <Text style={styles.loginButtonText}>
-                {isLoading ? 'Signing In...' : 'Sign In'}
-              </Text>
-            </TouchableOpacity>
+              <Animated.View
+                style={[
+                  styles.loginButton,
+                  { backgroundColor: theme.colors.primary },
+                  isLoading && { backgroundColor: theme.colors.textTertiary },
+                  animatedStyle,
+                ]}
+              >
+                <Text style={styles.loginButtonText}>
+                  {isLoading ? 'Signing In...' : 'Sign In'}
+                </Text>
+              </Animated.View>
+            </Pressable>
           </View>
 
           {/* Divider */}
@@ -334,26 +339,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 40,
   },
-  logoContainer: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-    // backgroundColor moved to inline style in component
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-    padding: 8,
-  },
   logoImage: {
-    width: 64,
-    height: 64,
+    width: 80,
+    height: 80,
     resizeMode: 'contain',
-    borderRadius: 32,
+    marginBottom: 12,
   },
   title: {
     fontSize: 28,

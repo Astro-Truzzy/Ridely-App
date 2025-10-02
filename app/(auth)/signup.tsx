@@ -10,6 +10,7 @@ import {
   Platform,
   Alert,
   ScrollView,
+  Pressable,
 } from 'react-native';
 import {
   ArrowLeft,
@@ -25,9 +26,17 @@ import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { Image } from 'react-native';
+import { useLogo } from '@/hooks/useLogo';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
 
 export default function SignupScreen() {
   const { theme } = useTheme();
+  const { logo } = useLogo();
   const { signUp } = useAuth();
   const [formData, setFormData] = useState({
     fullName: '',
@@ -107,6 +116,15 @@ export default function SignupScreen() {
     setFormData((prev) => ({ ...prev, [key]: value }));
   };
 
+  // Animated scale for button
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: withSpring(scale.value) }],
+    };
+  });
+
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
@@ -132,21 +150,14 @@ export default function SignupScreen() {
           <View style={styles.content}>
             {/* Logo */}
             <View style={styles.logoSection}>
-              <View
-                style={[
-                  styles.logoContainer,
-                  { backgroundColor: theme.colors.primary },
-                ]}
-              >
-                <Package size={32} color="#FFFFFF" strokeWidth={2} />
-              </View>
+              <Image source={logo} style={styles.logoImage} />
               <Text style={[styles.title, { color: theme.colors.text }]}>
                 Create Account
               </Text>
               <Text
                 style={[styles.subtitle, { color: theme.colors.textSecondary }]}
               >
-                Join Ridely and start sending packages
+                Sign up to get started with Ridely
               </Text>
             </View>
 
@@ -437,19 +448,25 @@ export default function SignupScreen() {
                 </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[
-                  styles.signupButton,
-                  { backgroundColor: theme.colors.primary },
-                  isLoading && { backgroundColor: theme.colors.textTertiary },
-                ]}
+              <Pressable
+                onPressIn={() => (scale.value = 0.95)}
+                onPressOut={() => (scale.value = 1)}
                 onPress={handleSignup}
                 disabled={isLoading}
               >
-                <Text style={styles.signupButtonText}>
-                  {isLoading ? 'Creating Account...' : 'Create Account'}
-                </Text>
-              </TouchableOpacity>
+                <Animated.View
+                  style={[
+                    styles.signupButton,
+                    { backgroundColor: theme.colors.primary },
+                    isLoading && { backgroundColor: theme.colors.textTertiary },
+                    animatedStyle,
+                  ]}
+                >
+                  <Text style={styles.signupButtonText}>
+                    {isLoading ? 'Creating Account...' : 'Create Account'}
+                  </Text>
+                </Animated.View>
+              </Pressable>
             </View>
 
             {/* Divider */}
@@ -560,20 +577,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 32,
   },
-  logoContainer: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-    // backgroundColor is set dynamically in the component
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-    padding: 8,
+  logoImage: {
+    width: 80,
+    height: 80,
+    resizeMode: 'contain',
+    marginBottom: 12,
   },
   title: {
     fontSize: 28,

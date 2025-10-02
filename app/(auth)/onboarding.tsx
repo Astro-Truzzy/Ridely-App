@@ -16,9 +16,11 @@ import { useTheme } from '@/contexts/ThemeContext';
 
 const { width: screenWidth } = Dimensions.get('window');
 
+import { ImageSourcePropType } from 'react-native';
+
 interface OnboardingSlide {
   id: string;
-  image: string;
+  image: ImageSourcePropType;
   title: string;
   subtitle: string;
   tagline: string;
@@ -33,23 +35,26 @@ export default function OnboardingScreen() {
   const slides: OnboardingSlide[] = [
     {
       id: '1',
-      image: '/assets/Illustrations/savetime.png',
+      image: require('@/assets/Illustrations/savetime.png'),
       title: 'Fast & Reliable Delivery',
-      subtitle: 'Get your packages delivered quickly with our network of verified motorcycle riders',
+      subtitle:
+        'Get your packages delivered quickly with our network of verified motorcycle riders',
       tagline: 'Speed meets reliability',
     },
     {
       id: '2',
-      image: '/assets/Illustrations/locationparcel.png',
+      image: require('@/assets/Illustrations/locationparcel.png'),
       title: 'Real-time Tracking',
-      subtitle: 'Track your delivery in real-time and stay connected with your rider throughout the journey',
+      subtitle:
+        'Track your delivery in real-time and stay connected with your rider throughout the journey',
       tagline: 'Always in the know',
     },
     {
       id: '3',
-      image: '/doorstep.png',
+      image: require('@/assets/Illustrations/doorstep.png'),
       title: 'Secure & Insured',
-      subtitle: 'Every package is insured up to NGN100,000 with end-to-end security and verified riders',
+      subtitle:
+        'Every package is insured up to NGN100,000 with end-to-end security and verified riders',
       tagline: 'Your trust, our priority',
     },
   ];
@@ -78,7 +83,13 @@ export default function OnboardingScreen() {
     itemVisiblePercentThreshold: 50,
   }).current;
 
-  const renderSlide = ({ item, index }: { item: OnboardingSlide; index: number }) => {
+  const renderSlide = ({
+    item,
+    index,
+  }: {
+    item: OnboardingSlide;
+    index: number;
+  }) => {
     const inputRange = [
       (index - 1) * screenWidth,
       index * screenWidth,
@@ -119,13 +130,19 @@ export default function OnboardingScreen() {
                 transform: [{ scale: imageScale }],
                 opacity: imageOpacity,
               },
-            ]}>
+            ]}
+          >
             <Image
-              source={{ uri: item.image }}
+              source={item.image}
               style={styles.slideImage}
               resizeMode="cover"
             />
-            <View style={[styles.imageOverlay, { backgroundColor: `${theme.colors.primary}20` }]} />
+            <View
+              style={[
+                styles.imageOverlay,
+                { backgroundColor: `${theme.colors.primary}20` },
+              ]}
+            />
           </Animated.View>
         </View>
 
@@ -136,10 +153,22 @@ export default function OnboardingScreen() {
               transform: [{ translateY: textTranslateY }],
               opacity: textOpacity,
             },
-          ]}>
-          <Text style={[styles.tagline, { color: theme.colors.primary }]}>{item.tagline}</Text>
-          <Text style={[styles.slideTitle, { color: theme.colors.text }]}>{item.title}</Text>
-          <Text style={[styles.slideSubtitle, { color: theme.colors.textSecondary }]}>{item.subtitle}</Text>
+          ]}
+        >
+          <Text style={[styles.tagline, { color: theme.colors.primary }]}>
+            {item.tagline}
+          </Text>
+          <Text style={[styles.slideTitle, { color: theme.colors.text }]}>
+            {item.title}
+          </Text>
+          <Text
+            style={[
+              styles.slideSubtitle,
+              { color: theme.colors.textSecondary },
+            ]}
+          >
+            {item.subtitle}
+          </Text>
         </Animated.View>
       </View>
     );
@@ -186,11 +215,17 @@ export default function OnboardingScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+    >
       {/* Skip Button */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.skipButton} onPress={handleSkip}>
-          <Text style={[styles.skipText, { color: theme.colors.textSecondary }]}>Skip</Text>
+          <Text
+            style={[styles.skipText, { color: theme.colors.textSecondary }]}
+          >
+            Skip
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -215,10 +250,15 @@ export default function OnboardingScreen() {
       {/* Bottom Section */}
       <View style={styles.bottomContainer}>
         {renderPagination()}
-        
+
         <TouchableOpacity
-          style={[styles.nextButton, { backgroundColor: theme.colors.primary }, theme.shadows.medium]}
-          onPress={handleNext}>
+          style={[
+            styles.nextButton,
+            { backgroundColor: theme.colors.primary },
+            theme.shadows.medium,
+          ]}
+          onPress={handleNext}
+        >
           <Text style={styles.nextButtonText}>
             {currentIndex === slides.length - 1 ? 'Get Started' : 'Next'}
           </Text>

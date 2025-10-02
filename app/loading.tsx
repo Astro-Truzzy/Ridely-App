@@ -53,7 +53,7 @@ export default function LoadingScreen() {
           <Image
             source={
               isDark
-                ? require('@/assets/images/logo-dark.jpg')
+                ? require('@/assets/images/logo-dark.png')
                 : require('@/assets/images/logo.png')
             }
             style={styles.logo}

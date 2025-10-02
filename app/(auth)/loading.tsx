@@ -67,17 +67,8 @@ export default function LoadingScreen() {
     logo: {
       width: 120,
       height: 120,
-      borderRadius: 60,
-      backgroundColor: theme.colors.surface,
-      justifyContent: 'center',
-      alignItems: 'center',
+      resizeMode: 'contain',
       marginBottom: 20,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.15,
-      shadowRadius: 8,
-      elevation: 4,
-      padding: 10,
     },
     logoImage: {
       width: 90,

@@ -6,11 +6,13 @@ import {
   TouchableOpacity,
   SafeAreaView,
   Image,
+  Pressable,
 } from 'react-native';
 import { Package, Zap, Shield, Clock } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLogo } from '@/hooks/useLogo';
+import Animated, { FadeInUp, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 
 export default function WelcomeScreen() {
   const { theme } = useTheme();
@@ -34,6 +36,14 @@ export default function WelcomeScreen() {
     },
   ];
 
+  const buttonScale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: buttonScale.value }],
+    };
+  });
+
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
@@ -41,80 +51,42 @@ export default function WelcomeScreen() {
       <View style={styles.content}>
         {/* Logo Section */}
         <View style={styles.logoSection}>
-          <View
-            style={[
-              styles.logoContainer,
-              { backgroundColor: theme.colors.surface ?? theme.colors.primary },
-            ]}
-          >
-            <Image source={logo} style={styles.logoImage} />
-          </View>
-          <Text style={[styles.logoText, { color: theme.colors.text }]}>
-            Ridely
-          </Text>
-          <Text style={[styles.tagline, { color: theme.colors.textSecondary }]}>
-            Fast. Reliable. Delivered.
-          </Text>
+          <Image source={logo} style={styles.logoImage} />
+          <Text style={[styles.logoText, { color: theme.colors.text }]}>Ridely</Text>
+          <Text style={[styles.tagline, { color: theme.colors.textSecondary }]}>Fast. Reliable. Delivered.</Text>
         </View>
 
-        {/* Features */}
+        {/* Features Section */}
         <View style={styles.featuresContainer}>
-          {features.map((feature, index) => (
-            <View key={index} style={styles.featureItem}>
+          {features.map((feature, idx) => (
+            <Animated.View key={feature.title} entering={FadeInUp.duration(600)} style={styles.featureItem}>
               <View style={styles.featureIcon}>
-                <feature.icon
-                  size={24}
-                  color={theme.colors.primary}
-                  strokeWidth={2}
-                />
+                <feature.icon color={theme.colors.primary} size={28} />
               </View>
               <View style={styles.featureContent}>
-                <Text
-                  style={[styles.featureTitle, { color: theme.colors.text }]}
-                >
-                  {feature.title}
-                </Text>
-                <Text
-                  style={[
-                    styles.featureDescription,
-                    { color: theme.colors.textSecondary },
-                  ]}
-                >
-                  {feature.description}
-                </Text>
+                <Text style={[styles.featureTitle, { color: theme.colors.text }]}>{feature.title}</Text>
+                <Text style={[styles.featureDescription, { color: theme.colors.textSecondary }]}>{feature.description}</Text>
               </View>
-            </View>
+            </Animated.View>
           ))}
         </View>
 
-        {/* Illustration Placeholder */}
-        <View style={styles.illustrationContainer}>
-          <View style={styles.illustration}>
-            <Zap size={40} color={theme.colors.primary} strokeWidth={1} />
-            <Text
-              style={[styles.illustrationText, { color: theme.colors.primary }]}
-            >
-              Ready to get started?
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Bottom Actions */}
-      <View style={styles.bottomContainer}>
-        <TouchableOpacity
-          style={[
-            styles.signupButton,
-            { backgroundColor: theme.colors.primary },
-            theme.shadows.medium,
-          ]}
+        {/* Buttons Section */}
+        <Pressable
+          onPressIn={() => {
+            buttonScale.value = withSpring(0.95);
+          }}
+          onPressOut={() => {
+            buttonScale.value = withSpring(1);
+          }}
           onPress={() => router.push('/(auth)/signup')}
         >
-          <Text style={styles.signupText}>Create Account</Text>
-        </TouchableOpacity>
+          <Animated.View style={[styles.button, animatedStyle]}>
+            <Text style={styles.buttonText}>Create Account</Text>
+          </Animated.View>
+        </Pressable>
 
         <TouchableOpacity
-          style={styles.loginButton}
           onPress={() => router.push('/(auth)/login')}
         >
           <Text style={[styles.loginText, { color: theme.colors.primary }]}>
@@ -131,43 +103,32 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   logoImage: {
-    width: 64,
-    height: 64,
+    width: 80,
+    height: 80,
     resizeMode: 'contain',
+    marginBottom: 12,
+    // No border/background for modern look
   },
   content: {
     flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 40,
+    paddingHorizontal: 28,
+    paddingTop: 48,
   },
   logoSection: {
     alignItems: 'center',
     marginBottom: 48,
   },
-  logoContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-    marginTop: 16,
-    // backgroundColor moved to inline style in component
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-    padding: 10,
-  },
   logoText: {
-    fontSize: 32,
-    fontWeight: '700',
-    marginBottom: 8,
+    fontSize: 34,
+    fontWeight: '800',
+    marginBottom: 4,
+    letterSpacing: 0.5,
   },
   tagline: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '500',
+    marginBottom: 8,
+    opacity: 0.85,
   },
   featuresContainer: {
     marginBottom: 40,
@@ -175,15 +136,21 @@ const styles = StyleSheet.create({
   featureItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
+    borderRadius: 18,
+    padding: 22,
+    marginBottom: 18,
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 2,
   },
   featureIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#F0F2FF',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
@@ -192,50 +159,37 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   featureTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 2,
   },
   featureDescription: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  illustrationContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  illustration: {
-    alignItems: 'center',
+    fontSize: 15,
     opacity: 0.8,
   },
-  illustrationText: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginTop: 16,
-    marginBottom: 20,
-  },
-  bottomContainer: {
-    paddingHorizontal: 24,
-    paddingBottom: 40,
-  },
-  signupButton: {
+  button: {
+    backgroundColor: '#5A47FF',
     borderRadius: 16,
-    paddingVertical: 18,
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  signupText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  loginButton: {
     paddingVertical: 16,
     alignItems: 'center',
+    marginBottom: 16,
+    shadowColor: '#5A47FF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   loginText: {
-    fontSize: 14,
-    fontWeight: '500',
+    textAlign: 'center',
+    fontSize: 15,
+    fontWeight: '600',
+    marginTop: 8,
+    textDecorationLine: 'underline',
   },
 });

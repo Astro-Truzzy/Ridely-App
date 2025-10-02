@@ -9,10 +9,16 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Pressable,
 } from 'react-native';
 import { ArrowLeft, Mail, Package, Send } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
 
 export default function ForgotPasswordScreen() {
   const { theme } = useTheme();
@@ -49,6 +55,22 @@ export default function ForgotPasswordScreen() {
     );
   };
 
+  const buttonScale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: buttonScale.value }],
+    };
+  });
+
+  const handlePressIn = () => {
+    buttonScale.value = withSpring(0.95);
+  };
+
+  const handlePressOut = () => {
+    buttonScale.value = withSpring(1);
+  };
+
   const styles = StyleSheet.create({
     container: {
       flex: 1,
@@ -80,20 +102,11 @@ export default function ForgotPasswordScreen() {
       alignItems: 'center',
       marginBottom: 48,
     },
-    logoContainer: {
-      alignItems: 'center',
-      marginBottom: 40,
-      backgroundColor: theme.colors.surface,
-      borderRadius: 44,
-      width: 88,
-      height: 88,
-      justifyContent: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.15,
-      shadowRadius: 8,
-      elevation: 4,
-      padding: 8,
+    logoImage: {
+      width: 80,
+      height: 80,
+      resizeMode: 'contain',
+      marginBottom: 12,
     },
     title: {
       fontSize: 28,
@@ -188,9 +201,12 @@ export default function ForgotPasswordScreen() {
         <View style={styles.content}>
           {/* Logo */}
           <View style={styles.logoSection}>
-            <View style={styles.logoContainer}>
-              <Package size={32} color="#FFFFFF" strokeWidth={2} />
-            </View>
+            <Package
+              size={48}
+              color={theme.colors.primary}
+              strokeWidth={2}
+              style={{ marginBottom: 12 }}
+            />
             <Text style={styles.title}>Forgot Password?</Text>
             <Text style={styles.subtitle}>
               Don't worry! Enter your email address and we'll send you a link to
@@ -222,19 +238,25 @@ export default function ForgotPasswordScreen() {
               </View>
             </View>
 
-            <TouchableOpacity
-              style={[
-                styles.resetButton,
-                isLoading && styles.resetButtonDisabled,
-              ]}
+            <Pressable
+              onPressIn={handlePressIn}
+              onPressOut={handlePressOut}
               onPress={handleResetPassword}
               disabled={isLoading}
             >
-              <Send size={20} color="#FFFFFF" strokeWidth={2} />
-              <Text style={styles.resetButtonText}>
-                {isLoading ? 'Sending...' : 'Send Reset Link'}
-              </Text>
-            </TouchableOpacity>
+              <Animated.View
+                style={[
+                  styles.resetButton,
+                  isLoading && styles.resetButtonDisabled,
+                  animatedStyle,
+                ]}
+              >
+                <Send size={20} color="#FFFFFF" strokeWidth={2} />
+                <Text style={styles.resetButtonText}>
+                  {isLoading ? 'Sending...' : 'Send Reset Link'}
+                </Text>
+              </Animated.View>
+            </Pressable>
           </View>
 
           {/* Help Text */}
