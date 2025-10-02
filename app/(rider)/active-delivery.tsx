@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import MapboxGL from '@rnmapbox/maps';
 import {
   View,
   Text,
@@ -8,24 +9,136 @@ import {
   Alert,
   TextInput,
 } from 'react-native';
-import { ArrowLeft, Navigation, Phone, MessageCircle, MapPin, Clock, Package, CircleCheck as CheckCircle, User } from 'lucide-react-native';
+import {
+  ArrowLeft,
+  Navigation,
+  Phone,
+  MessageCircle,
+  MapPin,
+  Clock,
+  Package,
+  CircleCheck as CheckCircle,
+  User,
+} from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import * as Location from 'expo-location';
+import { supabase } from '@/lib/supabase';
 
-type DeliveryStatus = 'heading_to_pickup' | 'at_pickup' | 'picked_up' | 'heading_to_dropoff' | 'at_dropoff' | 'delivered';
+type DeliveryStatus =
+  | 'heading_to_pickup'
+  | 'at_pickup'
+  | 'picked_up'
+  | 'heading_to_dropoff'
+  | 'at_dropoff'
+  | 'delivered';
 
 export default function ActiveDeliveryScreen() {
+  // Pickup and dropoff coordinates (should come from job data in real app)
+  // (moved below job variable)
+  // Rider's real-time location
+  const [riderCoords, setRiderCoords] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+
+  // Watch and update rider's own location
+  useEffect(() => {
+    let locationSubscription;
+    (async () => {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+      locationSubscription = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 5000,
+          distanceInterval: 10,
+        },
+        async (loc) => {
+          const { latitude, longitude } = loc.coords;
+          setRiderCoords({ latitude, longitude });
+          // Get current user
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+          if (!user) return;
+          // Upsert location
+          await supabase.from('rider_locations').upsert([
+            {
+              rider_id: user.id,
+              latitude,
+              longitude,
+              updated_at: new Date().toISOString(),
+            },
+          ]);
+        }
+      );
+    })();
+    return () => {
+      if (locationSubscription) locationSubscription.remove();
+    };
+  }, []);
   const { theme } = useTheme();
-  const { jobId, jobData } = useLocalSearchParams<{ jobId: string; jobData: string }>();
-  const [deliveryStatus, setDeliveryStatus] = useState<DeliveryStatus>('heading_to_pickup');
+  const { jobId, jobData } = useLocalSearchParams<{
+    jobId: string;
+    jobData: string;
+  }>();
+  const [deliveryStatus, setDeliveryStatus] =
+    useState<DeliveryStatus>('heading_to_pickup');
   const [deliveryOTP, setDeliveryOTP] = useState('');
   const [elapsedTime, setElapsedTime] = useState(0);
 
   const job = jobData ? JSON.parse(jobData) : null;
+  const pickupCoords = job?.pickupCoords || {
+    latitude: 37.78825,
+    longitude: -122.4324,
+  };
+  const dropoffCoords = job?.dropoffCoords || {
+    latitude: 37.78925,
+    longitude: -122.4224,
+  };
+
+  // --- Real-time location update logic ---
+  useEffect(() => {
+    let locationSubscription;
+    (async () => {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+
+      locationSubscription = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 5000,
+          distanceInterval: 10,
+        },
+        async (loc) => {
+          const { latitude, longitude } = loc.coords;
+          // Get current user
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+          if (!user) return;
+          // Upsert location
+          await supabase.from('rider_locations').upsert([
+            {
+              rider_id: user.id,
+              latitude,
+              longitude,
+              updated_at: new Date().toISOString(),
+            },
+          ]);
+        }
+      );
+    })();
+    return () => {
+      if (locationSubscription) locationSubscription.remove();
+    };
+  }, []);
+  // --- End real-time location update logic ---
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setElapsedTime(prev => prev + 1);
+      setElapsedTime((prev) => prev + 1);
     }, 1000);
 
     return () => clearInterval(timer);
@@ -59,13 +172,25 @@ export default function ActiveDeliveryScreen() {
   const getNextAction = () => {
     switch (deliveryStatus) {
       case 'heading_to_pickup':
-        return { text: 'Arrived at Pickup', action: () => setDeliveryStatus('at_pickup') };
+        return {
+          text: 'Arrived at Pickup',
+          action: () => setDeliveryStatus('at_pickup'),
+        };
       case 'at_pickup':
-        return { text: 'Mark as Picked Up', action: () => setDeliveryStatus('picked_up') };
+        return {
+          text: 'Mark as Picked Up',
+          action: () => setDeliveryStatus('picked_up'),
+        };
       case 'picked_up':
-        return { text: 'Start Delivery', action: () => setDeliveryStatus('heading_to_dropoff') };
+        return {
+          text: 'Start Delivery',
+          action: () => setDeliveryStatus('heading_to_dropoff'),
+        };
       case 'heading_to_dropoff':
-        return { text: 'Arrived at Dropoff', action: () => setDeliveryStatus('at_dropoff') };
+        return {
+          text: 'Arrived at Dropoff',
+          action: () => setDeliveryStatus('at_dropoff'),
+        };
       case 'at_dropoff':
         return { text: 'Complete Delivery', action: handleCompleteDelivery };
       default:
@@ -93,7 +218,9 @@ export default function ActiveDeliveryScreen() {
                       setDeliveryStatus('delivered');
                       Alert.alert(
                         'Delivery Completed! 🎉',
-                        `You've earned $${job?.reward}!\n\nNet earnings: $${(job?.reward * 0.85).toFixed(2)} (after 15% Ridely fee)`,
+                        `You've earned $${job?.reward}!\n\nNet earnings: $${(
+                          job?.reward * 0.85
+                        ).toFixed(2)} (after 15% Ridely fee)`,
                         [
                           {
                             text: 'View Earnings',
@@ -123,49 +250,49 @@ export default function ActiveDeliveryScreen() {
   };
 
   const handleContactSender = () => {
-    Alert.alert(
-      'Contact Sender',
-      `Contact ${job?.senderName}`,
-      [
-        {
-          text: 'Call',
-          onPress: () => Alert.alert('Calling', `Calling ${job?.senderName}...`),
-        },
-        {
-          text: 'Message',
-          onPress: () => Alert.alert('Message', 'Opening chat...'),
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+    Alert.alert('Contact Sender', `Contact ${job?.senderName}`, [
+      {
+        text: 'Call',
+        onPress: () => Alert.alert('Calling', `Calling ${job?.senderName}...`),
+      },
+      {
+        text: 'Message',
+        onPress: () => Alert.alert('Message', 'Opening chat...'),
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   const handleContactReceiver = () => {
-    Alert.alert(
-      'Contact Receiver',
-      'Contact the package receiver',
-      [
-        {
-          text: 'Call',
-          onPress: () => Alert.alert('Calling', 'Calling receiver...'),
-        },
-        {
-          text: 'Message',
-          onPress: () => Alert.alert('Message', 'Opening chat...'),
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+    Alert.alert('Contact Receiver', 'Contact the package receiver', [
+      {
+        text: 'Call',
+        onPress: () => Alert.alert('Calling', 'Calling receiver...'),
+      },
+      {
+        text: 'Message',
+        onPress: () => Alert.alert('Message', 'Opening chat...'),
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   if (!job) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: theme.colors.background }]}
+      >
         <View style={styles.errorContainer}>
-          <Text style={[styles.errorText, { color: theme.colors.text }]}>Job data not found</Text>
+          <Text style={[styles.errorText, { color: theme.colors.text }]}>
+            Job data not found
+          </Text>
           <TouchableOpacity
-            style={[styles.backButton, { backgroundColor: theme.colors.primary }]}
-            onPress={() => router.back()}>
+            style={[
+              styles.backButton,
+              { backgroundColor: theme.colors.primary },
+            ]}
+            onPress={() => router.back()}
+          >
             <Text style={styles.backButtonText}>Go Back</Text>
           </TouchableOpacity>
         </View>
@@ -176,34 +303,120 @@ export default function ActiveDeliveryScreen() {
   const nextAction = getNextAction();
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+    >
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.headerBackButton} onPress={() => router.back()}>
+        <TouchableOpacity
+          style={styles.headerBackButton}
+          onPress={() => router.back()}
+        >
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
-        <Text style={[styles.title, { color: theme.colors.text }]}>Active Delivery</Text>
+        <Text style={[styles.title, { color: theme.colors.text }]}>
+          Active Delivery
+        </Text>
         <View style={styles.placeholder} />
       </View>
 
-      {/* Map Placeholder */}
-      <View style={[styles.mapContainer, { backgroundColor: theme.colors.surface }]}>
-        <View style={styles.mapPlaceholder}>
-          <Navigation size={48} color={theme.colors.primary} strokeWidth={2} />
-          <Text style={[styles.mapText, { color: theme.colors.text }]}>Live Navigation</Text>
-          <Text style={[styles.mapSubtext, { color: theme.colors.textSecondary }]}>
-            Google Maps integration would show real-time navigation here
-          </Text>
-        </View>
-        
+      {/* MapboxGL Map - always visible */}
+      <View
+        style={[styles.mapContainer, { backgroundColor: theme.colors.surface }]}
+      >
+        <MapboxGL.MapView
+          style={{ flex: 1, borderRadius: 16, overflow: 'hidden' }}
+        >
+          <MapboxGL.Camera
+            centerCoordinate={
+              riderCoords
+                ? [riderCoords.longitude, riderCoords.latitude]
+                : [pickupCoords.longitude, pickupCoords.latitude]
+            }
+            zoomLevel={14}
+          />
+          {/* Pickup marker: show before pickup is completed */}
+          {(deliveryStatus === 'heading_to_pickup' ||
+            deliveryStatus === 'at_pickup' ||
+            deliveryStatus === 'picked_up') && (
+            <MapboxGL.PointAnnotation
+              id="pickup"
+              coordinate={[pickupCoords.longitude, pickupCoords.latitude]}
+            >
+              <View
+                style={{
+                  backgroundColor: theme.colors.success,
+                  borderRadius: 12,
+                  padding: 4,
+                }}
+              >
+                <MapPin size={20} color="#fff" />
+              </View>
+            </MapboxGL.PointAnnotation>
+          )}
+          {/* Dropoff marker: show after pickup is completed */}
+          {(deliveryStatus === 'heading_to_dropoff' ||
+            deliveryStatus === 'at_dropoff' ||
+            deliveryStatus === 'delivered' ||
+            deliveryStatus === 'picked_up') && (
+            <MapboxGL.PointAnnotation
+              id="dropoff"
+              coordinate={[dropoffCoords.longitude, dropoffCoords.latitude]}
+            >
+              <View
+                style={{
+                  backgroundColor: theme.colors.error,
+                  borderRadius: 12,
+                  padding: 4,
+                }}
+              >
+                <MapPin size={20} color="#fff" />
+              </View>
+            </MapboxGL.PointAnnotation>
+          )}
+          {/* Rider's own location marker */}
+          {riderCoords && (
+            <MapboxGL.PointAnnotation
+              id="rider"
+              coordinate={[riderCoords.longitude, riderCoords.latitude]}
+            >
+              <View
+                style={{
+                  backgroundColor: theme.colors.primary,
+                  borderRadius: 12,
+                  padding: 4,
+                }}
+              >
+                <Navigation size={20} color="#fff" />
+              </View>
+            </MapboxGL.PointAnnotation>
+          )}
+        </MapboxGL.MapView>
         {/* Status Overlay */}
-        <View style={[styles.statusOverlay, { backgroundColor: theme.colors.surface }, theme.shadows.large]}>
+        <View
+          style={[
+            styles.statusOverlay,
+            { backgroundColor: theme.colors.surface },
+            theme.shadows.large,
+          ]}
+        >
           <View style={styles.statusHeader}>
             <View style={styles.statusInfo}>
-              <Text style={[styles.statusText, { color: theme.colors.text }]}>{getStatusText(deliveryStatus)}</Text>
-              <Text style={[styles.elapsedTime, { color: theme.colors.primary }]}>{formatTime(elapsedTime)}</Text>
+              <Text style={[styles.statusText, { color: theme.colors.text }]}>
+                {getStatusText(deliveryStatus)}
+              </Text>
+              <Text
+                style={[styles.elapsedTime, { color: theme.colors.primary }]}
+              >
+                {formatTime(elapsedTime)}
+              </Text>
             </View>
-            <View style={[styles.rewardBadge, { backgroundColor: theme.colors.success }]}>
+            <View
+              style={[
+                styles.rewardBadge,
+                { backgroundColor: theme.colors.success },
+              ]}
+            >
               <Text style={styles.rewardText}>${job.reward}</Text>
             </View>
           </View>
@@ -211,9 +424,17 @@ export default function ActiveDeliveryScreen() {
       </View>
 
       {/* Job Details */}
-      <View style={[styles.jobDetails, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
+      <View
+        style={[
+          styles.jobDetails,
+          { backgroundColor: theme.colors.surface },
+          theme.shadows.medium,
+        ]}
+      >
         <View style={styles.jobHeader}>
-          <Text style={[styles.jobId, { color: theme.colors.text }]}>#{job.id}</Text>
+          <Text style={[styles.jobId, { color: theme.colors.text }]}>
+            #{job.id}
+          </Text>
           <View style={styles.sizeIndicator}>
             <Package size={16} color={theme.colors.primary} strokeWidth={2} />
             <Text style={[styles.sizeText, { color: theme.colors.primary }]}>
@@ -226,32 +447,62 @@ export default function ActiveDeliveryScreen() {
           <View style={styles.addressRow}>
             <MapPin size={20} color={theme.colors.success} strokeWidth={2} />
             <View style={styles.addressInfo}>
-              <Text style={[styles.addressLabel, { color: theme.colors.textSecondary }]}>Pickup</Text>
-              <Text style={[styles.addressText, { color: theme.colors.text }]}>{job.pickupAddress}</Text>
+              <Text
+                style={[
+                  styles.addressLabel,
+                  { color: theme.colors.textSecondary },
+                ]}
+              >
+                Pickup
+              </Text>
+              <Text style={[styles.addressText, { color: theme.colors.text }]}>
+                {job.pickupAddress}
+              </Text>
             </View>
           </View>
-          
+
           <View style={styles.addressDivider} />
-          
+
           <View style={styles.addressRow}>
             <MapPin size={20} color={theme.colors.error} strokeWidth={2} />
             <View style={styles.addressInfo}>
-              <Text style={[styles.addressLabel, { color: theme.colors.textSecondary }]}>Dropoff</Text>
-              <Text style={[styles.addressText, { color: theme.colors.text }]}>{job.dropoffAddress}</Text>
+              <Text
+                style={[
+                  styles.addressLabel,
+                  { color: theme.colors.textSecondary },
+                ]}
+              >
+                Dropoff
+              </Text>
+              <Text style={[styles.addressText, { color: theme.colors.text }]}>
+                {job.dropoffAddress}
+              </Text>
             </View>
           </View>
         </View>
 
         <View style={styles.metaInfo}>
           <View style={styles.metaItem}>
-            <Navigation size={16} color={theme.colors.textSecondary} strokeWidth={2} />
-            <Text style={[styles.metaText, { color: theme.colors.textSecondary }]}>
+            <Navigation
+              size={16}
+              color={theme.colors.textSecondary}
+              strokeWidth={2}
+            />
+            <Text
+              style={[styles.metaText, { color: theme.colors.textSecondary }]}
+            >
               {job.distance} km
             </Text>
           </View>
           <View style={styles.metaItem}>
-            <Clock size={16} color={theme.colors.textSecondary} strokeWidth={2} />
-            <Text style={[styles.metaText, { color: theme.colors.textSecondary }]}>
+            <Clock
+              size={16}
+              color={theme.colors.textSecondary}
+              strokeWidth={2}
+            />
+            <Text
+              style={[styles.metaText, { color: theme.colors.textSecondary }]}
+            >
               ~{job.estimatedTime}
             </Text>
           </View>
@@ -261,17 +512,31 @@ export default function ActiveDeliveryScreen() {
       {/* Contact Options */}
       <View style={styles.contactContainer}>
         <TouchableOpacity
-          style={[styles.contactButton, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}
-          onPress={handleContactSender}>
+          style={[
+            styles.contactButton,
+            { backgroundColor: theme.colors.surface },
+            theme.shadows.medium,
+          ]}
+          onPress={handleContactSender}
+        >
           <User size={20} color={theme.colors.primary} strokeWidth={2} />
-          <Text style={[styles.contactText, { color: theme.colors.text }]}>Contact Sender</Text>
+          <Text style={[styles.contactText, { color: theme.colors.text }]}>
+            Contact Sender
+          </Text>
         </TouchableOpacity>
-        
+
         <TouchableOpacity
-          style={[styles.contactButton, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}
-          onPress={handleContactReceiver}>
+          style={[
+            styles.contactButton,
+            { backgroundColor: theme.colors.surface },
+            theme.shadows.medium,
+          ]}
+          onPress={handleContactReceiver}
+        >
           <Package size={20} color={theme.colors.success} strokeWidth={2} />
-          <Text style={[styles.contactText, { color: theme.colors.text }]}>Contact Receiver</Text>
+          <Text style={[styles.contactText, { color: theme.colors.text }]}>
+            Contact Receiver
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -279,8 +544,12 @@ export default function ActiveDeliveryScreen() {
       {nextAction && deliveryStatus !== 'delivered' && (
         <View style={styles.actionContainer}>
           <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: theme.colors.primary }]}
-            onPress={nextAction.action}>
+            style={[
+              styles.actionButton,
+              { backgroundColor: theme.colors.primary },
+            ]}
+            onPress={nextAction.action}
+          >
             <CheckCircle size={20} color="#FFFFFF" strokeWidth={2} />
             <Text style={styles.actionText}>{nextAction.text}</Text>
           </TouchableOpacity>
@@ -289,7 +558,12 @@ export default function ActiveDeliveryScreen() {
 
       {deliveryStatus === 'delivered' && (
         <View style={styles.completedContainer}>
-          <View style={[styles.completedCard, { backgroundColor: theme.colors.success }]}>
+          <View
+            style={[
+              styles.completedCard,
+              { backgroundColor: theme.colors.success },
+            ]}
+          >
             <CheckCircle size={32} color="#FFFFFF" strokeWidth={2} />
             <Text style={styles.completedText}>Delivery Completed!</Text>
             <Text style={styles.completedSubtext}>

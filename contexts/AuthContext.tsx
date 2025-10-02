@@ -47,6 +47,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (session?.user) {
         loadUserProfile(session.user.id);
       } else {
+        setUserProfile(null);
+        setUserType(null);
         setLoading(false);
       }
     });
@@ -108,7 +110,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } catch (error) {
       console.error('Error loading user profile:', error);
     } finally {
-      // 无论成功还是失败，都只在这里设置一次 loading 为 false
       setLoading(false);
     }
   };
@@ -120,7 +121,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     userType: 'user' | 'rider'
   ) => {
     setLoading(true);
-    
+
     try {
       // 1. Sign up
       const { data, error } = await supabase.auth.signUp({
@@ -161,7 +162,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         console.error('Profile creation error:', profileError);
         throw profileError;
       }
-      
+
       // Load the newly created profile
       await loadUserProfile(userId);
     } catch (error) {
@@ -174,7 +175,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const signIn = async (email: string, password: string) => {
     console.log('Attempting to sign in with email:', email);
     setLoading(true);
-    
+
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -183,21 +184,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       if (error) {
         console.error('Sign in error:', error);
+        setLoading(false);
         throw error;
       }
-      
+
       console.log('Sign in successful, session:', data.session);
-      
+
       // Explicitly set the session and user data
       setSession(data.session);
       setUser(data.user);
-      
+
       // Load user profile
       if (data.user) {
         console.log('Loading profile for user:', data.user.id);
         await loadUserProfile(data.user.id);
       } else {
         console.log('No user in sign in response');
+        setLoading(false);
       }
     } catch (error) {
       console.error('Sign in error:', error);

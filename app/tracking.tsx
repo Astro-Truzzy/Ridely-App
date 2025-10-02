@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import MapboxGL from '@rnmapbox/maps';
+import { supabase } from '@/lib/supabase';
 import {
   View,
   Text,
@@ -29,10 +31,17 @@ interface RiderInfo {
   currentLocation: string;
 }
 
-type DeliveryStatus = 'rider_assigned' | 'pickup_arrived' | 'picked_up' | 'in_transit' | 'nearby' | 'delivered';
+type DeliveryStatus =
+  | 'rider_assigned'
+  | 'pickup_arrived'
+  | 'picked_up'
+  | 'in_transit'
+  | 'nearby'
+  | 'delivered';
 
 export default function TrackingScreen() {
-  const [deliveryStatus, setDeliveryStatus] = useState<DeliveryStatus>('in_transit');
+  const [deliveryStatus, setDeliveryStatus] =
+    useState<DeliveryStatus>('in_transit');
   const [rider] = useState<RiderInfo>({
     name: 'Mike Johnson',
     rating: 4.8,
@@ -42,12 +51,64 @@ export default function TrackingScreen() {
     estimatedArrival: '12 mins',
     currentLocation: 'Oak Street, heading to Main St',
   });
-
   const [elapsedTime, setElapsedTime] = useState(540); // 14 minutes in seconds
+  const [mapExpanded, setMapExpanded] = useState(false);
+  // Real-time rider coordinates
+  const [riderCoords, setRiderCoords] = useState({
+    latitude: 37.78825,
+    longitude: -122.4324,
+  });
+  const subscriptionRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  // Subscribe to Supabase Realtime for rider location
+  useEffect(() => {
+    // Replace with actual rider_id for this delivery
+    const RIDER_ID = 'REPLACE_WITH_RIDER_ID';
+    // Subscribe to changes in the rider_locations table for this rider
+    const channel = supabase
+      .channel('rider-location')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'rider_locations',
+          filter: `rider_id=eq.${RIDER_ID}`,
+        },
+        (payload) => {
+          if (payload.new) {
+            setRiderCoords({
+              latitude: payload.new.latitude,
+              longitude: payload.new.longitude,
+            });
+          }
+        }
+      )
+      .subscribe();
+    subscriptionRef.current = channel;
+    // Optionally, fetch initial location
+    supabase
+      .from('rider_locations')
+      .select('latitude,longitude')
+      .eq('rider_id', RIDER_ID)
+      .single()
+      .then(({ data }) => {
+        if (data)
+          setRiderCoords({
+            latitude: data.latitude,
+            longitude: data.longitude,
+          });
+      });
+    return () => {
+      if (subscriptionRef.current) {
+        supabase.removeChannel(subscriptionRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setElapsedTime(prev => prev + 1);
+      setElapsedTime((prev) => prev + 1);
     }, 1000);
 
     return () => clearInterval(timer);
@@ -98,21 +159,18 @@ export default function TrackingScreen() {
   };
 
   const handleCall = () => {
-    Alert.alert(
-      'Call Rider',
-      'Choose how you want to call Mike',
-      [
-        {
-          text: 'In-App Call',
-          onPress: () => Alert.alert('In-App Call', 'Starting in-app call with Mike...'),
-        },
-        {
-          text: 'Phone Call',
-          onPress: () => Alert.alert('Phone Call', `Calling ${rider.phone}...`),
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+    Alert.alert('Call Rider', 'Choose how you want to call Mike', [
+      {
+        text: 'In-App Call',
+        onPress: () =>
+          Alert.alert('In-App Call', 'Starting in-app call with Mike...'),
+      },
+      {
+        text: 'Phone Call',
+        onPress: () => Alert.alert('Phone Call', `Calling ${rider.phone}...`),
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   const handleMessage = () => {
@@ -120,51 +178,67 @@ export default function TrackingScreen() {
   };
 
   const handleMarkDelivered = () => {
-    Alert.alert(
-      'Confirm Delivery',
-      'Has your package been delivered?',
-      [
-        { text: 'No, Not Yet', style: 'cancel' },
-        {
-          text: 'Yes, Delivered',
-          onPress: () => {
-            setDeliveryStatus('delivered');
-            Alert.alert('Delivery Confirmed', 'Thank you! Your delivery has been marked as completed.');
-          },
+    Alert.alert('Confirm Delivery', 'Has your package been delivered?', [
+      { text: 'No, Not Yet', style: 'cancel' },
+      {
+        text: 'Yes, Delivered',
+        onPress: () => {
+          setDeliveryStatus('delivered');
+          Alert.alert(
+            'Delivery Confirmed',
+            'Thank you! Your delivery has been marked as completed.'
+          );
         },
-      ]
-    );
+      },
+    ]);
   };
 
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
           <ArrowLeft size={24} color="#FFFFFF" strokeWidth={2} />
         </TouchableOpacity>
         <Text style={styles.title}>Track Delivery</Text>
         <View style={styles.placeholder} />
       </View>
 
-      {/* Map Area Placeholder */}
-      <View style={styles.mapContainer}>
-        <View style={styles.mapPlaceholder}>
-          <Navigation size={48} color="#5A47FF" strokeWidth={2} />
-          <Text style={styles.mapText}>Live Map View</Text>
-          <Text style={styles.mapSubtext}>
-            Real-time rider location would be displayed here using Google Maps
-          </Text>
-        </View>
-        
+      {/* Map Area with Preview and Tap-to-Expand */}
+      <TouchableOpacity
+        style={styles.mapContainer}
+        activeOpacity={0.85}
+        onPress={() => setMapExpanded(true)}
+      >
+        <MapboxGL.MapView style={styles.map}>
+          <MapboxGL.Camera
+            centerCoordinate={[riderCoords.longitude, riderCoords.latitude]}
+            zoomLevel={14}
+          />
+          <MapboxGL.PointAnnotation
+            id="rider"
+            coordinate={[riderCoords.longitude, riderCoords.latitude]}
+          >
+            {/* Optionally add a custom marker here */}
+            <></>
+          </MapboxGL.PointAnnotation>
+        </MapboxGL.MapView>
         {/* Floating Status Card */}
         <View style={styles.statusCard}>
           <View style={styles.statusHeader}>
             <View style={styles.statusIndicator}>
-              <View 
-                style={[styles.statusDot, { backgroundColor: getStatusColor(deliveryStatus) }]} 
+              <View
+                style={[
+                  styles.statusDot,
+                  { backgroundColor: getStatusColor(deliveryStatus) },
+                ]}
               />
-              <Text style={styles.statusText}>{getStatusText(deliveryStatus)}</Text>
+              <Text style={styles.statusText}>
+                {getStatusText(deliveryStatus)}
+              </Text>
             </View>
             <Text style={styles.elapsedTime}>{formatTime(elapsedTime)}</Text>
           </View>
@@ -172,7 +246,40 @@ export default function TrackingScreen() {
             Estimated arrival: {rider.estimatedArrival}
           </Text>
         </View>
-      </View>
+      </TouchableOpacity>
+
+      {/* Fullscreen Map Modal */}
+      {mapExpanded && (
+        <View style={StyleSheet.absoluteFill}>
+          <MapboxGL.MapView style={{ flex: 1 }}>
+            <MapboxGL.Camera
+              centerCoordinate={[riderCoords.longitude, riderCoords.latitude]}
+              zoomLevel={14}
+            />
+            <MapboxGL.PointAnnotation
+              id="rider-full"
+              coordinate={[riderCoords.longitude, riderCoords.latitude]}
+            >
+              {/* Optionally add a custom marker here */}
+              <></>
+            </MapboxGL.PointAnnotation>
+          </MapboxGL.MapView>
+          <TouchableOpacity
+            style={{
+              position: 'absolute',
+              top: 40,
+              right: 20,
+              backgroundColor: '#fff',
+              borderRadius: 20,
+              padding: 10,
+              zIndex: 10,
+            }}
+            onPress={() => setMapExpanded(false)}
+          >
+            <Text>Close</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Rider Info Card */}
       <View style={styles.riderCard}>
@@ -188,7 +295,10 @@ export default function TrackingScreen() {
             </View>
           </View>
           <View style={styles.actionButtons}>
-            <TouchableOpacity style={styles.messageButton} onPress={handleMessage}>
+            <TouchableOpacity
+              style={styles.messageButton}
+              onPress={handleMessage}
+            >
               <MessageCircle size={20} color="#5A47FF" strokeWidth={2} />
             </TouchableOpacity>
             <TouchableOpacity style={styles.callButton} onPress={handleCall}>
@@ -196,7 +306,7 @@ export default function TrackingScreen() {
             </TouchableOpacity>
           </View>
         </View>
-        
+
         <View style={styles.riderDetails}>
           <View style={styles.detailItem}>
             <Text style={styles.detailLabel}>Vehicle:</Text>
@@ -216,43 +326,50 @@ export default function TrackingScreen() {
       {/* Delivery Steps */}
       <View style={styles.stepsContainer}>
         <Text style={styles.stepsTitle}>Delivery Progress</Text>
-        
+
         {[
           { status: 'rider_assigned', text: 'Rider assigned to your delivery' },
-          { status: 'pickup_arrived', text: 'Rider arrived at pickup location' },
+          {
+            status: 'pickup_arrived',
+            text: 'Rider arrived at pickup location',
+          },
           { status: 'picked_up', text: 'Package picked up' },
           { status: 'in_transit', text: 'Package in transit' },
           { status: 'nearby', text: 'Rider approaching destination' },
           { status: 'delivered', text: 'Package delivered' },
         ].map((step, index) => {
           const stepStatus = step.status as DeliveryStatus;
-          const isCompleted = 
-            stepStatus === 'rider_assigned' || 
-            stepStatus === 'pickup_arrived' || 
-            stepStatus === 'picked_up' || 
+          const isCompleted =
+            stepStatus === 'rider_assigned' ||
+            stepStatus === 'pickup_arrived' ||
+            stepStatus === 'picked_up' ||
             (stepStatus === 'in_transit' && deliveryStatus === 'in_transit') ||
             (stepStatus === 'delivered' && deliveryStatus === 'delivered');
-          
+
           const isCurrent = stepStatus === deliveryStatus;
-          
+
           return (
             <View key={stepStatus} style={styles.stepItem}>
-              <View style={[
-                styles.stepIndicator,
-                isCompleted && styles.completedStep,
-                isCurrent && styles.currentStep,
-              ]}>
+              <View
+                style={[
+                  styles.stepIndicator,
+                  isCompleted && styles.completedStep,
+                  isCurrent && styles.currentStep,
+                ]}
+              >
                 {isCompleted ? (
                   <Text style={styles.stepCheckmark}>✓</Text>
                 ) : (
                   <Text style={styles.stepNumber}>{index + 1}</Text>
                 )}
               </View>
-              <Text style={[
-                styles.stepText,
-                isCompleted && styles.completedStepText,
-                isCurrent && styles.currentStepText,
-              ]}>
+              <Text
+                style={[
+                  styles.stepText,
+                  isCompleted && styles.completedStepText,
+                  isCurrent && styles.currentStepText,
+                ]}
+              >
                 {step.text}
               </Text>
             </View>
@@ -263,7 +380,10 @@ export default function TrackingScreen() {
       {/* Bottom Action */}
       {deliveryStatus === 'nearby' && (
         <View style={styles.bottomContainer}>
-          <TouchableOpacity style={styles.deliveredButton} onPress={handleMarkDelivered}>
+          <TouchableOpacity
+            style={styles.deliveredButton}
+            onPress={handleMarkDelivered}
+          >
             <Package size={20} color="#FFFFFF" strokeWidth={2} />
             <Text style={styles.deliveredText}>Mark as Delivered</Text>
           </TouchableOpacity>
@@ -307,12 +427,13 @@ const styles = StyleSheet.create({
     height: 280,
     position: 'relative',
     backgroundColor: '#E5E7EB',
+    overflow: 'hidden',
+    borderRadius: 16,
+    margin: 16,
   },
-  mapPlaceholder: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 40,
+  map: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 16,
   },
   mapText: {
     fontSize: 18,

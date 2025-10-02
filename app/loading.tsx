@@ -53,8 +53,8 @@ export default function LoadingScreen() {
           <Image
             source={
               isDark
-                ? require('@/assets/images/WhatsApp Image 2025-07-29 at 11.05.35_22729889.jpg')
-                : require('@/assets/images/WhatsApp Image 2025-07-29 at 11.05.01_b77ccf7b.jpg')
+                ? require('@/assets/images/logo-dark.jpg')
+                : require('@/assets/images/logo.png')
             }
             style={styles.logo}
             resizeMode="contain"

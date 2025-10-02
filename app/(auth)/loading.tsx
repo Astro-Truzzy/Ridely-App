@@ -1,12 +1,12 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import Animated, { 
-  useSharedValue, 
-  useAnimatedStyle, 
-  withRepeat, 
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
   withTiming,
   withSequence,
-  Easing
+  Easing,
 } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -17,7 +17,7 @@ export default function LoadingScreen() {
   const { theme } = useTheme();
   const { logo } = useLogo();
   const router = useRouter();
-  
+
   const scale = useSharedValue(1);
   const opacity = useSharedValue(0.7);
 
@@ -30,7 +30,7 @@ export default function LoadingScreen() {
       -1,
       false
     );
-    
+
     opacity.value = withRepeat(
       withSequence(
         withTiming(1, { duration: 800 }),
@@ -40,10 +40,10 @@ export default function LoadingScreen() {
       false
     );
 
-    // Navigate to onboarding after 2.5 seconds
+    // Navigate to onboarding after 3 seconds
     const timer = setTimeout(() => {
       router.replace('/(auth)/onboarding');
-    }, 2500);
+    }, 3500);
 
     return () => clearTimeout(timer);
   }, []);
@@ -68,15 +68,22 @@ export default function LoadingScreen() {
       width: 120,
       height: 120,
       borderRadius: 60,
-      backgroundColor: theme.colors.primary,
+      backgroundColor: theme.colors.surface,
       justifyContent: 'center',
       alignItems: 'center',
       marginBottom: 20,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.15,
+      shadowRadius: 8,
+      elevation: 4,
+      padding: 10,
     },
     logoImage: {
-      width: '100%',
-      height: '100%',
-      borderRadius: 60,
+      width: 90,
+      height: 90,
+      borderRadius: 45,
+      resizeMode: 'contain',
     },
     logoText: {
       fontSize: 32,
@@ -95,11 +102,9 @@ export default function LoadingScreen() {
     <View style={styles.container}>
       <View style={styles.logoContainer}>
         <Animated.View style={[styles.logo, animatedStyle]}>
-           <Image source={logo} style={styles.logoImage} />
+          <Image source={logo} style={styles.logoImage} />
         </Animated.View>
-        <Text style={styles.title}>
-          Ridely{'\n'}
-        </Text>
+        <Text style={styles.title}>Ridely{'\n'}</Text>
       </View>
     </View>
   );

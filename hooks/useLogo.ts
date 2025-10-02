@@ -1,6 +1,7 @@
 import { useTheme } from '@/contexts/ThemeContext';
+import logoDark from '@/assets/images/logo-dark.png';
 import logoLight from '@/assets/images/logo.png';
-import logoDark from '@/assets/images/logo.png'; // Replace with actual dark mode logo
+import { StyleSheet } from 'react-native';
   
 
 /**
@@ -17,11 +18,24 @@ import logoDark from '@/assets/images/logo.png'; // Replace with actual dark mod
 export function useLogo() {
   const { isDark } = useTheme();
   
-  // Currently both themes use the same logo
-  // Replace the logoDark import with a specific dark mode logo if needed
-  
   // Return different logos based on theme
   const logo = isDark ? logoDark : logoLight;
-  
   return { logo };
 }
+
+const styles = StyleSheet.create({
+  logoContainer: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+    padding: 8,
+  },
+});

@@ -5,13 +5,16 @@ import {
   StyleSheet,
   TouchableOpacity,
   SafeAreaView,
+  Image,
 } from 'react-native';
 import { Package, Zap, Shield, Clock } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useLogo } from '@/hooks/useLogo';
 
 export default function WelcomeScreen() {
   const { theme } = useTheme();
+  const { logo } = useLogo();
 
   const features = [
     {
@@ -32,15 +35,26 @@ export default function WelcomeScreen() {
   ];
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+    >
       <View style={styles.content}>
         {/* Logo Section */}
         <View style={styles.logoSection}>
-          <View style={[styles.logoContainer, { backgroundColor: theme.colors.primary }]}>
-            <Package size={48} color="#FFFFFF" strokeWidth={2} />
+          <View
+            style={[
+              styles.logoContainer,
+              { backgroundColor: theme.colors.surface ?? theme.colors.primary },
+            ]}
+          >
+            <Image source={logo} style={styles.logoImage} />
           </View>
-          <Text style={[styles.logoText, { color: theme.colors.text }]}>Ridely</Text>
-          <Text style={[styles.tagline, { color: theme.colors.textSecondary }]}>Fast. Reliable. Delivered.</Text>
+          <Text style={[styles.logoText, { color: theme.colors.text }]}>
+            Ridely
+          </Text>
+          <Text style={[styles.tagline, { color: theme.colors.textSecondary }]}>
+            Fast. Reliable. Delivered.
+          </Text>
         </View>
 
         {/* Features */}
@@ -48,11 +62,26 @@ export default function WelcomeScreen() {
           {features.map((feature, index) => (
             <View key={index} style={styles.featureItem}>
               <View style={styles.featureIcon}>
-                <feature.icon size={24} color={theme.colors.primary} strokeWidth={2} />
+                <feature.icon
+                  size={24}
+                  color={theme.colors.primary}
+                  strokeWidth={2}
+                />
               </View>
               <View style={styles.featureContent}>
-                <Text style={[styles.featureTitle, { color: theme.colors.text }]}>{feature.title}</Text>
-                <Text style={[styles.featureDescription, { color: theme.colors.textSecondary }]}>{feature.description}</Text>
+                <Text
+                  style={[styles.featureTitle, { color: theme.colors.text }]}
+                >
+                  {feature.title}
+                </Text>
+                <Text
+                  style={[
+                    styles.featureDescription,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  {feature.description}
+                </Text>
               </View>
             </View>
           ))}
@@ -61,8 +90,12 @@ export default function WelcomeScreen() {
         {/* Illustration Placeholder */}
         <View style={styles.illustrationContainer}>
           <View style={styles.illustration}>
-            <Zap size={64} color={theme.colors.primary} strokeWidth={2} />
-            <Text style={[styles.illustrationText, { color: theme.colors.primary }]}>Ready to get started?</Text>
+            <Zap size={40} color={theme.colors.primary} strokeWidth={1} />
+            <Text
+              style={[styles.illustrationText, { color: theme.colors.primary }]}
+            >
+              Ready to get started?
+            </Text>
           </View>
         </View>
       </View>
@@ -70,15 +103,23 @@ export default function WelcomeScreen() {
       {/* Bottom Actions */}
       <View style={styles.bottomContainer}>
         <TouchableOpacity
-          style={[styles.signupButton, { backgroundColor: theme.colors.primary }, theme.shadows.medium]}
-          onPress={() => router.push('/(auth)/signup')}>
+          style={[
+            styles.signupButton,
+            { backgroundColor: theme.colors.primary },
+            theme.shadows.medium,
+          ]}
+          onPress={() => router.push('/(auth)/signup')}
+        >
           <Text style={styles.signupText}>Create Account</Text>
         </TouchableOpacity>
-        
+
         <TouchableOpacity
           style={styles.loginButton}
-          onPress={() => router.push('/(auth)/login')}>
-          <Text style={[styles.loginText, { color: theme.colors.primary }]}>Already have an account? Sign In</Text>
+          onPress={() => router.push('/(auth)/login')}
+        >
+          <Text style={[styles.loginText, { color: theme.colors.primary }]}>
+            Already have an account? Sign In
+          </Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -88,6 +129,11 @@ export default function WelcomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  logoImage: {
+    width: 64,
+    height: 64,
+    resizeMode: 'contain',
   },
   content: {
     flex: 1,
@@ -99,12 +145,20 @@ const styles = StyleSheet.create({
     marginBottom: 48,
   },
   logoContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
+    marginTop: 16,
+    // backgroundColor moved to inline style in component
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+    padding: 10,
   },
   logoText: {
     fontSize: 32,
@@ -159,6 +213,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     marginTop: 16,
+    marginBottom: 20,
   },
   bottomContainer: {
     paddingHorizontal: 24,

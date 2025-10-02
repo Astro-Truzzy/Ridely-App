@@ -53,40 +53,25 @@ export default function BookingsScreen() {
     {
       id: 'DEL003',
       date: 'Yesterday',
-      time: '4:45 PM',
-      from: 'Shopping Mall',
-      to: 'Friend\'s Apartment',
+      time: '4:20 PM',
+      from: 'Electronics Store',
+      to: 'Customer Residence',
       status: 'delivered',
-      price: '$18.25',
-      riderName: 'David Chen',
+      price: '$22.00',
+      riderName: 'Alex Thompson',
       parcelSize: 'large',
     },
     {
       id: 'DEL004',
       date: 'Yesterday',
-      time: '9:30 AM',
+      time: '10:30 AM',
       from: 'Restaurant',
-      to: 'Office',
+      to: 'Office Complex',
       status: 'cancelled',
-      price: '$10.00',
+      price: '$8.50',
       parcelSize: 'small',
     },
   ];
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'delivered':
-        return <CheckCircle size={20} color="#10B981" strokeWidth={2} />;
-      case 'in_transit':
-        return <Package size={20} color={theme.colors.primary} strokeWidth={2} />;
-      case 'pending':
-        return <Clock size={20} color="#FFC947" strokeWidth={2} />;
-      case 'cancelled':
-        return <XCircle size={20} color="#EF4444" strokeWidth={2} />;
-      default:
-        return <Package size={20} color="#8B8B8B" strokeWidth={2} />;
-    }
-  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -99,51 +84,277 @@ export default function BookingsScreen() {
       case 'cancelled':
         return '#EF4444';
       default:
-        return '#8B8B8B';
+        return '#6B7280';
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    const iconProps = {
+      size: 12,
+      strokeWidth: 2,
+    };
+
+    switch (status) {
+      case 'delivered':
+        return <CheckCircle {...iconProps} color={getStatusColor(status)} />;
+      case 'in_transit':
+        return <Clock {...iconProps} color={getStatusColor(status)} />;
+      case 'cancelled':
+        return <XCircle {...iconProps} color={getStatusColor(status)} />;
+      default:
+        return <Clock {...iconProps} color={getStatusColor(status)} />;
     }
   };
 
   const getFilteredBookings = () => {
-    switch (activeTab) {
-      case 'active':
-        return bookings.filter(b => b.status === 'in_transit' || b.status === 'pending');
-      case 'completed':
-        return bookings.filter(b => b.status === 'delivered');
-      default:
-        return bookings;
+    if (activeTab === 'active') {
+      return bookings.filter(booking => 
+        booking.status === 'in_transit' || booking.status === 'pending'
+      );
     }
+    
+    if (activeTab === 'completed') {
+      return bookings.filter(booking => 
+        booking.status === 'delivered' || booking.status === 'cancelled'
+      );
+    }
+    
+    return bookings;
   };
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.colors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: 20,
+      paddingTop: 20,
+      paddingBottom: 16,
+    },
+    title: {
+      fontSize: 28,
+      fontWeight: '700',
+      color: theme.colors.text,
+    },
+    newBookingButton: {
+      backgroundColor: theme.colors.primary,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 20,
+    },
+    newBookingText: {
+      color: '#FFFFFF',
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    tabContainer: {
+      flexDirection: 'row',
+      paddingHorizontal: 20,
+      marginBottom: 20,
+      backgroundColor: theme.colors.border,
+      marginHorizontal: 20,
+      borderRadius: 12,
+      padding: 4,
+    },
+    tab: {
+      flex: 1,
+      alignItems: 'center',
+      paddingVertical: 12,
+      borderBottomWidth: 2,
+      borderBottomColor: 'transparent',
+    },
+    activeTab: {
+      borderBottomColor: theme.colors.primary,
+    },
+    tabText: {
+      fontSize: 16,
+      fontWeight: '500',
+      color: theme.colors.textSecondary,
+    },
+    activeTabText: {
+      fontWeight: '600',
+      color: theme.colors.primary,
+    },
+    scrollView: {
+      flex: 1,
+      paddingHorizontal: 20,
+    },
+    bookingCard: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 16,
+      padding: 20,
+      marginBottom: 16,
+      ...theme.shadows.medium,
+    },
+    bookingHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      marginBottom: 16,
+    },
+    bookingInfo: {
+      flex: 1,
+    },
+    bookingId: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: theme.colors.text,
+      marginBottom: 4,
+    },
+    bookingDateTime: {
+      fontSize: 12,
+      color: theme.colors.textSecondary,
+    },
+    statusContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.colors.border,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 8,
+    },
+    statusText: {
+      fontSize: 10,
+      fontWeight: '600',
+      marginLeft: 4,
+      color: theme.colors.textSecondary,
+    },
+    addressContainer: {
+      marginBottom: 16,
+    },
+    addressRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    addressText: {
+      fontSize: 14,
+      color: theme.colors.text,
+      marginLeft: 12,
+      flex: 1,
+    },
+    addressDivider: {
+      width: 2,
+      height: 20,
+      backgroundColor: theme.colors.border,
+      marginLeft: 8,
+      marginBottom: 8,
+    },
+    bookingFooter: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-end',
+    },
+    bookingDetails: {
+      flex: 1,
+    },
+    parcelSize: {
+      fontSize: 12,
+      color: theme.colors.textSecondary,
+      marginBottom: 2,
+    },
+    riderName: {
+      fontSize: 12,
+      color: theme.colors.primary,
+      fontWeight: '500',
+    },
+    price: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: theme.colors.text,
+    },
+    actionContainer: {
+      marginTop: 12,
+      paddingTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: theme.colors.border,
+    },
+    trackText: {
+      fontSize: 14,
+      color: theme.colors.primary,
+      fontWeight: '600',
+      textAlign: 'center',
+    },
+    emptyState: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 60,
+    },
+    emptyStateTitle: {
+      fontSize: 20,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginTop: 16,
+      marginBottom: 8,
+    },
+    emptyStateText: {
+      fontSize: 14,
+      color: theme.colors.textSecondary,
+      textAlign: 'center',
+      marginBottom: 24,
+      paddingHorizontal: 40,
+    },
+    emptyStateButton: {
+      backgroundColor: theme.colors.primary,
+      paddingHorizontal: 24,
+      paddingVertical: 12,
+      borderRadius: 25,
+    },
+    emptyStateButtonText: {
+      color: '#FFFFFF',
+      fontSize: 16,
+      fontWeight: '600',
+    },
+  });
 
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.colors.text }]}>{'My Bookings'}</Text>
-        <TouchableOpacity
-          style={[styles.newBookingButton, { backgroundColor: theme.colors.primary }]}
-          onPress={() => router.push('/booking')}>
-          <Text style={styles.newBookingText}>{'+ New'}</Text>
+        <Text style={styles.title}>My Bookings</Text>
+        <TouchableOpacity 
+          style={styles.newBookingButton}
+          onPress={() => router.push('/booking')}
+        >
+          <Text style={styles.newBookingText}>New Booking</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Filter Tabs */}
+      {/* Tabs */}
       <View style={styles.tabContainer}>
-        {(['all', 'active', 'completed'] as const).map((tab) => (
-          <TouchableOpacity
-            key={tab}
-            style={[styles.tab, activeTab === tab && styles.activeTab]}
-            onPress={() => setActiveTab(tab)}>
-            <Text
-              style={[styles.tabText, activeTab === tab && styles.activeTabText]}>
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'all' && styles.activeTab]}
+          onPress={() => setActiveTab('all')}
+        >
+          <Text style={[styles.tabText, activeTab === 'all' && styles.activeTabText]}>
+            All
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'active' && styles.activeTab]}
+          onPress={() => setActiveTab('active')}
+        >
+          <Text style={[styles.tabText, activeTab === 'active' && styles.activeTabText]}>
+            Active
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'completed' && styles.activeTab]}
+          onPress={() => setActiveTab('completed')}
+        >
+          <Text style={[styles.tabText, activeTab === 'completed' && styles.activeTabText]}>
+            Completed
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Bookings List */}
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {getFilteredBookings().map((booking) => (
+        {getFilteredBookings().map(booking => (
           <TouchableOpacity
             key={booking.id}
             style={styles.bookingCard}
@@ -209,7 +420,7 @@ export default function BookingsScreen() {
 
         {getFilteredBookings().length === 0 && (
           <View style={styles.emptyState}>
-            <Package size={48} color="#D1D5DB" strokeWidth={2} />
+            <Package size={48} color={theme.colors.textSecondary} strokeWidth={2} />
             <Text style={styles.emptyStateTitle}>No bookings found</Text>
             <Text style={styles.emptyStateText}>
               {activeTab === 'active'
@@ -229,195 +440,3 @@ export default function BookingsScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F7F8FA',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 16,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  newBookingButton: {
-    backgroundColor: '#5A47FF',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  newBookingText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    marginBottom: 20,
-    backgroundColor: '#E5E7EB',
-    marginHorizontal: 20,
-    borderRadius: 12,
-    padding: 4,
-  },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
-  },
-  activeTab: {
-    borderBottomColor: theme.colors.primary,
-  },
-  tabText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: theme.colors.textSecondary,
-  },
-  activeTabText: {
-    fontWeight: '600',
-    color: theme.colors.primary,
-  },
-  scrollView: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  bookingCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  bookingHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 16,
-  },
-  bookingInfo: {
-    flex: 1,
-  },
-  bookingId: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 4,
-  },
-  bookingDateTime: {
-    fontSize: 12,
-    color: '#6B7280',
-  },
-  statusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  statusText: {
-    fontSize: 10,
-    fontWeight: '600',
-    marginLeft: 4,
-  },
-  addressContainer: {
-    marginBottom: 16,
-  },
-  addressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  addressText: {
-    fontSize: 14,
-    color: '#374151',
-    marginLeft: 12,
-    flex: 1,
-  },
-  addressDivider: {
-    width: 2,
-    height: 20,
-    backgroundColor: '#E5E7EB',
-    marginLeft: 8,
-    marginBottom: 8,
-  },
-  bookingFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-  },
-  bookingDetails: {
-    flex: 1,
-  },
-  parcelSize: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginBottom: 2,
-  },
-  riderName: {
-    fontSize: 12,
-    color: '#5A47FF',
-    fontWeight: '500',
-  },
-  price: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  actionContainer: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-  },
-  trackText: {
-    fontSize: 14,
-    color: '#5A47FF',
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 60,
-  },
-  emptyStateTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyStateText: {
-    fontSize: 14,
-    color: '#6B7280',
-    textAlign: 'center',
-    marginBottom: 24,
-    paddingHorizontal: 40,
-  },
-  emptyStateButton: {
-    backgroundColor: theme.colors.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 25,
-  },
-  emptyStateButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-});

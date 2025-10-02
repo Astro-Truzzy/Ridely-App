@@ -51,15 +51,16 @@ export default function LoginScreen() {
       // Navigation will be handled automatically by the auth state change in index.tsx
     } catch (error: any) {
       let errorMessage = 'Failed to sign in';
-      
+
       if (error.message?.includes('Invalid login credentials')) {
-        errorMessage = 'Invalid email or password. Please check your credentials and try again.';
+        errorMessage =
+          'Invalid email or password. Please check your credentials and try again.';
       } else if (error.message?.includes('Email not confirmed')) {
         errorMessage = 'Please confirm your email address before signing in.';
       } else if (error.message) {
         errorMessage = error.message;
       }
-      
+
       Alert.alert('Login Error', errorMessage);
     } finally {
       setIsLoading(false);
@@ -71,16 +72,19 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+    >
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => router.back()}>
+            onPress={() => router.back()}
+          >
             <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
           </TouchableOpacity>
         </View>
@@ -88,19 +92,48 @@ export default function LoginScreen() {
         <View style={styles.content}>
           {/* Logo */}
           <View style={styles.logoSection}>
-            <View style={[styles.logoContainer, { backgroundColor: theme.colors.primary }]}>
+            <View
+              style={[
+                styles.logoContainer,
+                {
+                  backgroundColor:
+                    theme.colors
+                      .primary ?? theme.colors.surface,
+                },
+              ]}
+            >
               <Image source={logo} style={styles.logoImage} />
             </View>
-            <Text style={[styles.title, { color: theme.colors.text }]}>Welcome Back</Text>
-            <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Sign in to your Ridely account</Text>
+            <Text style={[styles.title, { color: theme.colors.text }]}>
+              Welcome Back
+            </Text>
+            <Text
+              style={[styles.subtitle, { color: theme.colors.textSecondary }]}
+            >
+              Sign in to your Ridely account
+            </Text>
           </View>
 
           {/* Form */}
           <View style={styles.form}>
             <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: theme.colors.text }]}>Email Address</Text>
-              <View style={[styles.inputContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-                <Mail size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+              <Text style={[styles.inputLabel, { color: theme.colors.text }]}>
+                Email Address
+              </Text>
+              <View
+                style={[
+                  styles.inputContainer,
+                  {
+                    backgroundColor: theme.colors.surface,
+                    borderColor: theme.colors.border,
+                  },
+                ]}
+              >
+                <Mail
+                  size={20}
+                  color={theme.colors.textSecondary}
+                  strokeWidth={2}
+                />
                 <TextInput
                   style={[styles.input, { color: theme.colors.text }]}
                   placeholder="Enter your email"
@@ -115,9 +148,23 @@ export default function LoginScreen() {
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: theme.colors.text }]}>Password</Text>
-              <View style={[styles.inputContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-                <Lock size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+              <Text style={[styles.inputLabel, { color: theme.colors.text }]}>
+                Password
+              </Text>
+              <View
+                style={[
+                  styles.inputContainer,
+                  {
+                    backgroundColor: theme.colors.surface,
+                    borderColor: theme.colors.border,
+                  },
+                ]}
+              >
+                <Lock
+                  size={20}
+                  color={theme.colors.textSecondary}
+                  strokeWidth={2}
+                />
                 <TextInput
                   style={[styles.passwordInput, { color: theme.colors.text }]}
                   placeholder="Enter your password"
@@ -128,11 +175,20 @@ export default function LoginScreen() {
                 />
                 <TouchableOpacity
                   style={styles.eyeButton}
-                  onPress={() => setShowPassword(!showPassword)}>
+                  onPress={() => setShowPassword(!showPassword)}
+                >
                   {showPassword ? (
-                    <EyeOff size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+                    <EyeOff
+                      size={20}
+                      color={theme.colors.textSecondary}
+                      strokeWidth={2}
+                    />
                   ) : (
-                    <Eye size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+                    <Eye
+                      size={20}
+                      color={theme.colors.textSecondary}
+                      strokeWidth={2}
+                    />
                   )}
                 </TouchableOpacity>
               </View>
@@ -140,14 +196,27 @@ export default function LoginScreen() {
 
             <TouchableOpacity
               style={styles.forgotPassword}
-              onPress={() => router.push('/(auth)/forgot-password')}>
-              <Text style={[styles.forgotPasswordText, { color: theme.colors.primary }]}>Forgot Password?</Text>
+              onPress={() => router.push('/(auth)/forgot-password')}
+            >
+              <Text
+                style={[
+                  styles.forgotPasswordText,
+                  { color: theme.colors.primary },
+                ]}
+              >
+                Forgot Password?
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.loginButton, { backgroundColor: theme.colors.primary }, isLoading && { backgroundColor: theme.colors.textTertiary }]}
+              style={[
+                styles.loginButton,
+                { backgroundColor: theme.colors.primary },
+                isLoading && { backgroundColor: theme.colors.textTertiary },
+              ]}
               onPress={handleLogin}
-              disabled={isLoading}>
+              disabled={isLoading}
+            >
               <Text style={styles.loginButtonText}>
                 {isLoading ? 'Signing In...' : 'Sign In'}
               </Text>
@@ -156,26 +225,64 @@ export default function LoginScreen() {
 
           {/* Divider */}
           <View style={styles.divider}>
-            <View style={[styles.dividerLine, { backgroundColor: theme.colors.border }]} />
-            <Text style={[styles.dividerText, { color: theme.colors.textSecondary }]}>Or continue with</Text>
-            <View style={[styles.dividerLine, { backgroundColor: theme.colors.border }]} />
+            <View
+              style={[
+                styles.dividerLine,
+                { backgroundColor: theme.colors.border },
+              ]}
+            />
+            <Text
+              style={[
+                styles.dividerText,
+                { color: theme.colors.textSecondary },
+              ]}
+            >
+              Or continue with
+            </Text>
+            <View
+              style={[
+                styles.dividerLine,
+                { backgroundColor: theme.colors.border },
+              ]}
+            />
           </View>
 
           {/* Social Login */}
           <View style={styles.socialContainer}>
             <TouchableOpacity
-              style={[styles.socialButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
-              onPress={() => handleSocialLogin('Google')}>
+              style={[
+                styles.socialButton,
+                {
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+              onPress={() => handleSocialLogin('Google')}
+            >
               <Text style={styles.socialButtonText}>G</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.socialButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
-              onPress={() => handleSocialLogin('Facebook')}>
+              style={[
+                styles.socialButton,
+                {
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+              onPress={() => handleSocialLogin('Facebook')}
+            >
               <Text style={styles.socialButtonText}>f</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.socialButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
-              onPress={() => handleSocialLogin('Apple')}>
+              style={[
+                styles.socialButton,
+                {
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+              onPress={() => handleSocialLogin('Apple')}
+            >
               <Text style={styles.socialButtonText}>🍎</Text>
             </TouchableOpacity>
           </View>
@@ -185,7 +292,12 @@ export default function LoginScreen() {
         <View style={styles.bottomContainer}>
           <TouchableOpacity onPress={() => router.push('/(auth)/signup')}>
             <Text style={styles.signupText}>
-              Don't have an account? <Text style={[styles.signupLink, { color: theme.colors.primary }]}>Sign Up</Text>
+              Don't have an account?{' '}
+              <Text
+                style={[styles.signupLink, { color: theme.colors.primary }]}
+              >
+                Sign Up
+              </Text>
             </Text>
           </TouchableOpacity>
         </View>
@@ -212,6 +324,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: 10,
   },
   content: {
     flex: 1,
@@ -222,17 +335,25 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   logoContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
+    // backgroundColor moved to inline style in component
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+    padding: 8,
   },
   logoImage: {
-    width: 48,
-    height: 48,
+    width: 64,
+    height: 64,
     resizeMode: 'contain',
+    borderRadius: 32,
   },
   title: {
     fontSize: 28,

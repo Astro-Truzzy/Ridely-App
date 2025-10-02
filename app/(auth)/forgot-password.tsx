@@ -10,12 +10,7 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import {
-  ArrowLeft,
-  Mail,
-  Package,
-  Send,
-} from 'lucide-react-native';
+import { ArrowLeft, Mail, Package, Send } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 
@@ -38,13 +33,13 @@ export default function ForgotPasswordScreen() {
     setIsLoading(true);
 
     // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     setIsLoading(false);
 
     Alert.alert(
       'Reset Link Sent',
-      'We\'ve sent a password reset link to your email address. Please check your inbox and follow the instructions.',
+      "We've sent a password reset link to your email address. Please check your inbox and follow the instructions.",
       [
         {
           text: 'OK',
@@ -86,14 +81,19 @@ export default function ForgotPasswordScreen() {
       marginBottom: 48,
     },
     logoContainer: {
-      width: 64,
-      height: 64,
-      borderRadius: 32,
-      backgroundColor: theme.colors.primary,
-      justifyContent: 'center',
       alignItems: 'center',
-      marginBottom: 24,
-      ...theme.shadows.large,
+      marginBottom: 40,
+      backgroundColor: theme.colors.surface,
+      borderRadius: 44,
+      width: 88,
+      height: 88,
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.15,
+      shadowRadius: 8,
+      elevation: 4,
+      padding: 8,
     },
     title: {
       fontSize: 28,
@@ -173,13 +173,14 @@ export default function ForgotPasswordScreen() {
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => router.back()}>
+            onPress={() => router.back()}
+          >
             <ArrowLeft size={24} color="#1F2937" strokeWidth={2} />
           </TouchableOpacity>
         </View>
@@ -192,7 +193,8 @@ export default function ForgotPasswordScreen() {
             </View>
             <Text style={styles.title}>Forgot Password?</Text>
             <Text style={styles.subtitle}>
-              Don't worry! Enter your email address and we'll send you a link to reset your password.
+              Don't worry! Enter your email address and we'll send you a link to
+              reset your password.
             </Text>
           </View>
 
@@ -201,7 +203,11 @@ export default function ForgotPasswordScreen() {
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Email Address</Text>
               <View style={styles.inputContainer}>
-                <Mail size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+                <Mail
+                  size={20}
+                  color={theme.colors.textSecondary}
+                  strokeWidth={2}
+                />
                 <TextInput
                   style={styles.input}
                   placeholder="Enter your email"
@@ -217,9 +223,13 @@ export default function ForgotPasswordScreen() {
             </View>
 
             <TouchableOpacity
-              style={[styles.resetButton, isLoading && styles.resetButtonDisabled]}
+              style={[
+                styles.resetButton,
+                isLoading && styles.resetButtonDisabled,
+              ]}
               onPress={handleResetPassword}
-              disabled={isLoading}>
+              disabled={isLoading}
+            >
               <Send size={20} color="#FFFFFF" strokeWidth={2} />
               <Text style={styles.resetButtonText}>
                 {isLoading ? 'Sending...' : 'Send Reset Link'}
