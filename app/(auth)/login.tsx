@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   TextInput,
   KeyboardAvoidingView,
   Platform,
@@ -12,6 +11,7 @@ import {
   Image,
   Pressable,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
   Mail,
@@ -52,15 +52,16 @@ export default function LoginScreen() {
       await signIn(email, password);
       // Navigation will be handled automatically by the auth state change in index.tsx
     } catch (error: any) {
+      console.error('Login error:', error);
       let errorMessage = 'Failed to sign in';
-
-      if (error.message?.includes('Invalid login credentials')) {
-        errorMessage =
-          'Invalid email or password. Please check your credentials and try again.';
-      } else if (error.message?.includes('Email not confirmed')) {
-        errorMessage = 'Please confirm your email address before signing in.';
-      } else if (error.message) {
+      
+      // Use the error message from signIn if available
+      if (error.message) {
         errorMessage = error.message;
+      } else if (error.includes && error.includes('Invalid login credentials')) {
+        errorMessage = 'Invalid email or password. Please check your credentials and try again.';
+      } else if (error.includes && error.includes('Email not confirmed')) {
+        errorMessage = 'Please confirm your email address before signing in.';
       }
 
       Alert.alert('Login Error', errorMessage);
@@ -211,6 +212,7 @@ export default function LoginScreen() {
             <Pressable
               onPressIn={() => (scale.value = 0.95)}
               onPressOut={() => (scale.value = 1)}
+              onPress={handleLogin}
               disabled={isLoading}
             >
               <Animated.View

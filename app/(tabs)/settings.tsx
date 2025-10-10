@@ -5,10 +5,10 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   Switch,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Bell, Moon, Globe, Zap, CircleHelp as HelpCircle, FileText, Shield, LogOut, ChevronRight, Smartphone, Mail, MessageSquare, Sun, Monitor } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme, ThemeMode } from '@/contexts/ThemeContext';

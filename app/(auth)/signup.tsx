@@ -4,14 +4,15 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   TextInput,
   KeyboardAvoidingView,
   Platform,
   Alert,
   ScrollView,
   Pressable,
+  Image,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
   User,
@@ -26,7 +27,6 @@ import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { Image } from 'react-native';
 import { useLogo } from '@/hooks/useLogo';
 import Animated, {
   useSharedValue,
@@ -95,6 +95,8 @@ export default function SignupScreen() {
         },
         userType
       );
+      
+      // If we get here, the signup was successful
       Alert.alert(
         'Account Created!',
         'Your account has been created successfully. You can now sign in.',
@@ -106,7 +108,35 @@ export default function SignupScreen() {
         ]
       );
     } catch (error: any) {
-      Alert.alert('Signup Error', error.message || 'Failed to create account');
+      console.error('Signup error:', error);
+      
+      // Handle specific error messages
+      if (error.message) {
+        if (error.message.includes('already registered') || 
+            error.message.includes('already exists') ||
+            error.message.includes('User already registered')) {
+          Alert.alert(
+            'Account Exists',
+            'An account with this email already exists. Please try signing in instead.',
+            [
+              {
+                text: 'OK',
+                style: 'cancel'
+              },
+              {
+                text: 'Go to Sign In',
+                onPress: () => router.replace('/(auth)/login')
+              }
+            ]
+          );
+        } else {
+          Alert.alert('Signup Failed', error.message);
+        }
+      } else {
+        Alert.alert('Signup Failed', 'An unexpected error occurred. Please try again.');
+      }
+      
+      setIsLoading(false);
     } finally {
       setIsLoading(false);
     }
@@ -127,12 +157,13 @@ export default function SignupScreen() {
 
   return (
     <SafeAreaView
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      style={{ flex: 1, backgroundColor: theme.colors.background }}
     >
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
+        <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
@@ -543,6 +574,7 @@ export default function SignupScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+      </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -551,6 +583,7 @@ export default function SignupScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    paddingHorizontal: 24,
   },
   keyboardAvoidingView: {
     flex: 1,

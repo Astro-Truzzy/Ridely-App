@@ -4,12 +4,12 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   FlatList,
   Dimensions,
   Image,
   Animated,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChevronRight, SkipBack as Skip } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -217,6 +217,7 @@ export default function OnboardingScreen() {
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['top', 'left', 'right']}
     >
       {/* Skip Button */}
       <View style={styles.header}>
@@ -303,7 +304,6 @@ const styles = StyleSheet.create({
   imageWrapper: {
     width: 280,
     height: 280,
-    borderRadius: 140,
     overflow: 'hidden',
     position: 'relative',
   },

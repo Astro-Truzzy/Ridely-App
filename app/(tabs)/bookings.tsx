@@ -5,8 +5,8 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Package, Clock, CheckCircle, XCircle, MapPin } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -314,7 +314,7 @@ export default function BookingsScreen() {
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <SafeAreaView style={styles.header}>
         <Text style={styles.title}>My Bookings</Text>
         <TouchableOpacity 
           style={styles.newBookingButton}
@@ -322,7 +322,7 @@ export default function BookingsScreen() {
         >
           <Text style={styles.newBookingText}>New Booking</Text>
         </TouchableOpacity>
-      </View>
+      </SafeAreaView>
 
       {/* Tabs */}
       <View style={styles.tabContainer}>

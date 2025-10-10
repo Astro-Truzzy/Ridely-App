@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   Image,
   Pressable,
 } from 'react-native';
@@ -13,6 +12,7 @@ import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLogo } from '@/hooks/useLogo';
 import Animated, { FadeInUp, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function WelcomeScreen() {
   const { theme } = useTheme();
@@ -47,6 +47,7 @@ export default function WelcomeScreen() {
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['top', 'left', 'right']} // Customize edges as needed
     >
       <View style={styles.content}>
         {/* Logo Section */}

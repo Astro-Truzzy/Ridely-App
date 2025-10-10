@@ -1,20 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
   Alert,
+  TextInput,
+  Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
-import {
-  ArrowLeft,
-  Package,
-  Shield,
-} from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { ArrowLeft, Shield } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 
@@ -207,7 +203,16 @@ export default function VerifyOTPScreen() {
         ]
       );
     } else {
-      router.replace('/');
+      Alert.alert(
+        'Login Successful! 🎉',
+        'You have been successfully logged in.',
+        [
+          {
+            text: 'Continue',
+            onPress: () => router.replace('/'),
+          },
+        ]
+      );
     }
   };
 

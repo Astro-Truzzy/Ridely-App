@@ -132,19 +132,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        // Handle specific case where user already exists in Supabase Auth
+        if (error.message.includes('already registered')) {
+          throw new Error('An account with this email already exists. Please try signing in instead.');
+        }
+        throw error;
+      }
 
-      // 2. Sign in (to get auth.uid() for RLS)
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (signInError) throw signInError;
+      // Check if we received user data from signUp
+      if (!data.user) {
+        throw new Error('No user data received from sign up');
+      }
 
-      // 3. Get the current user (now authenticated)
-      const { data: sessionData } = await supabase.auth.getSession();
-      const userId = sessionData?.session?.user?.id;
-      if (!userId) throw new Error('No user session after sign in');
+      // Use the user data from signUp directly instead of signing in again
+      const userId = data.user.id;
+      if (!userId) {
+        throw new Error('No user ID received from sign up');
+      }
 
       // 4. Insert profile
       const profileData = {
@@ -158,17 +163,46 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const { error: profileError } = await supabase
         .from(table)
         .insert([profileData]);
+      
       if (profileError) {
         console.error('Profile creation error:', profileError);
+        
+        // Handle duplicate email constraint error
+        if (profileError.code === '23505') {
+          // This is a duplicate key error
+          // First, try to clean up the auth user we just created
+          await supabase.auth.signOut();
+          
+          // Then throw a more user-friendly error
+          throw new Error('An account with this email already exists. Please try signing in instead.');
+        }
+        
         throw profileError;
       }
 
       // Load the newly created profile
       await loadUserProfile(userId);
+      
+      // Update session state
+      setSession(data.session);
+      setUser(data.user);
+      
+      // Set loading to false before returning
+      setLoading(false);
     } catch (error) {
       console.error('Signup error:', error);
+      
+      // Additional cleanup for specific error cases
+      if (error instanceof Error && error.message.includes('An account with this email already exists')) {
+        // Supabase cleanup is handled in the profileError block
+        // Here we just need to ensure loading state is reset
+        setLoading(false);
+        throw error;
+      }
+      
+      // General error case
       setLoading(false);
-      throw error;
+      throw new Error(`Registration failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -202,9 +236,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
         console.log('No user in sign in response');
         setLoading(false);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Sign in error:', error);
       setLoading(false);
+      
+      // Provide more specific error messages
+      if (error.message?.includes('Invalid login credentials')) {
+        throw new Error('Invalid email or password. Please check your credentials and try again.');
+      } else if (error.message?.includes('Email not confirmed')) {
+        throw new Error('Please confirm your email address before signing in.');
+      }
+      
       throw error;
     }
   };

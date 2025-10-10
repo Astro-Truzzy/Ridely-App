@@ -1,20 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import MapboxGL from '@rnmapbox/maps';
 import { supabase } from '@/lib/supabase';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   Alert,
+  Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
   MessageCircle,
   Phone,
-  Navigation,
-  Clock,
   Package,
   User,
   Star,
@@ -58,15 +56,42 @@ export default function TrackingScreen() {
     latitude: 37.78825,
     longitude: -122.4324,
   });
-  const subscriptionRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const [MapboxGL, setMapboxGL] = useState<any | null>(null);
+  const subscriptionRef = useRef<any | null>(null);
+
+  // Guarded Mapbox import (avoids crash in Expo Go)
+  useEffect(() => {
+    let mounted = true;
+    try {
+      // Lazy require so Metro doesn't crash when native module not linked
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const mb = require('@rnmapbox/maps');
+      if (mounted) setMapboxGL(mb);
+    } catch (err) {
+      console.warn(
+        '[tracking] @rnmapbox/maps not available. Use EAS build or react-native-maps for dev.',
+        err
+      );
+      if (mounted) setMapboxGL(null);
+    }
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Subscribe to Supabase Realtime for rider location
   useEffect(() => {
-    // Replace with actual rider_id for this delivery
+    // Replace with the actual rider_id for this delivery at runtime
     const RIDER_ID = 'REPLACE_WITH_RIDER_ID';
-    // Subscribe to changes in the rider_locations table for this rider
+    if (!RIDER_ID || RIDER_ID === 'REPLACE_WITH_RIDER_ID') {
+      console.warn(
+        '[tracking] Missing RIDER_ID — realtime subscription skipped.'
+      );
+      return;
+    }
+
     const channel = supabase
-      .channel('rider-location')
+      .channel(`rider-location:${RIDER_ID}`)
       .on(
         'postgres_changes',
         {
@@ -85,23 +110,47 @@ export default function TrackingScreen() {
         }
       )
       .subscribe();
+
     subscriptionRef.current = channel;
-    // Optionally, fetch initial location
-    supabase
-      .from('rider_locations')
-      .select('latitude,longitude')
-      .eq('rider_id', RIDER_ID)
-      .single()
-      .then(({ data }) => {
-        if (data)
+
+    // Fetch initial location once
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('rider_locations')
+          .select('latitude,longitude')
+          .eq('rider_id', RIDER_ID)
+          .single();
+          
+        if (error) {
+          console.warn('[tracking] initial location fetch error', error);
+          return;
+        }
+        if (data) {
           setRiderCoords({
             latitude: data.latitude,
             longitude: data.longitude,
           });
-      });
+        }
+      } catch (err) {
+        console.warn('[tracking] fetch error', err);
+      }
+    })();
+
     return () => {
-      if (subscriptionRef.current) {
-        supabase.removeChannel(subscriptionRef.current);
+      // Clean up subscription safely
+      try {
+        if (subscriptionRef.current) {
+          // supabase.removeChannel can accept the channel object or the channel name
+          supabase
+            .removeChannel(subscriptionRef.current)
+            .catch((e: any) =>
+              console.warn('[tracking] removeChannel error', e)
+            );
+          subscriptionRef.current = null;
+        }
+      } catch (e) {
+        console.warn('[tracking] subscription cleanup failed', e);
       }
     };
   }, []);
@@ -213,19 +262,41 @@ export default function TrackingScreen() {
         activeOpacity={0.85}
         onPress={() => setMapExpanded(true)}
       >
-        <MapboxGL.MapView style={styles.map}>
-          <MapboxGL.Camera
-            centerCoordinate={[riderCoords.longitude, riderCoords.latitude]}
-            zoomLevel={14}
-          />
-          <MapboxGL.PointAnnotation
-            id="rider"
-            coordinate={[riderCoords.longitude, riderCoords.latitude]}
+        {MapboxGL ? (
+          <MapboxGL.MapView style={styles.map}>
+            <MapboxGL.Camera
+              centerCoordinate={[riderCoords.longitude, riderCoords.latitude]}
+              zoomLevel={14}
+            />
+            <MapboxGL.PointAnnotation
+              id="rider"
+              coordinate={[riderCoords.longitude, riderCoords.latitude]}
+            >
+              {/* Optionally add a custom marker here */}
+              <View
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 14,
+                  backgroundColor: '#5A47FF',
+                }}
+              />
+            </MapboxGL.PointAnnotation>
+          </MapboxGL.MapView>
+        ) : (
+          // Fallback simple static map placeholder / prompt
+          <View
+            style={[
+              styles.map,
+              { justifyContent: 'center', alignItems: 'center' },
+            ]}
           >
-            {/* Optionally add a custom marker here */}
-            <></>
-          </MapboxGL.PointAnnotation>
-        </MapboxGL.MapView>
+            <Text style={{ color: '#374151' }}>
+              Map unavailable in Expo Go. Run EAS build or use react-native-maps
+              for dev.
+            </Text>
+          </View>
+        )}
         {/* Floating Status Card */}
         <View style={styles.statusCard}>
           <View style={styles.statusHeader}>
@@ -251,19 +322,41 @@ export default function TrackingScreen() {
       {/* Fullscreen Map Modal */}
       {mapExpanded && (
         <View style={StyleSheet.absoluteFill}>
-          <MapboxGL.MapView style={{ flex: 1 }}>
-            <MapboxGL.Camera
-              centerCoordinate={[riderCoords.longitude, riderCoords.latitude]}
-              zoomLevel={14}
-            />
-            <MapboxGL.PointAnnotation
-              id="rider-full"
-              coordinate={[riderCoords.longitude, riderCoords.latitude]}
+          {MapboxGL ? (
+            <MapboxGL.MapView style={{ flex: 1 }}>
+              <MapboxGL.Camera
+                centerCoordinate={[riderCoords.longitude, riderCoords.latitude]}
+                zoomLevel={14}
+              />
+              <MapboxGL.PointAnnotation
+                id="rider-full"
+                coordinate={[riderCoords.longitude, riderCoords.latitude]}
+              >
+                <View
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 19,
+                    backgroundColor: '#5A47FF',
+                  }}
+                />
+              </MapboxGL.PointAnnotation>
+            </MapboxGL.MapView>
+          ) : (
+            <View
+              style={{
+                flex: 1,
+                justifyContent: 'center',
+                alignItems: 'center',
+                padding: 20,
+              }}
             >
-              {/* Optionally add a custom marker here */}
-              <></>
-            </MapboxGL.PointAnnotation>
-          </MapboxGL.MapView>
+              <Text style={{ textAlign: 'center' }}>
+                Map unavailable in Expo Go. To test Mapbox, run an EAS/custom
+                build or switch to react-native-maps.
+              </Text>
+            </View>
+          )}
           <TouchableOpacity
             style={{
               position: 'absolute',

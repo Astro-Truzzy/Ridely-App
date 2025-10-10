@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import MapboxGL from '@rnmapbox/maps';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   Alert,
   TextInput,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import {
   ArrowLeft,
   Navigation,
@@ -25,6 +25,14 @@ import { useTheme } from '@/contexts/ThemeContext';
 import * as Location from 'expo-location';
 import { supabase } from '@/lib/supabase';
 
+/**
+ * Active Delivery Screen
+ * 
+ * This screen shows the active delivery information, map, and controls for a rider
+ * to complete a delivery job. It handles location tracking, delivery status updates,
+ * and communication with the backend.
+ */
+
 type DeliveryStatus =
   | 'heading_to_pickup'
   | 'at_pickup'
@@ -34,9 +42,31 @@ type DeliveryStatus =
   | 'delivered';
 
 export default function ActiveDeliveryScreen() {
+  const [MapboxGL, setMapboxGL] = useState<any | null>(null);
   // Pickup and dropoff coordinates (should come from job data in real app)
   // (moved below job variable)
   // Rider's real-time location
+
+  // Guarded Mapbox import (avoids crash in Expo Go)
+  useEffect(() => {
+    let mounted = true;
+    try {
+      // Lazy require so Metro doesn't crash when native module not linked
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const mb = require('@rnmapbox/maps');
+      if (mounted) setMapboxGL(mb);
+    } catch (err) {
+      console.warn(
+        '[active-delivery] @rnmapbox/maps not available. Use EAS build or react-native-maps for dev.',
+        err
+      );
+      if (mounted) setMapboxGL(null);
+    }
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const [riderCoords, setRiderCoords] = useState<{
     latitude: number;
     longitude: number;
@@ -324,74 +354,91 @@ export default function ActiveDeliveryScreen() {
       <View
         style={[styles.mapContainer, { backgroundColor: theme.colors.surface }]}
       >
-        <MapboxGL.MapView
-          style={{ flex: 1, borderRadius: 16, overflow: 'hidden' }}
-        >
-          <MapboxGL.Camera
-            centerCoordinate={
-              riderCoords
-                ? [riderCoords.longitude, riderCoords.latitude]
-                : [pickupCoords.longitude, pickupCoords.latitude]
-            }
-            zoomLevel={14}
-          />
-          {/* Pickup marker: show before pickup is completed */}
-          {(deliveryStatus === 'heading_to_pickup' ||
-            deliveryStatus === 'at_pickup' ||
-            deliveryStatus === 'picked_up') && (
-            <MapboxGL.PointAnnotation
-              id="pickup"
-              coordinate={[pickupCoords.longitude, pickupCoords.latitude]}
-            >
-              <View
-                style={{
-                  backgroundColor: theme.colors.success,
-                  borderRadius: 12,
-                  padding: 4,
-                }}
+        {MapboxGL ? (
+          <MapboxGL.MapView
+            style={{ flex: 1, borderRadius: 16, overflow: 'hidden' }}
+          >
+            <MapboxGL.Camera
+              centerCoordinate={
+                riderCoords
+                  ? [riderCoords.longitude, riderCoords.latitude]
+                  : [pickupCoords.longitude, pickupCoords.latitude]
+              }
+              zoomLevel={14}
+            />
+            {/* Pickup marker: show before pickup is completed */}
+            {(deliveryStatus === 'heading_to_pickup' ||
+              deliveryStatus === 'at_pickup' ||
+              deliveryStatus === 'picked_up') && (
+              <MapboxGL.PointAnnotation
+                id="pickup"
+                coordinate={[pickupCoords.longitude, pickupCoords.latitude]}
               >
-                <MapPin size={20} color="#fff" />
-              </View>
-            </MapboxGL.PointAnnotation>
-          )}
-          {/* Dropoff marker: show after pickup is completed */}
-          {(deliveryStatus === 'heading_to_dropoff' ||
-            deliveryStatus === 'at_dropoff' ||
-            deliveryStatus === 'delivered' ||
-            deliveryStatus === 'picked_up') && (
-            <MapboxGL.PointAnnotation
-              id="dropoff"
-              coordinate={[dropoffCoords.longitude, dropoffCoords.latitude]}
-            >
-              <View
-                style={{
-                  backgroundColor: theme.colors.error,
-                  borderRadius: 12,
-                  padding: 4,
-                }}
+                <View
+                  style={{
+                    backgroundColor: theme.colors.success,
+                    borderRadius: 12,
+                    padding: 4,
+                  }}
+                >
+                  <MapPin size={20} color="#fff" />
+                </View>
+              </MapboxGL.PointAnnotation>
+            )}
+            {/* Dropoff marker: show after pickup is completed */}
+            {(deliveryStatus === 'heading_to_dropoff' ||
+              deliveryStatus === 'at_dropoff' ||
+              deliveryStatus === 'delivered' ||
+              deliveryStatus === 'picked_up') && (
+              <MapboxGL.PointAnnotation
+                id="dropoff"
+                coordinate={[dropoffCoords.longitude, dropoffCoords.latitude]}
               >
-                <MapPin size={20} color="#fff" />
-              </View>
-            </MapboxGL.PointAnnotation>
-          )}
-          {/* Rider's own location marker */}
-          {riderCoords && (
-            <MapboxGL.PointAnnotation
-              id="rider"
-              coordinate={[riderCoords.longitude, riderCoords.latitude]}
-            >
-              <View
-                style={{
-                  backgroundColor: theme.colors.primary,
-                  borderRadius: 12,
-                  padding: 4,
-                }}
+                <View
+                  style={{
+                    backgroundColor: theme.colors.error,
+                    borderRadius: 12,
+                    padding: 4,
+                  }}
+                >
+                  <MapPin size={20} color="#fff" />
+                </View>
+              </MapboxGL.PointAnnotation>
+            )}
+            {/* Rider's own location marker */}
+            {riderCoords && (
+              <MapboxGL.PointAnnotation
+                id="rider"
+                coordinate={[riderCoords.longitude, riderCoords.latitude]}
               >
-                <Navigation size={20} color="#fff" />
-              </View>
-            </MapboxGL.PointAnnotation>
-          )}
-        </MapboxGL.MapView>
+                <View
+                  style={{
+                    backgroundColor: theme.colors.primary,
+                    borderRadius: 12,
+                    padding: 4,
+                  }}
+                >
+                  <Navigation size={20} color="#fff" />
+                </View>
+              </MapboxGL.PointAnnotation>
+            )}
+          </MapboxGL.MapView>
+        ) : (
+          // Fallback simple static map placeholder / prompt
+          <View
+            style={{
+              flex: 1,
+              justifyContent: 'center',
+              alignItems: 'center',
+              borderRadius: 16,
+            }}
+          >
+            <Text style={{ color: theme.colors.text }}>
+              Map unavailable in Expo Go. Run EAS build or use react-native-maps
+              for dev.
+            </Text>
+          </View>
+        )}
         {/* Status Overlay */}
         <View
           style={[
