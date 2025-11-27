@@ -18,6 +18,7 @@ import {
   Check,
 } from 'lucide-react-native';
 import { router } from 'expo-router';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface PaymentMethod {
   id: string;
@@ -31,6 +32,7 @@ interface PaymentMethod {
 }
 
 export default function PaymentMethodsScreen() {
+  const { theme, isDark } = useTheme();
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([
     {
       id: '1',
@@ -147,30 +149,37 @@ export default function PaymentMethodsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <ArrowLeft size={24} color="#1F2937" strokeWidth={2} />
+      <View style={[styles.header, { 
+        backgroundColor: theme.colors.surface,
+        borderBottomColor: theme.colors.border
+      }]}>
+        <TouchableOpacity style={[styles.backButton, { backgroundColor: isDark ? theme.colors.card : '#F3F4F6' }]} onPress={() => router.back()}>
+          <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
-        <Text style={styles.title}>Payment Methods</Text>
+        <Text style={[styles.title, { color: theme.colors.text }]}>Payment Methods</Text>
         <TouchableOpacity
-          style={styles.addButton}
+          style={[styles.addButton, { backgroundColor: isDark ? theme.colors.card : '#F0F2FF' }]}
           onPress={() => Alert.alert('Add Payment', 'Add payment method coming soon!')}>
-          <Plus size={20} color="#5A47FF" strokeWidth={2} />
+          <Plus size={20} color={isDark ? theme.colors.primary : '#5A47FF'} strokeWidth={2} />
         </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Current Methods */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Your Payment Methods</Text>
+          <Text style={[styles.sectionTitle, { color: theme.colors.text, paddingHorizontal: 20, marginBottom: 16 }]}>Your Payment Methods</Text>
           
           {paymentMethods.map((method) => {
             const IconComponent = getPaymentIcon(method.type);
             
             return (
-              <View key={method.id} style={styles.paymentCard}>
+              <View key={method.id} style={[styles.paymentCard, { 
+                backgroundColor: theme.colors.surface,
+                shadowColor: isDark ? '#000' : '#000',
+                borderBottomColor: theme.colors.border
+              }]}>
                 {method.isDefault && (
                   <View style={styles.defaultBadge}>
                     <Check size={12} color="#FFFFFF" strokeWidth={2} />
@@ -193,22 +202,22 @@ export default function PaymentMethodsScreen() {
                   <View style={styles.paymentInfo}>
                     <Text style={styles.paymentLabel}>{method.label}</Text>
                     {method.type === 'card' ? (
-                      <Text style={styles.paymentDetails}>
+                      <Text style={[styles.paymentDetails, { color: theme.colors.textSecondary }]}>
                         •••• •••• •••• {method.lastFour}
                       </Text>
                     ) : (
-                      <Text style={styles.paymentDetails}>{method.details}</Text>
+                      <Text style={[styles.paymentDetails, { color: theme.colors.textSecondary }]}>{method.details}</Text>
                     )}
                     {method.expiry && (
-                      <Text style={styles.expiryText}>Expires {method.expiry}</Text>
+                      <Text style={[styles.expiryText, { color: theme.colors.textTertiary }]}>{method.expiry}</Text>
                     )}
                   </View>
                   
                   {method.type === 'card' && (
                     <TouchableOpacity
-                      style={styles.actionButton}
+                      style={[styles.actionButton, { backgroundColor: isDark ? theme.colors.card : '#F3F4F6' }]}
                       onPress={() => handlePaymentAction(method)}>
-                      <MoreVertical size={20} color="#6B7280" strokeWidth={2} />
+                      <MoreVertical size={20} color={theme.colors.textSecondary} strokeWidth={2} />
                     </TouchableOpacity>
                   )}
                 </View>
@@ -219,40 +228,43 @@ export default function PaymentMethodsScreen() {
 
         {/* Add New Payment */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Add New Payment Method</Text>
+          <Text style={[styles.sectionTitle, { color: theme.colors.text, paddingHorizontal: 20, marginBottom: 16 }]}>Add New Payment Method</Text>
           
           <TouchableOpacity
             style={styles.addPaymentCard}
             onPress={() => Alert.alert('Add Card', 'Add credit/debit card coming soon!')}>
-            <View style={styles.addPaymentIcon}>
+            <View style={[styles.addPaymentIcon, { backgroundColor: isDark ? theme.colors.card : '#F3F4F6' }]}>
               <CreditCard size={24} color="#5A47FF" strokeWidth={2} />
             </View>
             <View style={styles.addPaymentInfo}>
-              <Text style={styles.addPaymentTitle}>Add Credit/Debit Card</Text>
-              <Text style={styles.addPaymentSubtitle}>Visa, Mastercard, American Express</Text>
+              <Text style={[styles.addPaymentTitle, { color: theme.colors.text }]}>Add Credit/Debit Card</Text>
+              <Text style={[styles.addPaymentSubtitle, { color: theme.colors.textSecondary }]}>Visa, Mastercard, American Express</Text>
             </View>
-            <Plus size={20} color="#5A47FF" strokeWidth={2} />
+            <Plus size={20} color={isDark ? theme.colors.primary : '#5A47FF'} strokeWidth={2} />
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.addPaymentCard}
             onPress={() => Alert.alert('Top Up', 'Wallet top-up coming soon!')}>
-            <View style={styles.addPaymentIcon}>
+            <View style={[styles.addPaymentIcon, { backgroundColor: isDark ? theme.colors.card : '#F3F4F6' }]}>
               <Wallet size={24} color="#10B981" strokeWidth={2} />
             </View>
             <View style={styles.addPaymentInfo}>
-              <Text style={styles.addPaymentTitle}>Top Up Wallet</Text>
-              <Text style={styles.addPaymentSubtitle}>Add money to your Ridely wallet</Text>
+              <Text style={[styles.addPaymentTitle, { color: theme.colors.text }]}>Top Up Wallet</Text>
+              <Text style={[styles.addPaymentSubtitle, { color: theme.colors.textSecondary }]}>Add money to your Ridely wallet</Text>
             </View>
-            <Plus size={20} color="#10B981" strokeWidth={2} />
+            <Plus size={20} color={isDark ? theme.colors.success : '#10B981'} strokeWidth={2} />
           </TouchableOpacity>
         </View>
 
         {/* Payment Security */}
         <View style={styles.section}>
-          <View style={styles.securityCard}>
-            <Text style={styles.securityTitle}>🔒 Payment Security</Text>
-            <Text style={styles.securityText}>
+          <View style={[styles.securityCard, { 
+            backgroundColor: isDark ? '#0C2E4E' : '#F0F9FF',
+            borderLeftColor: isDark ? theme.colors.info : '#0EA5E9'
+          }]}>
+            <Text style={[styles.securityTitle, { color: isDark ? '#60A5FA' : '#0C4A6E' }]}>🔒 Payment Security</Text>
+            <Text style={[styles.securityText, { color: isDark ? '#BFDBFE' : '#0C4A6E' }]}>
               All payment information is encrypted and secure. We never store your full card
               details on our servers. Payments are processed through industry-standard secure
               payment gateways.
@@ -267,7 +279,6 @@ export default function PaymentMethodsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F7F8FA',
   },
   header: {
     flexDirection: 'row',
@@ -276,28 +287,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 20,
-    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#1F2937',
   },
   addButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F0F2FF',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -310,17 +316,12 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1F2937',
-    paddingHorizontal: 20,
-    marginBottom: 16,
   },
   paymentCard: {
-    backgroundColor: '#FFFFFF',
     marginHorizontal: 20,
     borderRadius: 16,
     padding: 20,
     marginBottom: 12,
-    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
@@ -362,28 +363,23 @@ const styles = StyleSheet.create({
   paymentLabel: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1F2937',
     marginBottom: 4,
   },
   paymentDetails: {
     fontSize: 14,
-    color: '#6B7280',
     marginBottom: 2,
   },
   expiryText: {
     fontSize: 12,
-    color: '#9CA3AF',
   },
   actionButton: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
   },
   addPaymentCard: {
-    backgroundColor: '#FFFFFF',
     marginHorizontal: 20,
     borderRadius: 16,
     padding: 20,
@@ -391,14 +387,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 2,
-    borderColor: '#E5E7EB',
     borderStyle: 'dashed',
   },
   addPaymentIcon: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
@@ -409,30 +403,24 @@ const styles = StyleSheet.create({
   addPaymentTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1F2937',
     marginBottom: 4,
   },
   addPaymentSubtitle: {
     fontSize: 14,
-    color: '#6B7280',
   },
   securityCard: {
-    backgroundColor: '#F0F9FF',
     marginHorizontal: 20,
     borderRadius: 16,
     padding: 20,
     borderLeftWidth: 4,
-    borderLeftColor: '#0EA5E9',
   },
   securityTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#0C4A6E',
     marginBottom: 12,
   },
   securityText: {
     fontSize: 14,
-    color: '#0C4A6E',
     lineHeight: 20,
   },
 });

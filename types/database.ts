@@ -17,6 +17,7 @@ export interface Database {
           is_available: boolean;
           created_at: string;
           updated_at: string;
+          avatar_url: string | null;
         };
         Insert: {
           id?: string;
@@ -33,6 +34,7 @@ export interface Database {
           is_available?: boolean;
           created_at?: string;
           updated_at?: string;
+          avatar_url?: string | null;
         };
         Update: {
           id?: string;
@@ -49,6 +51,7 @@ export interface Database {
           is_available?: boolean;
           created_at?: string;
           updated_at?: string;
+          avatar_url?: string | null;
         };
       };
       users: {
@@ -59,6 +62,7 @@ export interface Database {
           phone: string;
           created_at: string;
           updated_at: string;
+          avatar_url: string | null;
         };
         Insert: {
           id?: string;
@@ -67,6 +71,7 @@ export interface Database {
           phone: string;
           created_at?: string;
           updated_at?: string;
+          avatar_url?: string | null;
         };
         Update: {
           id?: string;
@@ -75,6 +80,7 @@ export interface Database {
           phone?: string;
           created_at?: string;
           updated_at?: string;
+          avatar_url?: string | null;
         };
       };
       deliveries: {

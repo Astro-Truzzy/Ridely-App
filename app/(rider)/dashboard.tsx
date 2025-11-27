@@ -45,7 +45,7 @@ export default function RiderDashboard() {
   const [riderStats] = useState({
     activeJobs: 1,
     completedToday: 8,
-    todayEarnings: 156.75,
+    todayEarnings: 1056.75,
     rating: 4.9,
   });
 
@@ -57,8 +57,8 @@ export default function RiderDashboard() {
       dropoffAddress: '456 Oak Ave, Uptown',
       distance: 3.2,
       estimatedTime: '25 mins',
-      reward: 18.5,
-      senderName: 'John Doe',
+      reward: 1558.5,
+      senderName: 'John Okafor',
       urgency: 'normal',
       createdAt: new Date(Date.now() - 300000),
     },
@@ -66,10 +66,10 @@ export default function RiderDashboard() {
       id: 'REQ002',
       parcelSize: 'small',
       pickupAddress: 'City Mall, Level 2',
-      dropoffAddress: '789 Pine St, Midtown',
+      dropoffAddress: '19 Hilltop close, Farm Rd',
       distance: 1.8,
       estimatedTime: '15 mins',
-      reward: 12.25,
+      reward: 1200.25,
       senderName: 'Sarah Wilson',
       urgency: 'urgent',
       createdAt: new Date(Date.now() - 180000),
@@ -81,8 +81,8 @@ export default function RiderDashboard() {
       dropoffAddress: 'Residential Area, Block C',
       distance: 5.7,
       estimatedTime: '35 mins',
-      reward: 24.75,
-      senderName: 'Mike Johnson',
+      reward: 2460.75,
+      senderName: 'Zuby Johnson',
       urgency: 'normal',
       createdAt: new Date(Date.now() - 120000),
     },
@@ -91,19 +91,10 @@ export default function RiderDashboard() {
   const handleAcceptJob = (job: DeliveryRequest) => {
     Alert.alert(
       'Accept Delivery',
-      `Accept delivery for $${job.reward}?\n\nPickup: ${job.pickupAddress}\nDropoff: ${job.dropoffAddress}`,
+      `Accept delivery for ₦${job.reward}?\n\nPickup: ${job.pickupAddress}\nDropoff: ${job.dropoffAddress}`,
       [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Accept',
-          onPress: () => {
-            setAvailableJobs((prev) => prev.filter((j) => j.id !== job.id));
-            router.push({
-              pathname: '/(rider)/active-delivery',
-              params: { jobId: job.id, jobData: JSON.stringify(job) },
-            });
-          },
-        },
+        { text: 'Accept', onPress: () => handleAcceptJob(job) },
       ]
     );
   };
@@ -255,7 +246,7 @@ export default function RiderDashboard() {
               strokeWidth={2}
             />
             <Text style={[styles.statValue, { color: theme.colors.text }]}>
-              ${riderStats.todayEarnings}
+              ₦{riderStats.todayEarnings}
             </Text>
             <Text
               style={[styles.statLabel, { color: theme.colors.textSecondary }]}
@@ -276,6 +267,7 @@ export default function RiderDashboard() {
             onPress={() => router.push('/(rider)/earnings')}
           >
             <DollarSign size={20} color="#FFFFFF" strokeWidth={2} />
+            
             <Text style={styles.actionText}>View Earnings</Text>
           </TouchableOpacity>
 
@@ -390,7 +382,7 @@ export default function RiderDashboard() {
                         { color: theme.colors.success },
                       ]}
                     >
-                      ${job.reward}
+                      ₦{job.reward}
                     </Text>
                     <Text
                       style={[

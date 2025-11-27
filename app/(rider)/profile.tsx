@@ -68,7 +68,7 @@ export default function RiderProfileScreen() {
       icon: Settings,
       title: 'Settings',
       subtitle: 'App preferences and notifications',
-      onPress: () => router.push('/(tabs)/settings'),
+      onPress: () => router.push('/(rider)/settings'),
     },
   ];
 

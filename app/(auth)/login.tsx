@@ -19,12 +19,15 @@ import {
   Eye,
   EyeOff,
   Package,
+  AppleIcon,
 } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLogo } from '@/hooks/useLogo';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import GoogleIcon from '@/lib/googleIcon';
+import FacebookIcon from '@/lib/FacebookIcon';
 
 export default function LoginScreen() {
   const { theme } = useTheme();
@@ -266,7 +269,9 @@ export default function LoginScreen() {
               ]}
               onPress={() => handleSocialLogin('Google')}
             >
-              <Text style={styles.socialButtonText}>G</Text>
+              <Text style={styles.socialButtonText}>
+                <GoogleIcon size={24} />
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[
@@ -278,7 +283,9 @@ export default function LoginScreen() {
               ]}
               onPress={() => handleSocialLogin('Facebook')}
             >
-              <Text style={styles.socialButtonText}>f</Text>
+              <Text style={styles.socialButtonText}>
+                <FacebookIcon size={30} color={theme.colors.text} />
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[
@@ -290,7 +297,9 @@ export default function LoginScreen() {
               ]}
               onPress={() => handleSocialLogin('Apple')}
             >
-              <Text style={styles.socialButtonText}>🍎</Text>
+              <Text style={styles.socialButtonText}>
+                <AppleIcon size={25} color="#A3AAAE" />
+              </Text>
             </TouchableOpacity>
           </View>
         </View>

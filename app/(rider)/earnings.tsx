@@ -163,7 +163,7 @@ export default function EarningsScreen() {
             <DollarSign size={32} color="#FFFFFF" strokeWidth={2} />
             <Text style={styles.balanceLabel}>Total Balance</Text>
           </View>
-          <Text style={styles.balanceAmount}>${earningsData.totalBalance}</Text>
+          <Text style={styles.balanceAmount}>₦{earningsData.totalBalance}</Text>
           <Text style={styles.balanceSubtext}>
             {earningsData.completedDeliveries} deliveries completed
           </Text>
@@ -173,7 +173,7 @@ export default function EarningsScreen() {
             onPress={handleRequestPayout}>
             <CreditCard size={20} color={theme.colors.primary} strokeWidth={2} />
             <Text style={[styles.payoutText, { color: theme.colors.primary }]}>
-              Request Payout ($${earningsData.pendingPayouts})
+              Request Payout (₦{earningsData.pendingPayouts})
             </Text>
           </TouchableOpacity>
         </View>
@@ -253,15 +253,15 @@ export default function EarningsScreen() {
               <View style={styles.earningBreakdown}>
                 <View style={styles.breakdownRow}>
                   <Text style={[styles.breakdownLabel, { color: theme.colors.textSecondary }]}>Gross Amount</Text>
-                  <Text style={[styles.breakdownValue, { color: theme.colors.text }]}>${earning.grossAmount}</Text>
+                  <Text style={[styles.breakdownValue, { color: theme.colors.text }]}>₦{earning.grossAmount}</Text>
                 </View>
                 <View style={styles.breakdownRow}>
                   <Text style={[styles.breakdownLabel, { color: theme.colors.textSecondary }]}>Ridely Fee (15%)</Text>
-                  <Text style={[styles.breakdownValue, { color: theme.colors.error }]}>-${earning.ridelyFee}</Text>
+                  <Text style={[styles.breakdownValue, { color: theme.colors.error }]}>-₦{earning.ridelyFee}</Text>
                 </View>
                 <View style={[styles.breakdownRow, styles.totalRow]}>
                   <Text style={[styles.breakdownTotal, { color: theme.colors.text }]}>Net Earnings</Text>
-                  <Text style={[styles.breakdownTotalValue, { color: theme.colors.success }]}>${earning.netAmount}</Text>
+                  <Text style={[styles.breakdownTotalValue, { color: theme.colors.success }]}>₦{earning.netAmount}</Text>
                 </View>
               </View>
             </View>
@@ -271,10 +271,10 @@ export default function EarningsScreen() {
         {/* Payout Info */}
         <View style={[styles.payoutInfo, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
           <Text style={[styles.payoutTitle, { color: theme.colors.text }]}>💡 Payout Information</Text>
-          <Text style={[styles.payoutText, { color: theme.colors.textSecondary }]}>
+          <Text style={[styles.payoutInfoText, { color: theme.colors.textSecondary }]}>
             • Ridely automatically deducts 15% from each completed delivery{'\n'}
             • Payouts are processed within 1-2 business days{'\n'}
-            • Minimum payout amount is $50{'\n'}
+            • Minimum payout amount is ₦50{'\n'}
             • All earnings are tracked and reported for tax purposes
           </Text>
         </View>
@@ -487,7 +487,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 12,
   },
-  payoutText: {
+  payoutInfoText: {
     fontSize: 14,
     lineHeight: 20,
   },

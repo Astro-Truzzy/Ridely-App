@@ -25,6 +25,12 @@
     },
     "android": {
       "package": "com.anonymous.ridely"
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "f6270d95-21c0-4912-9e17-db7b676f0a7a"
+      }
     }
   }
 }

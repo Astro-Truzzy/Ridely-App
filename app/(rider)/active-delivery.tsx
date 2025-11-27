@@ -46,7 +46,7 @@ export default function ActiveDeliveryScreen() {
   // Pickup and dropoff coordinates (should come from job data in real app)
   // (moved below job variable)
   // Rider's real-time location
-
+  
   // Guarded Mapbox import (avoids crash in Expo Go)
   useEffect(() => {
     let mounted = true;
@@ -93,14 +93,14 @@ export default function ActiveDeliveryScreen() {
           } = await supabase.auth.getUser();
           if (!user) return;
           // Upsert location
-          await supabase.from('rider_locations').upsert([
-            {
+          await supabase
+            .from('rider_locations')
+            .upsert({
               rider_id: user.id,
               latitude,
               longitude,
               updated_at: new Date().toISOString(),
-            },
-          ]);
+            } as never);
         }
       );
     })();
@@ -127,44 +127,6 @@ export default function ActiveDeliveryScreen() {
     latitude: 37.78925,
     longitude: -122.4224,
   };
-
-  // --- Real-time location update logic ---
-  useEffect(() => {
-    let locationSubscription;
-    (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
-
-      locationSubscription = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 5000,
-          distanceInterval: 10,
-        },
-        async (loc) => {
-          const { latitude, longitude } = loc.coords;
-          // Get current user
-          const {
-            data: { user },
-          } = await supabase.auth.getUser();
-          if (!user) return;
-          // Upsert location
-          await supabase.from('rider_locations').upsert([
-            {
-              rider_id: user.id,
-              latitude,
-              longitude,
-              updated_at: new Date().toISOString(),
-            },
-          ]);
-        }
-      );
-    })();
-    return () => {
-      if (locationSubscription) locationSubscription.remove();
-    };
-  }, []);
-  // --- End real-time location update logic ---
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -230,51 +192,16 @@ export default function ActiveDeliveryScreen() {
 
   const handleCompleteDelivery = () => {
     Alert.alert(
-      'Complete Delivery',
-      'Enter the delivery OTP provided by the receiver to complete this delivery.',
+      'Delivery Completed',
+      `You've earned ₦${job?.reward}!\n\nNet earnings: ₦${(
+        job?.reward * 0.85
+      ).toFixed(2)} (after 15% platform fee)\n\nThank you for using Ridely!`,
       [
         {
-          text: 'Enter OTP',
-          onPress: () => {
-            Alert.prompt(
-              'Delivery OTP',
-              'Enter the 4-digit OTP from receiver:',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Confirm',
-                  onPress: (otp) => {
-                    if (otp && otp.length === 4) {
-                      setDeliveryStatus('delivered');
-                      Alert.alert(
-                        'Delivery Completed! 🎉',
-                        `You've earned $${job?.reward}!\n\nNet earnings: $${(
-                          job?.reward * 0.85
-                        ).toFixed(2)} (after 15% Ridely fee)`,
-                        [
-                          {
-                            text: 'View Earnings',
-                            onPress: () => router.replace('/(rider)/earnings'),
-                          },
-                          {
-                            text: 'Back to Dashboard',
-                            onPress: () => router.replace('/(rider)/dashboard'),
-                          },
-                        ]
-                      );
-                    } else {
-                      Alert.alert('Error', 'Please enter a valid 4-digit OTP');
-                    }
-                  },
-                },
-              ],
-              'plain-text',
-              '',
-              'numeric'
-            );
-          },
+          text: 'View Earnings',
+          onPress: () => router.replace('/(rider)/earnings'),
         },
-        { text: 'Cancel', style: 'cancel' },
+        { text: 'Back to Dashboard', onPress: () => router.replace('/(rider)/dashboard') },
       ]
     );
   };
@@ -464,7 +391,7 @@ export default function ActiveDeliveryScreen() {
                 { backgroundColor: theme.colors.success },
               ]}
             >
-              <Text style={styles.rewardText}>${job.reward}</Text>
+              <Text style={styles.rewardText}>₦{job.reward}</Text>
             </View>
           </View>
         </View>
@@ -614,7 +541,7 @@ export default function ActiveDeliveryScreen() {
             <CheckCircle size={32} color="#FFFFFF" strokeWidth={2} />
             <Text style={styles.completedText}>Delivery Completed!</Text>
             <Text style={styles.completedSubtext}>
-              You earned ${(job.reward * 0.85).toFixed(2)} (net)
+              You earned ₦{(job.reward * 0.85).toFixed(2)} (net)
             </Text>
           </View>
         </View>

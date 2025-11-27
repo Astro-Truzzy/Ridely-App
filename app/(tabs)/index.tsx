@@ -20,6 +20,7 @@ import {
 } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 
 interface ActiveDelivery {
@@ -33,7 +34,8 @@ interface ActiveDelivery {
 
 export default function HomeScreen() {
   const { theme } = useTheme();
-  const [userName] = useState('John Doe');
+  const { userProfile } = useAuth(); // Get user profile from AuthContext
+  const [userName, setUserName] = useState(''); // Initialize as empty
   const [activeDelivery, setActiveDelivery] = useState<ActiveDelivery | null>({
     id: 'DEL001',
     status: 'in_transit',
@@ -42,6 +44,15 @@ export default function HomeScreen() {
     fromAddress: '123 Main St, Downtown',
     toAddress: '456 Oak Ave, Uptown',
   });
+
+  // Set the user's name when userProfile is available
+  useEffect(() => {
+    if (userProfile) {
+      setUserName(userProfile.full_name || userProfile.email || 'User');
+    } else {
+      setUserName('User');
+    }
+  }, [userProfile]);
 
   const quickActions = [
     {
@@ -119,7 +130,7 @@ export default function HomeScreen() {
               { backgroundColor: theme.colors.surface },
               theme.shadows.medium,
             ]}
-            onPress={() => Alert.alert('Notifications', 'No new notifications')}
+            onPress={() => router.push('/notifications')}
           >
             <Bell size={24} color={theme.colors.primary} strokeWidth={2} />
           </TouchableOpacity>
@@ -185,53 +196,44 @@ export default function HomeScreen() {
           </Text>
           <View style={styles.quickActionsGrid}>
             {quickActions.map((action, index) => (
-              <Animated.View
+              <TouchableOpacity
                 key={index}
-                entering={FadeInUp.duration(600)}
-                style={styles.quickActionCard}
+                style={[
+                  styles.quickActionCard,
+                  { backgroundColor: theme.colors.surface },
+                  theme.shadows.medium,
+                ]}
+                onPress={action.onPress}
               >
-                <Pressable
-                  onPressIn={() => {
-                    // Handle press in
-                  }}
-                  onPressOut={() => {
-                    // Handle press out
-                  }}
+                <Animated.View
+                  entering={FadeInUp.duration(600)}
                 >
-                  <Animated.View
+                  <View
                     style={[
-                      styles.quickActionCard,
-                      { backgroundColor: theme.colors.surface },
-                      theme.shadows.medium,
+                      styles.quickActionIcon,
+                      { backgroundColor: action.color },
                     ]}
                   >
-                    <View
-                      style={[
-                        styles.quickActionIcon,
-                        { backgroundColor: action.color },
-                      ]}
-                    >
-                      <action.icon size={24} color="#FFFFFF" strokeWidth={2} />
-                    </View>
-                    <Text
-                      style={[
-                        styles.quickActionTitle,
-                        { color: theme.colors.text },
-                      ]}
-                    >
-                      {action.title}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.quickActionSubtitle,
-                        { color: theme.colors.textSecondary },
-                      ]}
-                    >
-                      {action.subtitle}
-                    </Text>
-                  </Animated.View>
-                </Pressable>
-              </Animated.View>
+                    <action.icon size={24} color="#FFFFFF" strokeWidth={2} />
+                  </View>
+                  <Text
+                    style={[
+                      styles.quickActionTitle,
+                      { color: theme.colors.text },
+                    ]}
+                  >
+                    {action.title}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.quickActionSubtitle,
+                      { color: theme.colors.textSecondary },
+                    ]}
+                  >
+                    {action.subtitle}
+                  </Text>
+                </Animated.View>
+              </TouchableOpacity>
             ))}
           </View>
         </View>
@@ -251,17 +253,17 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
           {recentDeliveries.map((delivery) => (
-            <Animated.View
+            <TouchableOpacity
               key={delivery.id}
-              entering={FadeInUp.duration(600)}
-              style={styles.deliveryCard}
+              style={[
+                styles.deliveryCard,
+                { backgroundColor: theme.colors.surface },
+                theme.shadows.small,
+              ]}
+              onPress={() => router.push('/tracking')}
             >
-              <TouchableOpacity
-                style={[
-                  styles.deliveryCard,
-                  { backgroundColor: theme.colors.surface },
-                  theme.shadows.small,
-                ]}
+              <Animated.View
+                entering={FadeInUp.duration(600)}
               >
                 <View style={styles.deliveryInfo}>
                   <Text
@@ -273,11 +275,6 @@ export default function HomeScreen() {
                     {delivery.date}
                   </Text>
                   <Text style={styles.deliveryRoute}>
-                    {delivery.from} → {delivery.to}
-                  </Text>
-                  <Text
-                    style={[styles.deliveryRoute, { color: theme.colors.text }]}
-                  >
                     {delivery.from} → {delivery.to}
                   </Text>
                   <Text
@@ -294,8 +291,8 @@ export default function HomeScreen() {
                 >
                   {delivery.price}
                 </Text>
-              </TouchableOpacity>
-            </Animated.View>
+              </Animated.View>
+            </TouchableOpacity>
           ))}
         </View>
       </ScrollView>
@@ -340,7 +337,6 @@ const styles = StyleSheet.create({
     padding: 24,
     marginBottom: 28,
     borderWidth: 2,
-    backgroundColor: '#fff',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -400,6 +396,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 20,
     fontWeight: '700',
+    marginBottom: 12,
   },
   viewAllText: {
     fontSize: 14,
@@ -409,36 +406,43 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    gap: 12,
+    rowGap: 16, // Adds vertical spacing between rows
   },
+
   quickActionCard: {
-    borderRadius: 18,
-    padding: 22,
+    width: '48%', // Slightly smaller for better spacing
+    borderRadius: 20,
+    paddingVertical: 24,
+    paddingHorizontal: 12,
     alignItems: 'center',
-    width: '48%',
-    backgroundColor: '#fff',
+    justifyContent: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
     shadowRadius: 8,
-    elevation: 2,
+    elevation: 3,
   },
+
   quickActionIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
+
   quickActionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'center',
     marginBottom: 4,
   },
+
   quickActionSubtitle: {
     fontSize: 12,
     textAlign: 'center',
+    opacity: 0.7,
   },
   deliveryCard: {
     borderRadius: 16,
@@ -447,7 +451,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#fff',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
@@ -465,6 +468,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 4,
+    color: '#FFFFFF',
   },
   deliveryStatus: {
     fontSize: 12,

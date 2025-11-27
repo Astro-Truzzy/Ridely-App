@@ -194,7 +194,7 @@ export default function ForgotPasswordScreen() {
             style={styles.backButton}
             onPress={() => router.back()}
           >
-            <ArrowLeft size={24} color="#1F2937" strokeWidth={2} />
+           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
           </TouchableOpacity>
         </View>
 

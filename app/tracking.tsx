@@ -7,6 +7,9 @@ import {
   TouchableOpacity,
   Alert,
   Platform,
+  PanResponder,
+  Dimensions,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -18,6 +21,7 @@ import {
   Star,
 } from 'lucide-react-native';
 import { router } from 'expo-router';
+import { useTheme } from '@/contexts/ThemeContext';
 
 interface RiderInfo {
   name: string;
@@ -35,9 +39,12 @@ type DeliveryStatus =
   | 'picked_up'
   | 'in_transit'
   | 'nearby'
-  | 'delivered';
+  | 'delivered'
+  | 'feedback_requested'
+  | 'completed';
 
 export default function TrackingScreen() {
+  const { theme, isDark } = useTheme();
   const [deliveryStatus, setDeliveryStatus] =
     useState<DeliveryStatus>('in_transit');
   const [rider] = useState<RiderInfo>({
@@ -58,6 +65,38 @@ export default function TrackingScreen() {
   });
   const [MapboxGL, setMapboxGL] = useState<any | null>(null);
   const subscriptionRef = useRef<any | null>(null);
+  
+  // Draggable card state
+  const [cardPosition, setCardPosition] = useState({ x: 20, y: 100 }); // Position below header
+  const initialPosition = useRef({ x: 20, y: 100 });
+  
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (_, gestureState) => {
+        // Store the initial position
+        initialPosition.current = { ...cardPosition };
+      },
+      onPanResponderMove: (_, gestureState) => {
+        // Calculate new position based on initial position and gesture movement
+        const newX = initialPosition.current.x + gestureState.dx;
+        const newY = initialPosition.current.y + gestureState.dy;
+        
+        // Update position
+        setCardPosition({
+          x: newX,
+          y: newY,
+        });
+      },
+      onPanResponderRelease: () => {
+        // Keep the card at the new position
+      },
+      onPanResponderTerminate: () => {
+        // Keep the card at the new position
+      },
+    })
+  ).current;
 
   // Guarded Mapbox import (avoids crash in Expo Go)
   useEffect(() => {
@@ -121,15 +160,16 @@ export default function TrackingScreen() {
           .select('latitude,longitude')
           .eq('rider_id', RIDER_ID)
           .single();
-          
+
         if (error) {
           console.warn('[tracking] initial location fetch error', error);
           return;
         }
         if (data) {
+          const location = data as { latitude: number; longitude: number };
           setRiderCoords({
-            latitude: data.latitude,
-            longitude: data.longitude,
+            latitude: location.latitude,
+            longitude: location.longitude,
           });
         }
       } catch (err) {
@@ -183,6 +223,10 @@ export default function TrackingScreen() {
         return 'Rider Nearby';
       case 'delivered':
         return 'Delivered';
+      case 'feedback_requested':
+        return 'Feedback Requested';
+      case 'completed':
+        return 'Delivery Completed';
       default:
         return 'Processing';
     }
@@ -191,19 +235,23 @@ export default function TrackingScreen() {
   const getStatusColor = (status: DeliveryStatus) => {
     switch (status) {
       case 'rider_assigned':
-        return '#FFC947';
+        return theme.colors.accent;
       case 'pickup_arrived':
-        return '#3B82F6';
+        return theme.colors.info;
       case 'picked_up':
         return '#8B5CF6';
       case 'in_transit':
-        return '#5A47FF';
+        return theme.colors.primary;
       case 'nearby':
-        return '#F97316';
+        return theme.colors.warning;
       case 'delivered':
-        return '#10B981';
+        return theme.colors.success;
+      case 'feedback_requested':
+        return theme.colors.info;
+      case 'completed':
+        return '#8B5CF6';
       default:
-        return '#6B7280';
+        return theme.colors.textTertiary;
     }
   };
 
@@ -243,9 +291,9 @@ export default function TrackingScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: theme.colors.primary }]}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => router.back()}
@@ -256,232 +304,270 @@ export default function TrackingScreen() {
         <View style={styles.placeholder} />
       </View>
 
-      {/* Map Area with Preview and Tap-to-Expand */}
-      <TouchableOpacity
-        style={styles.mapContainer}
-        activeOpacity={0.85}
-        onPress={() => setMapExpanded(true)}
-      >
-        {MapboxGL ? (
-          <MapboxGL.MapView style={styles.map}>
-            <MapboxGL.Camera
-              centerCoordinate={[riderCoords.longitude, riderCoords.latitude]}
-              zoomLevel={14}
-            />
-            <MapboxGL.PointAnnotation
-              id="rider"
-              coordinate={[riderCoords.longitude, riderCoords.latitude]}
-            >
-              {/* Optionally add a custom marker here */}
-              <View
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: 14,
-                  backgroundColor: '#5A47FF',
-                }}
-              />
-            </MapboxGL.PointAnnotation>
-          </MapboxGL.MapView>
-        ) : (
-          // Fallback simple static map placeholder / prompt
-          <View
-            style={[
-              styles.map,
-              { justifyContent: 'center', alignItems: 'center' },
-            ]}
-          >
-            <Text style={{ color: '#374151' }}>
-              Map unavailable in Expo Go. Run EAS build or use react-native-maps
-              for dev.
-            </Text>
-          </View>
-        )}
-        {/* Floating Status Card */}
-        <View style={styles.statusCard}>
-          <View style={styles.statusHeader}>
-            <View style={styles.statusIndicator}>
-              <View
-                style={[
-                  styles.statusDot,
-                  { backgroundColor: getStatusColor(deliveryStatus) },
-                ]}
-              />
-              <Text style={styles.statusText}>
-                {getStatusText(deliveryStatus)}
-              </Text>
-            </View>
-            <Text style={styles.elapsedTime}>{formatTime(elapsedTime)}</Text>
-          </View>
-          <Text style={styles.estimatedArrival}>
-            Estimated arrival: {rider.estimatedArrival}
-          </Text>
-        </View>
-      </TouchableOpacity>
-
-      {/* Fullscreen Map Modal */}
-      {mapExpanded && (
-        <View style={StyleSheet.absoluteFill}>
+      <ScrollView style={{ flex: 1 }}>
+        {/* Map Area with Preview and Tap-to-Expand */}
+        <TouchableOpacity
+          style={[styles.mapContainer, { backgroundColor: isDark ? theme.colors.card : '#E5E7EB' }]}
+          activeOpacity={0.8}
+          onPress={() => setMapExpanded(true)}
+        >
           {MapboxGL ? (
-            <MapboxGL.MapView style={{ flex: 1 }}>
+            <MapboxGL.MapView style={styles.map}>
               <MapboxGL.Camera
                 centerCoordinate={[riderCoords.longitude, riderCoords.latitude]}
                 zoomLevel={14}
               />
               <MapboxGL.PointAnnotation
-                id="rider-full"
+                id="rider"
                 coordinate={[riderCoords.longitude, riderCoords.latitude]}
               >
+                {/* Optionally add a custom marker here */}
                 <View
                   style={{
-                    width: 38,
-                    height: 38,
-                    borderRadius: 19,
-                    backgroundColor: '#5A47FF',
+                    width: 28,
+                    height: 28,
+                    borderRadius: 14,
+                    backgroundColor: theme.colors.primary,
                   }}
                 />
               </MapboxGL.PointAnnotation>
             </MapboxGL.MapView>
           ) : (
+            // Fallback simple static map placeholder / prompt
             <View
-              style={{
-                flex: 1,
-                justifyContent: 'center',
-                alignItems: 'center',
-                padding: 20,
-              }}
+              style={[
+                styles.map,
+                { justifyContent: 'center', alignItems: 'center' },
+              ]}
             >
-              <Text style={{ textAlign: 'center' }}>
-                Map unavailable in Expo Go. To test Mapbox, run an EAS/custom
-                build or switch to react-native-maps.
+              <Text style={{ color: isDark ? theme.colors.text : '#374151' }}>
+                Map unavailable in Expo Go. Run EAS build or use react-native-maps
+                for dev.
               </Text>
             </View>
           )}
-          <TouchableOpacity
-            style={{
-              position: 'absolute',
-              top: 40,
-              right: 20,
-              backgroundColor: '#fff',
-              borderRadius: 20,
-              padding: 10,
-              zIndex: 10,
-            }}
-            onPress={() => setMapExpanded(false)}
+        </TouchableOpacity>
+
+        {/* Draggable Status Card - Moved outside map container */}
+        {!mapExpanded && (
+          <TouchableOpacity 
+            style={[
+              styles.statusCard,
+              {
+                position: 'absolute',
+                left: cardPosition.x,
+                top: cardPosition.y,
+                zIndex: 100, // Ensure it's on top
+                width: 300, // Fixed width to prevent shrinking
+                backgroundColor: theme.colors.card,
+                shadowColor: isDark ? '#000' : '#000',
+                ...theme.shadows.large,
+              }
+            ]}
+            {...panResponder.panHandlers}
+            activeOpacity={1}
           >
-            <Text>Close</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Rider Info Card */}
-      <View style={styles.riderCard}>
-        <View style={styles.riderHeader}>
-          <View style={styles.riderAvatar}>
-            <User size={24} color="#FFFFFF" strokeWidth={2} />
-          </View>
-          <View style={styles.riderInfo}>
-            <Text style={styles.riderName}>{rider.name}</Text>
-            <View style={styles.riderRating}>
-              <Star size={16} color="#FFC947" fill="#FFC947" strokeWidth={2} />
-              <Text style={styles.ratingText}>{rider.rating}</Text>
-            </View>
-          </View>
-          <View style={styles.actionButtons}>
-            <TouchableOpacity
-              style={styles.messageButton}
-              onPress={handleMessage}
-            >
-              <MessageCircle size={20} color="#5A47FF" strokeWidth={2} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.callButton} onPress={handleCall}>
-              <Phone size={20} color="#FFFFFF" strokeWidth={2} />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.riderDetails}>
-          <View style={styles.detailItem}>
-            <Text style={styles.detailLabel}>Vehicle:</Text>
-            <Text style={styles.detailValue}>{rider.vehicle}</Text>
-          </View>
-          <View style={styles.detailItem}>
-            <Text style={styles.detailLabel}>Plate:</Text>
-            <Text style={styles.detailValue}>{rider.plateNumber}</Text>
-          </View>
-          <View style={styles.detailItem}>
-            <Text style={styles.detailLabel}>Location:</Text>
-            <Text style={styles.detailValue}>{rider.currentLocation}</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Delivery Steps */}
-      <View style={styles.stepsContainer}>
-        <Text style={styles.stepsTitle}>Delivery Progress</Text>
-
-        {[
-          { status: 'rider_assigned', text: 'Rider assigned to your delivery' },
-          {
-            status: 'pickup_arrived',
-            text: 'Rider arrived at pickup location',
-          },
-          { status: 'picked_up', text: 'Package picked up' },
-          { status: 'in_transit', text: 'Package in transit' },
-          { status: 'nearby', text: 'Rider approaching destination' },
-          { status: 'delivered', text: 'Package delivered' },
-        ].map((step, index) => {
-          const stepStatus = step.status as DeliveryStatus;
-          const isCompleted =
-            stepStatus === 'rider_assigned' ||
-            stepStatus === 'pickup_arrived' ||
-            stepStatus === 'picked_up' ||
-            (stepStatus === 'in_transit' && deliveryStatus === 'in_transit') ||
-            (stepStatus === 'delivered' && deliveryStatus === 'delivered');
-
-          const isCurrent = stepStatus === deliveryStatus;
-
-          return (
-            <View key={stepStatus} style={styles.stepItem}>
-              <View
-                style={[
-                  styles.stepIndicator,
-                  isCompleted && styles.completedStep,
-                  isCurrent && styles.currentStep,
-                ]}
-              >
-                {isCompleted ? (
-                  <Text style={styles.stepCheckmark}>✓</Text>
-                ) : (
-                  <Text style={styles.stepNumber}>{index + 1}</Text>
-                )}
+            <View style={styles.statusHeader}>
+              <View style={styles.statusIndicator}>
+                <View
+                  style={[
+                    styles.statusDot,
+                    { backgroundColor: getStatusColor(deliveryStatus) },
+                  ]}
+                />
+                <Text style={[styles.statusText, { color: theme.colors.text }]}>
+                  {getStatusText(deliveryStatus)}
+                </Text>
               </View>
-              <Text
-                style={[
-                  styles.stepText,
-                  isCompleted && styles.completedStepText,
-                  isCurrent && styles.currentStepText,
-                ]}
-              >
-                {step.text}
-              </Text>
+              <Text style={[styles.elapsedTime, { color: theme.colors.primary }]}>{formatTime(elapsedTime)}</Text>
             </View>
-          );
-        })}
-      </View>
-
-      {/* Bottom Action */}
-      {deliveryStatus === 'nearby' && (
-        <View style={styles.bottomContainer}>
-          <TouchableOpacity
-            style={styles.deliveredButton}
-            onPress={handleMarkDelivered}
-          >
-            <Package size={20} color="#FFFFFF" strokeWidth={2} />
-            <Text style={styles.deliveredText}>Mark as Delivered</Text>
+            <Text style={[styles.estimatedArrival, { color: theme.colors.textSecondary }]}>
+              Estimated arrival: {rider.estimatedArrival}
+            </Text>
           </TouchableOpacity>
+        )}
+
+        {/* Fullscreen Map Modal */}
+        {mapExpanded && (
+          <View style={StyleSheet.absoluteFill}>
+            {MapboxGL ? (
+              <MapboxGL.MapView style={{ flex: 1 }}>
+                <MapboxGL.Camera
+                  centerCoordinate={[riderCoords.longitude, riderCoords.latitude]}
+                  zoomLevel={14}
+                />
+                <MapboxGL.PointAnnotation
+                  id="rider-full"
+                  coordinate={[riderCoords.longitude, riderCoords.latitude]}
+                >
+                  <View
+                    style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 19,
+                      backgroundColor: theme.colors.primary,
+                    }}
+                  />
+                </MapboxGL.PointAnnotation>
+              </MapboxGL.MapView>
+            ) : (
+              <View
+                style={{
+                  flex: 1,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  padding: 20,
+                  backgroundColor: theme.colors.background,
+                }}
+              >
+                <Text style={{ textAlign: 'center', color: theme.colors.text }}>
+                  Map unavailable in Expo Go. To test Mapbox, run an EAS/custom
+                  build or switch to react-native-maps.
+                </Text>
+              </View>
+            )}
+            <TouchableOpacity
+              style={{
+                position: 'absolute',
+                top: 40,
+                right: 20,
+                backgroundColor: theme.colors.card,
+                borderRadius: 20,
+                padding: 10,
+                zIndex: 10,
+                ...theme.shadows.medium,
+              }}
+              onPress={() => setMapExpanded(false)}
+            >
+              <Text style={{ color: theme.colors.text }}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Rider Info Card */}
+        <View style={[styles.riderCard, { 
+          backgroundColor: theme.colors.card,
+          ...theme.shadows.medium,
+        }]}>
+          <View style={styles.riderHeader}>
+            <View style={[styles.riderAvatar, { backgroundColor: theme.colors.primary }]}>
+              <User size={24} color="#FFFFFF" strokeWidth={2} />
+            </View>
+            <View style={styles.riderInfo}>
+              <Text style={[styles.riderName, { color: theme.colors.text }]}>{rider.name}</Text>
+              <View style={styles.riderRating}>
+                <Star size={16} color="#FFC947" fill="#FFC947" strokeWidth={2} />
+                <Text style={[styles.ratingText, { color: theme.colors.text }]}>{rider.rating}</Text>
+              </View>
+            </View>
+            <View style={styles.actionButtons}>
+              <TouchableOpacity
+                style={[styles.messageButton, { backgroundColor: isDark ? '#1F2937' : '#F0F2FF' }]}
+                onPress={handleMessage}
+              >
+                <MessageCircle size={20} color={isDark ? "#5A47FF" : "#5A47FF"} strokeWidth={2} />
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.callButton, { backgroundColor: theme.colors.success }]} onPress={handleCall}>
+                <Phone size={20} color="#FFFFFF" strokeWidth={2} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.riderDetails}>
+            <View style={styles.detailItem}>
+              <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>{'Vehicle:'}</Text>
+              <Text style={[styles.detailValue, { color: theme.colors.text }]}>{rider.vehicle}</Text>
+            </View>
+            <View style={styles.detailItem}>
+              <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>{'Plate:'}</Text>
+              <Text style={[styles.detailValue, { color: theme.colors.text }]}>{rider.plateNumber}</Text>
+            </View>
+            <View style={styles.detailItem}>
+              <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>{'Location:'}</Text>
+              <Text style={[styles.detailValue, { color: theme.colors.text }]}>{rider.currentLocation}</Text>
+            </View>
+          </View>
         </View>
-      )}
+
+        {/* Delivery Steps */}
+        <View style={[styles.stepsContainer, { 
+          backgroundColor: theme.colors.card,
+          ...theme.shadows.medium,
+        }]}>
+          <Text style={[styles.stepsTitle, { color: theme.colors.text }]}>{'Delivery Progress'}</Text>
+
+          {[
+            { status: 'rider_assigned', text: 'Rider assigned to your delivery' },
+            {
+              status: 'pickup_arrived',
+              text: 'Rider arrived at pickup location',
+            },
+            { status: 'picked_up', text: 'Package picked up' },
+            { status: 'in_transit', text: 'Package in transit' },
+            { status: 'nearby', text: 'Rider approaching destination' },
+            { status: 'delivered', text: 'Package delivered' },
+            { status: 'feedback_requested', text: 'Feedback requested' }, // New step 7
+            { status: 'completed', text: 'Delivery completed' }, // New step 8
+          ].map((step, index) => {
+            const stepStatus = step.status as DeliveryStatus;
+            const isCompleted =
+              stepStatus === 'rider_assigned' ||
+              stepStatus === 'pickup_arrived' ||
+              stepStatus === 'picked_up' ||
+              (stepStatus === 'in_transit' && deliveryStatus === 'in_transit') ||
+              (stepStatus === 'delivered' && deliveryStatus === 'delivered') ||
+              (stepStatus === 'feedback_requested' && deliveryStatus === 'completed') ||
+              (stepStatus === 'completed' && deliveryStatus === 'completed');
+
+            const isCurrent = stepStatus === deliveryStatus;
+
+            return (
+              <View key={stepStatus} style={styles.stepItem}>
+                <View
+                  style={[
+                    styles.stepIndicator,
+                    isCompleted && styles.completedStep,
+                    isCurrent && styles.currentStep,
+                    !isCompleted && { backgroundColor: isDark ? '#4B5563' : '#E5E7EB' }
+                  ]}
+                >
+                  {isCompleted ? (
+                    <Text style={styles.stepCheckmark}>✓</Text>
+                  ) : (
+                    <Text style={[styles.stepNumber, { color: isDark ? theme.colors.textSecondary : '#9CA3AF' }]}>{index + 1}</Text>
+                  )}
+                </View>
+                <Text
+                  style={[
+                    styles.stepText,
+                    { color: theme.colors.textSecondary },
+                    isCompleted && { color: theme.colors.text },
+                    isCurrent && { color: theme.colors.text, fontWeight: '600' },
+                  ]}
+                >
+                  {step.text}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+
+        {/* Bottom Action */}
+        {deliveryStatus === 'nearby' && (
+          <View style={[styles.bottomContainer, { 
+            backgroundColor: theme.colors.card,
+            borderTopColor: theme.colors.border
+          }]}>
+            <TouchableOpacity
+              style={[styles.deliveredButton, { backgroundColor: theme.colors.success }]}
+              onPress={handleMarkDelivered}
+            >
+              <Package size={20} color="#FFFFFF" strokeWidth={2} />
+              <Text style={styles.deliveredText}>Mark as Delivered</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -489,7 +575,6 @@ export default function TrackingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F7F8FA',
   },
   header: {
     flexDirection: 'row',
@@ -498,7 +583,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 20,
-    backgroundColor: '#5A47FF',
   },
   backButton: {
     width: 40,
@@ -519,7 +603,6 @@ const styles = StyleSheet.create({
   mapContainer: {
     height: 280,
     position: 'relative',
-    backgroundColor: '#E5E7EB',
     overflow: 'hidden',
     borderRadius: 16,
     margin: 16,
@@ -527,33 +610,11 @@ const styles = StyleSheet.create({
   map: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 16,
-  },
-  mapText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#374151',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  mapSubtext: {
-    fontSize: 14,
-    color: '#6B7280',
-    textAlign: 'center',
-    lineHeight: 20,
+    padding:   10,
   },
   statusCard: {
-    position: 'absolute',
-    top: 20,
-    left: 20,
-    right: 20,
-    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
   },
   statusHeader: {
     flexDirection: 'row',
@@ -574,27 +635,18 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1F2937',
   },
   elapsedTime: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#5A47FF',
   },
   estimatedArrival: {
     fontSize: 14,
-    color: '#6B7280',
   },
   riderCard: {
-    backgroundColor: '#FFFFFF',
     margin: 20,
     borderRadius: 16,
     padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
   },
   riderHeader: {
     flexDirection: 'row',
@@ -605,7 +657,6 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#5A47FF',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
@@ -616,7 +667,6 @@ const styles = StyleSheet.create({
   riderName: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1F2937',
     marginBottom: 4,
   },
   riderRating: {
@@ -626,7 +676,6 @@ const styles = StyleSheet.create({
   ratingText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#374151',
     marginLeft: 4,
   },
   actionButtons: {
@@ -637,7 +686,6 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#F0F2FF',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -645,7 +693,6 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#10B981',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -659,29 +706,20 @@ const styles = StyleSheet.create({
   },
   detailLabel: {
     fontSize: 14,
-    color: '#6B7280',
   },
   detailValue: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#1F2937',
   },
   stepsContainer: {
-    backgroundColor: '#FFFFFF',
     margin: 20,
     marginTop: 0,
     borderRadius: 16,
     padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
   },
   stepsTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1F2937',
     marginBottom: 20,
   },
   stepItem: {
@@ -693,7 +731,6 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#E5E7EB',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
@@ -710,32 +747,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   stepNumber: {
-    color: '#9CA3AF',
     fontSize: 14,
     fontWeight: '600',
   },
   stepText: {
     fontSize: 14,
-    color: '#6B7280',
     flex: 1,
-  },
-  completedStepText: {
-    color: '#374151',
-    fontWeight: '500',
-  },
-  currentStepText: {
-    color: '#1F2937',
-    fontWeight: '600',
   },
   bottomContainer: {
     padding: 20,
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
   },
   deliveredButton: {
     flexDirection: 'row',
-    backgroundColor: '#10B981',
     paddingVertical: 16,
     borderRadius: 16,
     alignItems: 'center',
@@ -744,7 +767,6 @@ const styles = StyleSheet.create({
   deliveredText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#FFFFFF',
     marginLeft: 8,
   },
 });

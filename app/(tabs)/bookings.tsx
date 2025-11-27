@@ -10,6 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Package, Clock, CheckCircle, XCircle, MapPin } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { GestureHandlerRootView, PanGestureHandler, State } from 'react-native-gesture-handler';
 
 interface Booking {
   id: string;
@@ -25,7 +26,7 @@ interface Booking {
 
 export default function BookingsScreen() {
   const { theme } = useTheme();
-  const [activeTab, setActiveTab] = useState<'all' | 'active' | 'completed'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'active' | 'completed' | 'cancelled'>('all');
 
   const bookings: Booking[] = [
     {
@@ -115,11 +116,27 @@ export default function BookingsScreen() {
     
     if (activeTab === 'completed') {
       return bookings.filter(booking => 
-        booking.status === 'delivered' || booking.status === 'cancelled'
+        booking.status === 'delivered'
+      );
+    }
+    
+    if (activeTab === 'cancelled') {
+      return bookings.filter(booking => 
+        booking.status === 'cancelled'
       );
     }
     
     return bookings;
+  };
+
+  const onGestureEvent = (event: any) => {
+    // Handle horizontal swipe gesture
+    if (event.nativeEvent.state === State.END) {
+      // Check if it's a right-to-left swipe (go back)
+      if (event.nativeEvent.velocityX < -500) {
+        router.back();
+      }
+    }
   };
 
   const styles = StyleSheet.create({
@@ -155,7 +172,8 @@ export default function BookingsScreen() {
       flexDirection: 'row',
       paddingHorizontal: 20,
       marginBottom: 20,
-      backgroundColor: theme.colors.border,
+      marginTop: 20,
+      backgroundColor: theme.colors.surface,
       marginHorizontal: 20,
       borderRadius: 12,
       padding: 4,
@@ -173,11 +191,11 @@ export default function BookingsScreen() {
     tabText: {
       fontSize: 16,
       fontWeight: '500',
-      color: theme.colors.textSecondary,
+      color: theme.colors.textTertiary,
     },
     activeTabText: {
       fontWeight: '600',
-      color: theme.colors.primary,
+      color: theme.colors.text,
     },
     scrollView: {
       flex: 1,
@@ -212,16 +230,18 @@ export default function BookingsScreen() {
     statusContainer: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: theme.colors.border,
+      backgroundColor: theme.colors.surface,
       paddingHorizontal: 8,
       paddingVertical: 4,
       borderRadius: 8,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
     },
     statusText: {
       fontSize: 10,
       fontWeight: '600',
       marginLeft: 4,
-      color: theme.colors.textSecondary,
+      color: theme.colors.text,
     },
     addressContainer: {
       marginBottom: 16,
@@ -240,9 +260,10 @@ export default function BookingsScreen() {
     addressDivider: {
       width: 2,
       height: 20,
-      backgroundColor: theme.colors.border,
+      backgroundColor: theme.colors.textTertiary,
       marginLeft: 8,
       marginBottom: 8,
+      opacity: 0.5,
     },
     bookingFooter: {
       flexDirection: 'row',
@@ -271,11 +292,12 @@ export default function BookingsScreen() {
       marginTop: 12,
       paddingTop: 12,
       borderTopWidth: 1,
-      borderTopColor: theme.colors.border,
+      borderTopColor: theme.colors.textTertiary,
+      opacity: 0.3,
     },
     trackText: {
       fontSize: 14,
-      color: theme.colors.primary,
+      color: theme.colors.text,
       fontWeight: '600',
       textAlign: 'center',
     },
@@ -305,138 +327,176 @@ export default function BookingsScreen() {
       borderRadius: 25,
     },
     emptyStateButtonText: {
-      color: '#FFFFFF',
+      color: theme.colors.surface,
       fontSize: 16,
       fontWeight: '600',
     },
   });
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <SafeAreaView style={styles.header}>
-        <Text style={styles.title}>My Bookings</Text>
-        <TouchableOpacity 
-          style={styles.newBookingButton}
-          onPress={() => router.push('/booking')}
-        >
-          <Text style={styles.newBookingText}>New Booking</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
-
-      {/* Tabs */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'all' && styles.activeTab]}
-          onPress={() => setActiveTab('all')}
-        >
-          <Text style={[styles.tabText, activeTab === 'all' && styles.activeTabText]}>
-            All
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'active' && styles.activeTab]}
-          onPress={() => setActiveTab('active')}
-        >
-          <Text style={[styles.tabText, activeTab === 'active' && styles.activeTabText]}>
-            Active
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'completed' && styles.activeTab]}
-          onPress={() => setActiveTab('completed')}
-        >
-          <Text style={[styles.tabText, activeTab === 'completed' && styles.activeTabText]}>
-            Completed
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Bookings List */}
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {getFilteredBookings().map(booking => (
-          <TouchableOpacity
-            key={booking.id}
-            style={styles.bookingCard}
-            onPress={() => {
-              if (booking.status === 'in_transit') {
-                router.push('/tracking');
-              }
-            }}>
-            <View style={styles.bookingHeader}>
-              <View style={styles.bookingInfo}>
-                <Text style={styles.bookingId}>#{booking.id}</Text>
-                <Text style={styles.bookingDateTime}>
-                  {booking.date} • {booking.time}
-                </Text>
-              </View>
-              <View style={styles.statusContainer}>
-                {getStatusIcon(booking.status)}
-                <Text
-                  style={[
-                    styles.statusText,
-                    { color: getStatusColor(booking.status) },
-                  ]}>
-                  {booking.status.replace('_', ' ').toUpperCase()}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.addressContainer}>
-              <View style={styles.addressRow}>
-                <MapPin size={16} color="#10B981" strokeWidth={2} />
-                <Text style={styles.addressText} numberOfLines={1}>
-                  {booking.from}
-                </Text>
-              </View>
-              <View style={styles.addressDivider} />
-              <View style={styles.addressRow}>
-                <MapPin size={16} color="#EF4444" strokeWidth={2} />
-                <Text style={styles.addressText} numberOfLines={1}>
-                  {booking.to}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.bookingFooter}>
-              <View style={styles.bookingDetails}>
-                <Text style={styles.parcelSize}>
-                  Size: {booking.parcelSize.charAt(0).toUpperCase() + booking.parcelSize.slice(1)}
-                </Text>
-                {booking.riderName && (
-                  <Text style={styles.riderName}>Rider: {booking.riderName}</Text>
-                )}
-              </View>
-              <Text style={styles.price}>{booking.price}</Text>
-            </View>
-
-            {booking.status === 'in_transit' && (
-              <View style={styles.actionContainer}>
-                <Text style={styles.trackText}>Tap to track delivery →</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        ))}
-
-        {getFilteredBookings().length === 0 && (
-          <View style={styles.emptyState}>
-            <Package size={48} color={theme.colors.textSecondary} strokeWidth={2} />
-            <Text style={styles.emptyStateTitle}>No bookings found</Text>
-            <Text style={styles.emptyStateText}>
-              {activeTab === 'active'
-                ? 'You have no active deliveries'
-                : activeTab === 'completed'
-                ? 'No completed deliveries yet'
-                : 'Start by booking your first delivery'}
-            </Text>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <PanGestureHandler onHandlerStateChange={onGestureEvent}>
+        <SafeAreaView style={styles.container}>
+          {/* Header */}
+          <View style={[styles.header, { backgroundColor: theme.colors.card }]}>
+            <Text style={[styles.title, { color: theme.colors.text }]}>My Bookings</Text>
             <TouchableOpacity
-              style={styles.emptyStateButton}
+              style={[styles.newBookingButton, { backgroundColor: theme.colors.primary }]}
               onPress={() => router.push('/booking')}>
-              <Text style={styles.emptyStateButtonText}>Book a Delivery</Text>
+              <Text style={styles.newBookingText}>New Booking</Text>
             </TouchableOpacity>
           </View>
-        )}
-      </ScrollView>
-    </SafeAreaView>
+
+          {/* Tabs */}
+          <View style={[styles.tabContainer, { backgroundColor: theme.colors.card }]}>
+            <TouchableOpacity
+              style={[
+                styles.tab,
+                activeTab === 'all' && styles.activeTab,
+                { borderColor: activeTab === 'all' ? theme.colors.primary : 'transparent' }
+              ]}
+              onPress={() => setActiveTab('all')}>
+              <Text style={[
+                styles.tabText,
+                { color: activeTab === 'all' ? theme.colors.primary : theme.colors.textSecondary }
+              ]}>
+                All
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[
+                styles.tab,
+                activeTab === 'active' && styles.activeTab,
+                { borderColor: activeTab === 'active' ? theme.colors.primary : 'transparent' }
+              ]}
+              onPress={() => setActiveTab('active')}>
+              <Text style={[
+                styles.tabText,
+                { color: activeTab === 'active' ? theme.colors.primary : theme.colors.textSecondary }
+              ]}>
+                Active
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[
+                styles.tab,
+                activeTab === 'completed' && styles.activeTab,
+                { borderColor: activeTab === 'completed' ? theme.colors.primary : 'transparent' }
+              ]}
+              onPress={() => setActiveTab('completed')}>
+              <Text style={[
+                styles.tabText,
+                { color: activeTab === 'completed' ? theme.colors.primary : theme.colors.textSecondary }
+              ]}>
+                Completed
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[
+                styles.tab,
+                activeTab === 'cancelled' && styles.activeTab,
+                { borderColor: activeTab === 'cancelled' ? theme.colors.primary : 'transparent' }
+              ]}
+              onPress={() => setActiveTab('cancelled')}>
+              <Text style={[
+                styles.tabText,
+                { color: activeTab === 'cancelled' ? theme.colors.primary : theme.colors.textSecondary }
+              ]}>
+                Cancelled
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Bookings List */}
+          <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+            {getFilteredBookings().map(booking => (
+              <TouchableOpacity
+                key={booking.id}
+                style={styles.bookingCard}
+                onPress={() => {
+                  if (booking.status === 'in_transit') {
+                    router.push('/tracking');
+                  }
+                }}>
+                <View style={styles.bookingHeader}>
+                  <View style={styles.bookingInfo}>
+                    <Text style={styles.bookingId}>#{booking.id}</Text>
+                    <Text style={styles.bookingDateTime}>
+                      {booking.date} • {booking.time}
+                    </Text>
+                  </View>
+                  <View style={styles.statusContainer}>
+                    {getStatusIcon(booking.status)}
+                    <Text
+                      style={[
+                        styles.statusText,
+                        { color: getStatusColor(booking.status) },
+                      ]}>
+                      {booking.status.replace('_', ' ').toUpperCase()}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.addressContainer}>
+                  <View style={styles.addressRow}>
+                    <MapPin size={16} color="#10B981" strokeWidth={2} />
+                    <Text style={styles.addressText} numberOfLines={1}>
+                      {booking.from}
+                    </Text>
+                  </View>
+                  <View style={styles.addressDivider} />
+                  <View style={styles.addressRow}>
+                    <MapPin size={16} color="#EF4444" strokeWidth={2} />
+                    <Text style={styles.addressText} numberOfLines={1}>
+                      {booking.to}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.bookingFooter}>
+                  <View style={styles.bookingDetails}>
+                    <Text style={styles.parcelSize}>
+                      Size: {booking.parcelSize.charAt(0).toUpperCase() + booking.parcelSize.slice(1)}
+                    </Text>
+                    {booking.riderName && (
+                      <Text style={styles.riderName}>Rider: {booking.riderName}</Text>
+                    )}
+                  </View>
+                  <Text style={styles.price}>{booking.price}</Text>
+                </View>
+
+                {booking.status === 'in_transit' && (
+                  <View style={styles.actionContainer}>
+                    <Text style={styles.trackText}>Tap to track delivery →</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            ))}
+
+            {getFilteredBookings().length === 0 && (
+              <View style={styles.emptyState}>
+                <Package size={48} color={theme.colors.textSecondary} strokeWidth={2} />
+                <Text style={styles.emptyStateTitle}>No bookings found</Text>
+                <Text style={styles.emptyStateText}>
+                  {activeTab === 'active'
+                    ? 'You have no active deliveries'
+                    : activeTab === 'completed'
+                    ? 'No completed deliveries yet'
+                    : 'Start by booking your first delivery'}
+                </Text>
+                <TouchableOpacity
+                  style={styles.emptyStateButton}
+                  onPress={() => router.push('/booking')}>
+                  <Text style={styles.emptyStateButtonText}>Book a Delivery</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </PanGestureHandler>
+    </GestureHandlerRootView>
   );
 }

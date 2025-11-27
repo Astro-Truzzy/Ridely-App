@@ -11,8 +11,10 @@ export interface Theme {
     surface: string;
     card: string;
     text: string;
+    textTit: string;
     textSecondary: string;
     textTertiary: string;
+    textThird: string;
     border: string;
     success: string;
     warning: string;
@@ -34,8 +36,10 @@ const lightTheme: Theme = {
     surface: '#FFFFFF',
     card: '#FFFFFF',
     text: '#1F2937',
+    textTit: '#636161ff',
     textSecondary: '#6B7280',
     textTertiary: '#9CA3AF',
+    textThird: '#6b6c6dff',
     border: '#E5E7EB',
     success: '#10B981',
     warning: '#FFC947',
@@ -69,13 +73,15 @@ const lightTheme: Theme = {
 
 const darkTheme: Theme = {
   colors: {
-    primary: '#174AFF',
+    primary: '#175aff',
     accent: '#FBBF24',
     background: '#111827',
     surface: '#1F2937',
     card: '#374151',
-    text: '#F9FAFB',
-    textSecondary: '#D1D5DB',
+    text: '#ffffffff',
+    textTit: '#636161ff',
+    textSecondary: '#818285ff',
+    textThird: '#f9fafdff',
     textTertiary: '#9CA3AF',
     border: '#4B5563',
     success: '#34D399',

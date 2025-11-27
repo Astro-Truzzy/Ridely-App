@@ -5,9 +5,17 @@ import React, {
   useEffect,
   ReactNode,
 } from 'react';
+import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Session, User } from '@supabase/supabase-js';
 import { Alert } from 'react-native';
+
+interface ProfileUpdates {
+  full_name?: string;
+  phone?: string;
+  email?: string;
+  avatar_url?: string;
+}
 
 interface AuthContextType {
   session: Session | null;
@@ -23,7 +31,7 @@ interface AuthContextType {
   ) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  updateProfile: (updates: any) => Promise<void>;
+  updateProfile: (updates: ProfileUpdates) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -33,6 +41,7 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
+  const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<any | null>(null);
@@ -109,9 +118,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     } catch (error) {
       console.error('Error loading user profile:', error);
-    } finally {
-      setLoading(false);
     }
+    // Remove setLoading(false) from here since we want to keep loading true
+    // until navigation completes in signIn
   };
 
   const signUp = async (
@@ -135,7 +144,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (error) {
         // Handle specific case where user already exists in Supabase Auth
         if (error.message.includes('already registered')) {
-          throw new Error('An account with this email already exists. Please try signing in instead.');
+          throw new Error(
+            'An account with this email already exists. Please try signing in instead.'
+          );
         }
         throw error;
       }
@@ -152,57 +163,73 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       // 4. Insert profile
-      const profileData = {
+      type ProfileData = {
+        id: string;
+        email: string;
+        full_name: string;
+        phone: string;
+      };
+
+      const profileData: ProfileData = {
         id: userId,
         email,
         full_name: userData.fullName,
         phone: userData.phone,
       };
 
-      const table = userType === 'rider' ? 'riders' : 'users';
+      const table: 'riders' | 'users' = userType === 'rider' ? 'riders' : 'users';
       const { error: profileError } = await supabase
         .from(table)
-        .insert([profileData]);
-      
+        .insert([profileData] as any);
+
       if (profileError) {
         console.error('Profile creation error:', profileError);
-        
+
         // Handle duplicate email constraint error
         if (profileError.code === '23505') {
           // This is a duplicate key error
           // First, try to clean up the auth user we just created
           await supabase.auth.signOut();
-          
+
           // Then throw a more user-friendly error
-          throw new Error('An account with this email already exists. Please try signing in instead.');
+          throw new Error(
+            'An account with this email already exists. Please try signing in instead.'
+          );
         }
-        
+
         throw profileError;
       }
 
       // Load the newly created profile
       await loadUserProfile(userId);
-      
+
       // Update session state
       setSession(data.session);
       setUser(data.user);
-      
+
       // Set loading to false before returning
       setLoading(false);
     } catch (error) {
       console.error('Signup error:', error);
-      
+
       // Additional cleanup for specific error cases
-      if (error instanceof Error && error.message.includes('An account with this email already exists')) {
+      if (
+        error instanceof Error &&
+        error.message.includes('An account with this email already exists')
+      ) {
         // Supabase cleanup is handled in the profileError block
         // Here we just need to ensure loading state is reset
         setLoading(false);
         throw error;
       }
-      
+
       // General error case
       setLoading(false);
-      throw new Error(`Registration failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Registration failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
     }
   };
 
@@ -232,6 +259,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (data.user) {
         console.log('Loading profile for user:', data.user.id);
         await loadUserProfile(data.user.id);
+
+        // After successful sign in and profile load, navigate to home
+        // We'll handle navigation before setting loading to false
+        if (userType === 'rider') {
+          router.push('/(rider)/dashboard');
+        } else {
+          router.push('/(tabs)');
+        }
       } else {
         console.log('No user in sign in response');
         setLoading(false);
@@ -239,14 +274,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } catch (error: any) {
       console.error('Sign in error:', error);
       setLoading(false);
-      
+
       // Provide more specific error messages
       if (error.message?.includes('Invalid login credentials')) {
-        throw new Error('Invalid email or password. Please check your credentials and try again.');
+        throw new Error(
+          'Invalid email or password. Please check your credentials and try again.'
+        );
       } else if (error.message?.includes('Email not confirmed')) {
         throw new Error('Please confirm your email address before signing in.');
       }
-      
+
       throw error;
     }
   };
@@ -258,13 +295,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
         console.error('Sign out error:', error);
         throw error;
       }
+      // Clear local auth state after successful sign out
+      setSession(null);
+      setUser(null);
+      setUserProfile(null);
+      setUserType(null);
+      // Navigate to auth/login screen
+      try {
+        router.replace('/(auth)/login');
+      } catch (navErr) {
+        // ignore navigation errors in non-router contexts
+        console.warn('Navigation after signOut failed:', navErr);
+      }
     } catch (error) {
       console.error('Sign out error:', error);
       throw error;
     }
   };
 
-  const updateProfile = async (updates: any) => {
+  const updateProfile = async (updates: ProfileUpdates) => {
     try {
       if (!user || !userType) throw new Error('No user logged in');
 

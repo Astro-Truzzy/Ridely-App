@@ -1,6 +1,6 @@
 import { useTheme } from '@/contexts/ThemeContext';
-import logoDark from '@/assets/images/logo-dark.png';
-import logoLight from '@/assets/images/logo.png';
+import logoDark from '@/assets/images/logo.png';
+import logoLight from '@/assets/images/logo-dark.png';
 import { StyleSheet } from 'react-native';
   
 

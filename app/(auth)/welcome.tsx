@@ -32,7 +32,7 @@ export default function WelcomeScreen() {
     {
       icon: Shield,
       title: 'Secure & Insured',
-      description: 'All packages are insured up to $100 for your peace of mind',
+      description: 'All packages are insured up to NGN100,000 for your peace of mind',
     },
   ];
 
@@ -54,7 +54,7 @@ export default function WelcomeScreen() {
         <View style={styles.logoSection}>
           <Image source={logo} style={styles.logoImage} />
           <Text style={[styles.logoText, { color: theme.colors.text }]}>Ridely</Text>
-          <Text style={[styles.tagline, { color: theme.colors.textSecondary }]}>Fast. Reliable. Delivered.</Text>
+          <Text style={[styles.tagline, { color: theme.colors.textThird }]}>Fast. Reliable. Delivered.</Text>
         </View>
 
         {/* Features Section */}
@@ -65,7 +65,7 @@ export default function WelcomeScreen() {
                 <feature.icon color={theme.colors.primary} size={28} />
               </View>
               <View style={styles.featureContent}>
-                <Text style={[styles.featureTitle, { color: theme.colors.text }]}>{feature.title}</Text>
+                <Text style={[styles.featureTitle, { color: theme.colors.textTit }]}>{feature.title}</Text>
                 <Text style={[styles.featureDescription, { color: theme.colors.textSecondary }]}>{feature.description}</Text>
               </View>
             </Animated.View>

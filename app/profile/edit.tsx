@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -22,21 +23,41 @@ import {
   EyeOff,
 } from 'lucide-react-native';
 import { router } from 'expo-router';
+import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function EditProfileScreen() {
+  const { theme } = useTheme();
+  const { userProfile, updateProfile } = useAuth();
   const [profile, setProfile] = useState({
-    name: 'John Doe',
-    email: 'john.doe@email.com',
-    phone: '+1 (555) 123-4567',
+    name: userProfile?.full_name || '',
+    email: userProfile?.email || '',
+    phone: userProfile?.phone || '',
     currentPassword: '',
     newPassword: '',
     confirmPassword: '',
   });
+  const [avatar, setAvatar] = useState<string | null>(userProfile?.avatar_url || null);
 
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Update profile when userProfile changes
+  useEffect(() => {
+    if (userProfile) {
+      setProfile({
+        name: userProfile.full_name || '',
+        email: userProfile.email || '',
+        phone: userProfile.phone || '',
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+      });
+      setAvatar(userProfile.avatar_url || null);
+    }
+  }, [userProfile]);
 
   const handleSave = async () => {
     // Validate inputs
@@ -75,16 +96,33 @@ export default function EditProfileScreen() {
 
     setIsLoading(true);
 
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    try {
+      // Prepare updates
+      const updates: any = {
+        full_name: profile.name,
+        email: profile.email,
+        phone: profile.phone,
+      };
 
-    setIsLoading(false);
+      // If avatar is updated, include it
+      if (avatar !== userProfile?.avatar_url) {
+        updates.avatar_url = avatar;
+      }
 
-    Alert.alert(
-      'Success',
-      'Your profile has been updated successfully!',
-      [{ text: 'OK', onPress: () => router.back() }]
-    );
+      // Update profile in the database
+      await updateProfile(updates);
+
+      Alert.alert(
+        'Success',
+        'Your profile has been updated successfully!',
+        [{ text: 'OK', onPress: () => router.back() }]
+      );
+    } catch (error: any) {
+      console.error('Profile update error:', error);
+      Alert.alert('Error', error.message || 'Failed to update profile');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleImageUpload = () => {
@@ -94,24 +132,188 @@ export default function EditProfileScreen() {
       [
         { text: 'Camera', onPress: () => console.log('Camera selected') },
         { text: 'Gallery', onPress: () => console.log('Gallery selected') },
+        { text: 'Remove Photo', onPress: () => setAvatar(null), style: 'destructive' },
         { text: 'Cancel', style: 'cancel' },
       ]
     );
   };
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.colors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 20,
+      paddingTop: 16,
+      paddingBottom: 20,
+      backgroundColor: theme.colors.surface,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+    },
+    backButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: theme.colors.card,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    title: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: theme.colors.text,
+    },
+    saveButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: theme.colors.card,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    saveButtonDisabled: {
+      backgroundColor: theme.colors.card,
+      opacity: 0.6,
+    },
+    keyboardAvoidingView: {
+      flex: 1,
+    },
+    scrollView: {
+      flex: 1,
+    },
+    avatarSection: {
+      alignItems: 'center',
+      paddingVertical: 32,
+    },
+    avatarContainer: {
+      position: 'relative',
+      marginBottom: 12,
+    },
+    avatar: {
+      width: 100,
+      height: 100,
+      borderRadius: 50,
+      backgroundColor: theme.colors.primary,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    avatarPlaceholder: {
+      width: 100,
+      height: 100,
+      borderRadius: 50,
+      backgroundColor: theme.colors.primary,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    cameraOverlay: {
+      position: 'absolute',
+      bottom: 0,
+      right: 0,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: theme.colors.accent,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderWidth: 3,
+      borderColor: theme.colors.surface,
+    },
+    avatarLabel: {
+      fontSize: 14,
+      color: theme.colors.textSecondary,
+      fontWeight: '500',
+    },
+    section: {
+      backgroundColor: theme.colors.surface,
+      marginHorizontal: 20,
+      borderRadius: 16,
+      padding: 20,
+      marginBottom: 20,
+      ...theme.shadows.medium,
+    },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: theme.colors.text,
+      marginBottom: 8,
+    },
+    sectionSubtitle: {
+      fontSize: 14,
+      color: theme.colors.textSecondary,
+      marginBottom: 20,
+    },
+    inputGroup: {
+      marginBottom: 20,
+    },
+    inputLabel: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: 8,
+    },
+    inputContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      backgroundColor: theme.colors.surface,
+    },
+    input: {
+      flex: 1,
+      fontSize: 16,
+      color: theme.colors.text,
+      marginLeft: 12,
+    },
+    passwordInput: {
+      flex: 1,
+      fontSize: 16,
+      color: theme.colors.text,
+    },
+    eyeButton: {
+      padding: 4,
+    },
+    bottomContainer: {
+      padding: 20,
+      backgroundColor: theme.colors.surface,
+      borderTopWidth: 1,
+      borderTopColor: theme.colors.border,
+    },
+    saveButtonLarge: {
+      backgroundColor: theme.colors.primary,
+      paddingVertical: 16,
+      borderRadius: 16,
+      alignItems: 'center',
+    },
+    saveButtonText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: theme.colors.textTertiary,
+    },
+    saveButtonTextDisabled: {
+      color: theme.colors.textTertiary,
+    },
+  });
 
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <ArrowLeft size={24} color="#1F2937" strokeWidth={2} />
+          <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
         <Text style={styles.title}>Edit Profile</Text>
         <TouchableOpacity
           style={[styles.saveButton, isLoading && styles.saveButtonDisabled]}
           onPress={handleSave}
           disabled={isLoading}>
-          <Save size={20} color="#5A47FF" strokeWidth={2} />
+          <Save size={20} color={theme.colors.primary} strokeWidth={2} />
         </TouchableOpacity>
       </View>
 
@@ -122,11 +324,15 @@ export default function EditProfileScreen() {
           {/* Profile Picture */}
           <View style={styles.avatarSection}>
             <TouchableOpacity style={styles.avatarContainer} onPress={handleImageUpload}>
-              <View style={styles.avatar}>
-                <User size={40} color="#FFFFFF" strokeWidth={2} />
-              </View>
+              {avatar ? (
+                <Image source={{ uri: avatar }} style={styles.avatar} />
+              ) : (
+                <View style={[styles.avatarPlaceholder, { backgroundColor: theme.colors.primary }]}>
+                  <User size={40} color={theme.colors.surface} strokeWidth={2} />
+                </View>
+              )}
               <View style={styles.cameraOverlay}>
-                <Camera size={16} color="#FFFFFF" strokeWidth={2} />
+                <Camera size={16} color={theme.colors.surface} strokeWidth={2} />
               </View>
             </TouchableOpacity>
             <Text style={styles.avatarLabel}>Tap to change photo</Text>
@@ -139,12 +345,13 @@ export default function EditProfileScreen() {
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Full Name</Text>
               <View style={styles.inputContainer}>
-                <User size={20} color="#6B7280" strokeWidth={2} />
+                <User size={20} color={theme.colors.textSecondary} strokeWidth={2} />
                 <TextInput
                   style={styles.input}
                   value={profile.name}
                   onChangeText={(text) => setProfile(prev => ({...prev, name: text}))}
                   placeholder="Enter your full name"
+                  placeholderTextColor={theme.colors.textTertiary}
                 />
               </View>
             </View>
@@ -152,7 +359,7 @@ export default function EditProfileScreen() {
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Email Address</Text>
               <View style={styles.inputContainer}>
-                <Mail size={20} color="#6B7280" strokeWidth={2} />
+                <Mail size={20} color={theme.colors.textSecondary} strokeWidth={2} />
                 <TextInput
                   style={styles.input}
                   value={profile.email}
@@ -160,6 +367,7 @@ export default function EditProfileScreen() {
                   placeholder="Enter your email"
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  placeholderTextColor={theme.colors.textTertiary}
                 />
               </View>
             </View>
@@ -167,13 +375,14 @@ export default function EditProfileScreen() {
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Phone Number</Text>
               <View style={styles.inputContainer}>
-                <Phone size={20} color="#6B7280" strokeWidth={2} />
+                <Phone size={20} color={theme.colors.textSecondary} strokeWidth={2} />
                 <TextInput
                   style={styles.input}
                   value={profile.phone}
                   onChangeText={(text) => setProfile(prev => ({...prev, phone: text}))}
                   placeholder="Enter your phone number"
                   keyboardType="phone-pad"
+                  placeholderTextColor={theme.colors.textTertiary}
                 />
               </View>
             </View>
@@ -190,19 +399,24 @@ export default function EditProfileScreen() {
               <Text style={styles.inputLabel}>Current Password</Text>
               <View style={styles.inputContainer}>
                 <TextInput
-                  style={styles.passwordInput}
+                  style={[styles.passwordInput, { 
+                    color: theme.colors.text,
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.surface
+                  }]}
                   value={profile.currentPassword}
                   onChangeText={(text) => setProfile(prev => ({...prev, currentPassword: text}))}
                   placeholder="Enter current password"
                   secureTextEntry={!showCurrentPassword}
+                  placeholderTextColor={theme.colors.textTertiary}
                 />
                 <TouchableOpacity
                   style={styles.eyeButton}
                   onPress={() => setShowCurrentPassword(!showCurrentPassword)}>
                   {showCurrentPassword ? (
-                    <EyeOff size={20} color="#6B7280" strokeWidth={2} />
+                    <EyeOff size={20} color={theme.colors.textSecondary} strokeWidth={2} />
                   ) : (
-                    <Eye size={20} color="#6B7280" strokeWidth={2} />
+                    <Eye size={20} color={theme.colors.textSecondary} strokeWidth={2} />
                   )}
                 </TouchableOpacity>
               </View>
@@ -212,19 +426,24 @@ export default function EditProfileScreen() {
               <Text style={styles.inputLabel}>New Password</Text>
               <View style={styles.inputContainer}>
                 <TextInput
-                  style={styles.passwordInput}
+                  style={[styles.passwordInput, { 
+                    color: theme.colors.text,
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.surface
+                  }]}
                   value={profile.newPassword}
                   onChangeText={(text) => setProfile(prev => ({...prev, newPassword: text}))}
                   placeholder="Enter new password"
                   secureTextEntry={!showNewPassword}
+                  placeholderTextColor={theme.colors.textTertiary}
                 />
                 <TouchableOpacity
                   style={styles.eyeButton}
                   onPress={() => setShowNewPassword(!showNewPassword)}>
                   {showNewPassword ? (
-                    <EyeOff size={20} color="#6B7280" strokeWidth={2} />
+                    <EyeOff size={20} color={theme.colors.textSecondary} strokeWidth={2} />
                   ) : (
-                    <Eye size={20} color="#6B7280" strokeWidth={2} />
+                    <Eye size={20} color={theme.colors.textSecondary} strokeWidth={2} />
                   )}
                 </TouchableOpacity>
               </View>
@@ -234,19 +453,24 @@ export default function EditProfileScreen() {
               <Text style={styles.inputLabel}>Confirm New Password</Text>
               <View style={styles.inputContainer}>
                 <TextInput
-                  style={styles.passwordInput}
+                  style={[styles.passwordInput, { 
+                    color: theme.colors.text,
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.surface
+                  }]}
                   value={profile.confirmPassword}
                   onChangeText={(text) => setProfile(prev => ({...prev, confirmPassword: text}))}
                   placeholder="Confirm new password"
                   secureTextEntry={!showConfirmPassword}
+                  placeholderTextColor={theme.colors.textTertiary}
                 />
                 <TouchableOpacity
                   style={styles.eyeButton}
                   onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
                   {showConfirmPassword ? (
-                    <EyeOff size={20} color="#6B7280" strokeWidth={2} />
+                    <EyeOff size={20} color={theme.colors.textSecondary} strokeWidth={2} />
                   ) : (
-                    <Eye size={20} color="#6B7280" strokeWidth={2} />
+                    <Eye size={20} color={theme.colors.textSecondary} strokeWidth={2} />
                   )}
                 </TouchableOpacity>
               </View>
@@ -261,7 +485,7 @@ export default function EditProfileScreen() {
           style={[styles.saveButtonLarge, isLoading && styles.saveButtonDisabled]}
           onPress={handleSave}
           disabled={isLoading}>
-          <Text style={[styles.saveButtonText, isLoading && styles.saveButtonTextDisabled]}>
+          <Text style={[styles.saveButtonText, { color: theme.colors.surface }]}>
             {isLoading ? 'Saving...' : 'Save Changes'}
           </Text>
         </TouchableOpacity>
@@ -269,161 +493,3 @@ export default function EditProfileScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F7F8FA',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 20,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F3F4F6',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  saveButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F0F2FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  saveButtonDisabled: {
-    backgroundColor: '#F3F4F6',
-  },
-  keyboardAvoidingView: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  avatarSection: {
-    alignItems: 'center',
-    paddingVertical: 32,
-  },
-  avatarContainer: {
-    position: 'relative',
-    marginBottom: 12,
-  },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#5A47FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  cameraOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#FFC947',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-  },
-  avatarLabel: {
-    fontSize: 14,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  section: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 8,
-  },
-  sectionSubtitle: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 20,
-  },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
-  },
-  input: {
-    flex: 1,
-    fontSize: 16,
-    color: '#1F2937',
-    marginLeft: 12,
-  },
-  passwordInput: {
-    flex: 1,
-    fontSize: 16,
-    color: '#1F2937',
-  },
-  eyeButton: {
-    padding: 4,
-  },
-  bottomContainer: {
-    padding: 20,
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-  },
-  saveButtonLarge: {
-    backgroundColor: '#5A47FF',
-    paddingVertical: 16,
-    borderRadius: 16,
-    alignItems: 'center',
-  },
-  saveButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  saveButtonTextDisabled: {
-    color: '#9CA3AF',
-  },
-});
