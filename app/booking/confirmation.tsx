@@ -19,6 +19,8 @@ import {
   Package,
 } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useDeliveries } from '@/hooks/useDeliveries';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface PaymentMethod {
   id: string;
@@ -37,6 +39,10 @@ export default function ConfirmationScreen() {
     scheduledTime,
     price,
     distance,
+    pickupLat,
+    pickupLon,
+    dropoffLat,
+    dropoffLon,
   } = useLocalSearchParams<{
     size: string;
     pickupAddress: string;
@@ -45,8 +51,14 @@ export default function ConfirmationScreen() {
     scheduledTime?: string;
     price: string;
     distance: string;
+    pickupLat?: string;
+    pickupLon?: string;
+    dropoffLat?: string;
+    dropoffLon?: string;
   }>();
 
+  const { createDelivery } = useDeliveries();
+  const { user } = useAuth();
   const [selectedPayment, setSelectedPayment] = useState<string>('card1');
   const [isBooking, setIsBooking] = useState(false);
 
@@ -75,31 +87,56 @@ export default function ConfirmationScreen() {
   ];
 
   const handleBooking = async () => {
+    if (!user) {
+      Alert.alert('Error', 'You must be logged in to create a booking');
+      return;
+    }
+
     setIsBooking(true);
     
-    // Simulate booking API call
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    setIsBooking(false);
-    
-    Alert.alert(
-      'Booking Confirmed! 🎉',
-      'Your delivery has been booked successfully. You will receive a notification when a rider accepts your request.',
-      [
-        {
-          text: 'Track Delivery',
-          onPress: () => {
-            router.replace('/tracking');
+    try {
+      // Create delivery in database
+      const deliveryData = {
+        pickup_address: pickupAddress,
+        dropoff_address: dropoffAddress,
+        parcel_size: size as 'small' | 'medium' | 'large',
+        total_cost: parseFloat(price),
+        distance: parseFloat(distance),
+        estimated_time: '25-35 mins', // This could be calculated from route
+        delivery_time: (deliveryTime as 'now' | 'scheduled'),
+        scheduled_time: deliveryTime === 'scheduled' && scheduledTime ? scheduledTime : null,
+      };
+
+      const newDelivery = await createDelivery(deliveryData);
+      
+      setIsBooking(false);
+      
+      Alert.alert(
+        'Booking Confirmed! 🎉',
+        'Your delivery has been booked successfully. You will receive a notification when a rider accepts your request.',
+        [
+          {
+            text: 'View Bookings',
+            onPress: () => {
+              router.replace('/(tabs)/bookings');
+            },
           },
-        },
-        {
-          text: 'Go to Home',
-          onPress: () => {
-            router.replace('/(tabs)');
+          {
+            text: 'Go to Home',
+            onPress: () => {
+              router.replace('/(tabs)');
+            },
           },
-        },
-      ]
-    );
+        ]
+      );
+    } catch (error: any) {
+      console.error('Error creating delivery:', error);
+      setIsBooking(false);
+      Alert.alert(
+        'Booking Failed',
+        error?.message || 'Failed to create booking. Please try again.'
+      );
+    }
   };
 
   const getSizeLabel = (size: string) => {
@@ -148,7 +185,7 @@ export default function ConfirmationScreen() {
                 <Text style={styles.summaryTitle}>Almost Done!</Text>
                 <Text style={styles.summarySubtitle}>Review and confirm your booking</Text>
               </View>
-              <Text style={styles.totalPrice}>${price}</Text>
+              <Text style={styles.totalPrice}>₦{parseFloat(price || '0').toLocaleString('en-NG')}</Text>
             </View>
           </View>
 
@@ -246,7 +283,7 @@ export default function ConfirmationScreen() {
           onPress={handleBooking}
           disabled={isBooking}>
           <Text style={styles.bookingText}>
-            {isBooking ? 'Confirming Booking...' : `Confirm & Pay $${price}`}
+            {isBooking ? 'Confirming Booking...' : `Confirm & Pay ₦${parseFloat(price || '0').toLocaleString('en-NG')}`}
           </Text>
         </TouchableOpacity>
       </View>

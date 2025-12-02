@@ -21,6 +21,7 @@ import {
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useDeliveries } from '@/hooks/useDeliveries';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 
 interface ActiveDelivery {
@@ -36,14 +37,22 @@ export default function HomeScreen() {
   const { theme } = useTheme();
   const { userProfile } = useAuth(); // Get user profile from AuthContext
   const [userName, setUserName] = useState(''); // Initialize as empty
-  const [activeDelivery, setActiveDelivery] = useState<ActiveDelivery | null>({
-    id: 'DEL001',
-    status: 'in_transit',
-    riderName: 'Mike Johnson',
-    estimatedArrival: '15 mins',
-    fromAddress: '123 Main St, Downtown',
-    toAddress: '456 Oak Ave, Uptown',
-  });
+  const { deliveries } = useDeliveries();
+  
+  // Get active delivery (in transit or picked up)
+  const activeDeliveryData = deliveries.find(
+    d => d.status === 'in_transit' || d.status === 'picked_up' || d.status === 'rider_assigned'
+  );
+  
+  const activeDelivery: ActiveDelivery | null = activeDeliveryData ? {
+    id: activeDeliveryData.id,
+    status: activeDeliveryData.status === 'picked_up' ? 'picked_up' : 
+            activeDeliveryData.status === 'rider_assigned' ? 'in_transit' : 'in_transit',
+    riderName: 'Rider', // TODO: Fetch rider name from riders table
+    estimatedArrival: activeDeliveryData.estimated_time || '15 mins',
+    fromAddress: activeDeliveryData.pickup_address,
+    toAddress: activeDeliveryData.dropoff_address,
+  } : null;
 
   // Set the user's name when userProfile is available
   useEffect(() => {
@@ -85,24 +94,18 @@ export default function HomeScreen() {
     },
   ];
 
-  const recentDeliveries = [
-    {
-      id: '1',
-      date: 'Today, 2:30 PM',
-      from: 'Home',
-      to: 'Office Building',
+  // Get recent completed deliveries (last 2)
+  const recentDeliveries = deliveries
+    .filter(d => d.status === 'delivered')
+    .slice(0, 2)
+    .map(d => ({
+      id: d.id.substring(0, 8),
+      date: `${new Date(d.created_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}, ${new Date(d.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`,
+      from: d.pickup_address.split(',')[0], // Get first part of address
+      to: d.dropoff_address.split(',')[0],
       status: 'Delivered',
-      price: '$12.50',
-    },
-    {
-      id: '2',
-      date: 'Yesterday, 4:15 PM',
-      from: 'Mall',
-      to: "Friend's Place",
-      status: 'Delivered',
-      price: '$8.75',
-    },
-  ];
+      price: `₦${d.total_cost.toLocaleString('en-NG')}`,
+    }));
 
   return (
     <SafeAreaView

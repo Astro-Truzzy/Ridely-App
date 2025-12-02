@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   ScrollView,
   TextInput,
   Alert,
+  ActivityIndicator,
+  Pressable,
 } from 'react-native';
 import {
   ArrowLeft,
@@ -17,8 +19,10 @@ import {
   Clock,
   ChevronRight,
   Search,
+  X,
 } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useAddressAutocomplete, AddressSuggestion } from '@/hooks/useAddressAutocomplete';
 
 interface Address {
   id: string;
@@ -27,12 +31,42 @@ interface Address {
   icon: any;
 }
 
+interface AddressWithCoords {
+  address: string;
+  latitude: number;
+  longitude: number;
+}
+
 export default function AddressScreen() {
   const { size } = useLocalSearchParams<{ size: string }>();
   const [pickupAddress, setPickupAddress] = useState('');
   const [dropoffAddress, setDropoffAddress] = useState('');
+  const [pickupCoords, setPickupCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [dropoffCoords, setDropoffCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [deliveryTime, setDeliveryTime] = useState<'now' | 'scheduled'>('now');
   const [scheduledTime, setScheduledTime] = useState('');
+  
+  // Address autocomplete for pickup
+  const [showPickupSuggestions, setShowPickupSuggestions] = useState(false);
+  const [pickupInputFocused, setPickupInputFocused] = useState(false);
+  const pickupInputRef = useRef<TextInput>(null);
+  const {
+    suggestions: pickupSuggestions,
+    loading: pickupLoading,
+    searchAddresses: searchPickupAddresses,
+    clearSuggestions: clearPickupSuggestions,
+  } = useAddressAutocomplete();
+
+  // Address autocomplete for dropoff
+  const [showDropoffSuggestions, setShowDropoffSuggestions] = useState(false);
+  const [dropoffInputFocused, setDropoffInputFocused] = useState(false);
+  const dropoffInputRef = useRef<TextInput>(null);
+  const {
+    suggestions: dropoffSuggestions,
+    loading: dropoffLoading,
+    searchAddresses: searchDropoffAddresses,
+    clearSuggestions: clearDropoffSuggestions,
+  } = useAddressAutocomplete();
 
   const savedAddresses: Address[] = [
     {
@@ -49,9 +83,69 @@ export default function AddressScreen() {
     },
   ];
 
+  const handlePickupAddressChange = (text: string) => {
+    setPickupAddress(text);
+    if (text.length >= 3) {
+      searchPickupAddresses(text);
+      setShowPickupSuggestions(true);
+    } else {
+      setShowPickupSuggestions(false);
+      clearPickupSuggestions();
+    }
+  };
+
+  const handleDropoffAddressChange = (text: string) => {
+    setDropoffAddress(text);
+    if (text.length >= 3) {
+      searchDropoffAddresses(text);
+      setShowDropoffSuggestions(true);
+    } else {
+      setShowDropoffSuggestions(false);
+      clearDropoffSuggestions();
+    }
+  };
+
+  const selectPickupSuggestion = (suggestion: AddressSuggestion) => {
+    // Use formatted display name which includes house number if available
+    const addressText = suggestion.display_name;
+    setPickupAddress(addressText);
+    setPickupCoords({
+      latitude: parseFloat(suggestion.lat),
+      longitude: parseFloat(suggestion.lon),
+    });
+    // Hide suggestions immediately
+    setShowPickupSuggestions(false);
+    clearPickupSuggestions();
+    // Blur the input
+    pickupInputRef.current?.blur();
+  };
+
+  const selectDropoffSuggestion = (suggestion: AddressSuggestion) => {
+    // Use formatted display name which includes house number if available
+    const addressText = suggestion.display_name;
+    setDropoffAddress(addressText);
+    setDropoffCoords({
+      latitude: parseFloat(suggestion.lat),
+      longitude: parseFloat(suggestion.lon),
+    });
+    // Hide suggestions immediately
+    setShowDropoffSuggestions(false);
+    clearDropoffSuggestions();
+    // Blur the input
+    dropoffInputRef.current?.blur();
+  };
+
   const handleContinue = () => {
     if (!pickupAddress || !dropoffAddress) {
       Alert.alert('Missing Information', 'Please enter both pickup and dropoff addresses');
+      return;
+    }
+
+    if (!pickupCoords || !dropoffCoords) {
+      Alert.alert(
+        'Address Validation',
+        'Please select addresses from the suggestions to ensure accurate delivery location.'
+      );
       return;
     }
 
@@ -66,6 +160,10 @@ export default function AddressScreen() {
         size,
         pickupAddress,
         dropoffAddress,
+        pickupLat: pickupCoords.latitude.toString(),
+        pickupLon: pickupCoords.longitude.toString(),
+        dropoffLat: dropoffCoords.latitude.toString(),
+        dropoffLon: dropoffCoords.longitude.toString(),
         deliveryTime,
         scheduledTime,
       },
@@ -91,7 +189,12 @@ export default function AddressScreen() {
         <View style={styles.placeholder} />
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.scrollView} 
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        scrollEnabled={!(showPickupSuggestions || showDropoffSuggestions)}
+        nestedScrollEnabled={true}>
         {/* Progress Indicator */}
         <View style={styles.progressContainer}>
           <View style={styles.progressBar}>
@@ -114,16 +217,82 @@ export default function AddressScreen() {
 
             <View style={styles.inputContainer}>
               <TextInput
+                ref={pickupInputRef}
                 style={styles.addressInput}
                 placeholder="Enter pickup address"
                 value={pickupAddress}
-                onChangeText={setPickupAddress}
-                multiline
+                onChangeText={handlePickupAddressChange}
+                onFocus={() => {
+                  setPickupInputFocused(true);
+                  if (pickupAddress.length >= 3) {
+                    setShowPickupSuggestions(true);
+                  }
+                }}
+                onBlur={(e) => {
+                  // Don't hide suggestions if user is clicking on them
+                  const target = e.target;
+                  setTimeout(() => {
+                    // Only hide if suggestions are still showing and input is not focused
+                    if (showPickupSuggestions && !pickupInputFocused) {
+                      setShowPickupSuggestions(false);
+                    }
+                    setPickupInputFocused(false);
+                  }, 200);
+                }}
+                multiline={false}
+                editable={true}
               />
-              <TouchableOpacity style={styles.searchButton}>
-                <Search size={20} color="#6B7280" strokeWidth={2} />
-              </TouchableOpacity>
+              {pickupAddress.length > 0 && (
+                <TouchableOpacity
+                  style={styles.clearButton}
+                  onPress={() => {
+                    setPickupAddress('');
+                    setPickupCoords(null);
+                    clearPickupSuggestions();
+                    setShowPickupSuggestions(false);
+                  }}>
+                  <X size={18} color="#6B7280" strokeWidth={2} />
+                </TouchableOpacity>
+              )}
+              {pickupLoading && (
+                <View style={styles.loadingIndicator}>
+                  <ActivityIndicator size="small" color="#5A47FF" />
+                </View>
+              )}
             </View>
+
+            {/* Pickup Address Suggestions */}
+            {showPickupSuggestions && pickupSuggestions.length > 0 && (
+              <View style={styles.suggestionsContainer}>
+                {pickupSuggestions.map((item) => (
+                  <TouchableOpacity
+                    key={item.place_id.toString()}
+                    style={styles.suggestionItem}
+                    activeOpacity={0.6}
+                    onPress={() => {
+                      // Set the address immediately
+                      const addressText = item.display_name;
+                      setPickupAddress(addressText);
+                      setPickupCoords({
+                        latitude: parseFloat(item.lat),
+                        longitude: parseFloat(item.lon),
+                      });
+                      // Hide suggestions immediately
+                      setShowPickupSuggestions(false);
+                      clearPickupSuggestions();
+                      // Blur after ensuring value is set
+                      setTimeout(() => {
+                        pickupInputRef.current?.blur();
+                      }, 100);
+                    }}>
+                    <MapPin size={16} color="#5A47FF" strokeWidth={2} />
+                    <Text style={styles.suggestionText} numberOfLines={2}>
+                      {item.display_name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
 
             {/* Saved Addresses */}
             <Text style={styles.savedTitle}>Saved Addresses</Text>
@@ -152,16 +321,82 @@ export default function AddressScreen() {
 
             <View style={styles.inputContainer}>
               <TextInput
+                ref={dropoffInputRef}
                 style={styles.addressInput}
                 placeholder="Enter dropoff address"
                 value={dropoffAddress}
-                onChangeText={setDropoffAddress}
-                multiline
+                onChangeText={handleDropoffAddressChange}
+                onFocus={() => {
+                  setDropoffInputFocused(true);
+                  if (dropoffAddress.length >= 3) {
+                    setShowDropoffSuggestions(true);
+                  }
+                }}
+                onBlur={(e) => {
+                  // Don't hide suggestions if user is clicking on them
+                  const target = e.target;
+                  setTimeout(() => {
+                    // Only hide if suggestions are still showing and input is not focused
+                    if (showDropoffSuggestions && !dropoffInputFocused) {
+                      setShowDropoffSuggestions(false);
+                    }
+                    setDropoffInputFocused(false);
+                  }, 200);
+                }}
+                multiline={false}
+                editable={true}
               />
-              <TouchableOpacity style={styles.searchButton}>
-                <Search size={20} color="#6B7280" strokeWidth={2} />
-              </TouchableOpacity>
+              {dropoffAddress.length > 0 && (
+                <TouchableOpacity
+                  style={styles.clearButton}
+                  onPress={() => {
+                    setDropoffAddress('');
+                    setDropoffCoords(null);
+                    clearDropoffSuggestions();
+                    setShowDropoffSuggestions(false);
+                  }}>
+                  <X size={18} color="#6B7280" strokeWidth={2} />
+                </TouchableOpacity>
+              )}
+              {dropoffLoading && (
+                <View style={styles.loadingIndicator}>
+                  <ActivityIndicator size="small" color="#5A47FF" />
+                </View>
+              )}
             </View>
+
+            {/* Dropoff Address Suggestions */}
+            {showDropoffSuggestions && dropoffSuggestions.length > 0 && (
+              <View style={styles.suggestionsContainer}>
+                {dropoffSuggestions.map((item) => (
+                  <TouchableOpacity
+                    key={item.place_id.toString()}
+                    style={styles.suggestionItem}
+                    activeOpacity={0.6}
+                    onPress={() => {
+                      // Set the address immediately
+                      const addressText = item.display_name;
+                      setDropoffAddress(addressText);
+                      setDropoffCoords({
+                        latitude: parseFloat(item.lat),
+                        longitude: parseFloat(item.lon),
+                      });
+                      // Hide suggestions immediately
+                      setShowDropoffSuggestions(false);
+                      clearDropoffSuggestions();
+                      // Blur after ensuring value is set
+                      setTimeout(() => {
+                        dropoffInputRef.current?.blur();
+                      }, 100);
+                    }}>
+                    <MapPin size={16} color="#EF4444" strokeWidth={2} />
+                    <Text style={styles.suggestionText} numberOfLines={2}>
+                      {item.display_name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
 
             {/* Saved Addresses */}
             <Text style={styles.savedTitle}>Saved Addresses</Text>
@@ -254,20 +489,20 @@ export default function AddressScreen() {
         <TouchableOpacity
           style={[
             styles.continueButton,
-            (!pickupAddress || !dropoffAddress) && styles.disabledButton,
+            (!pickupAddress || !dropoffAddress || !pickupCoords || !dropoffCoords) && styles.disabledButton,
           ]}
           onPress={handleContinue}
-          disabled={!pickupAddress || !dropoffAddress}>
+          disabled={!pickupAddress || !dropoffAddress || !pickupCoords || !dropoffCoords}>
           <Text
             style={[
               styles.continueText,
-              (!pickupAddress || !dropoffAddress) && styles.disabledText,
+              (!pickupAddress || !dropoffAddress || !pickupCoords || !dropoffCoords) && styles.disabledText,
             ]}>
             Get Price Estimate
           </Text>
           <ChevronRight
             size={20}
-            color={pickupAddress && dropoffAddress ? '#FFFFFF' : '#9CA3AF'}
+            color={pickupAddress && dropoffAddress && pickupCoords && dropoffCoords ? '#FFFFFF' : '#9CA3AF'}
             strokeWidth={2}
           />
         </TouchableOpacity>
@@ -479,5 +714,56 @@ const styles = StyleSheet.create({
   },
   disabledText: {
     color: '#9CA3AF',
+  },
+  suggestionsContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    maxHeight: 200,
+    marginTop: 8,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 10,
+    zIndex: 1000,
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+    minHeight: 50,
+    backgroundColor: 'transparent',
+  },
+  suggestionText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#1F2937',
+    marginLeft: 12,
+  },
+  clearButton: {
+    position: 'absolute',
+    right: 16,
+    top: 18,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingIndicator: {
+    position: 'absolute',
+    right: 50,
+    top: 18,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

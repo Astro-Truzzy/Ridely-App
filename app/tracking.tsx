@@ -20,8 +20,11 @@ import {
   User,
   Star,
 } from 'lucide-react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { useDeliveries } from '@/hooks/useDeliveries';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 
 interface RiderInfo {
   name: string;
@@ -45,16 +48,31 @@ type DeliveryStatus =
 
 export default function TrackingScreen() {
   const { theme, isDark } = useTheme();
+  const { user } = useAuth();
+  const { deliveries } = useDeliveries();
+  const params = useLocalSearchParams<{ deliveryId?: string }>();
+  
+  // Get active delivery - either from params or find the most recent active one
+  const activeDelivery = params.deliveryId 
+    ? deliveries.find(d => d.id === params.deliveryId)
+    : deliveries.find(d => 
+        d.status !== 'delivered' && 
+        d.status !== 'cancelled' && 
+        d.rider_id !== null
+      );
+  
+  const riderId = activeDelivery?.rider_id || null;
+  
   const [deliveryStatus, setDeliveryStatus] =
     useState<DeliveryStatus>('in_transit');
-  const [rider] = useState<RiderInfo>({
-    name: 'Mike Johnson',
-    rating: 4.8,
-    phone: '+1 (555) 987-6543',
-    vehicle: 'Honda CBR 150R',
-    plateNumber: 'ABC-1234',
-    estimatedArrival: '12 mins',
-    currentLocation: 'Oak Street, heading to Main St',
+  const [rider, setRider] = useState<RiderInfo>({
+    name: 'Loading...',
+    rating: 0,
+    phone: '',
+    vehicle: '',
+    plateNumber: '',
+    estimatedArrival: 'Calculating...',
+    currentLocation: '',
   });
   const [elapsedTime, setElapsedTime] = useState(540); // 14 minutes in seconds
   const [mapExpanded, setMapExpanded] = useState(false);
@@ -63,8 +81,10 @@ export default function TrackingScreen() {
     latitude: 37.78825,
     longitude: -122.4324,
   });
-  const [MapboxGL, setMapboxGL] = useState<any | null>(null);
   const subscriptionRef = useRef<any | null>(null);
+  const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
+  const [pickupCoords, setPickupCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [dropoffCoords, setDropoffCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   
   // Draggable card state
   const [cardPosition, setCardPosition] = useState({ x: 20, y: 100 }); // Position below header
@@ -98,46 +118,104 @@ export default function TrackingScreen() {
     })
   ).current;
 
-  // Guarded Mapbox import (avoids crash in Expo Go)
-  useEffect(() => {
-    let mounted = true;
-    try {
-      // Lazy require so Metro doesn't crash when native module not linked
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const mb = require('@rnmapbox/maps');
-      if (mounted) setMapboxGL(mb);
-    } catch (err) {
-      console.warn(
-        '[tracking] @rnmapbox/maps not available. Use EAS build or react-native-maps for dev.',
-        err
-      );
-      if (mounted) setMapboxGL(null);
+  // Helper function to fetch route coordinates from Mapbox Directions API
+  const fetchRouteCoordinates = async (
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number
+  ) => {
+    const mapboxToken = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN;
+    
+    if (!mapboxToken) {
+      console.warn('Mapbox token not configured');
+      return [];
     }
-    return () => {
-      mounted = false;
+
+    try {
+      const response = await fetch(
+        `https://api.mapbox.com/directions/v5/mapbox/driving/${lon1},${lat1};${lon2},${lat2}?geometries=geojson&access_token=${mapboxToken}`,
+        {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch route');
+      }
+
+      const data = await response.json();
+      
+      if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+        const route = data.routes[0];
+        const coordinates = route.geometry.coordinates.map((coord: [number, number]) => ({
+          latitude: coord[1],
+          longitude: coord[0],
+        }));
+        return coordinates;
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('Error fetching route coordinates:', error);
+      return [];
+    }
+  };
+
+  // Fetch rider info when delivery is available
+  useEffect(() => {
+    if (!riderId || !activeDelivery) return;
+
+    const fetchRiderInfo = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('riders')
+          .select('full_name, rating, phone, vehicle_type, plate_number')
+          .eq('id', riderId)
+          .single();
+
+        if (error) throw error;
+
+        if (data) {
+          setRider({
+            name: data.full_name || 'Rider',
+            rating: data.rating || 5.0,
+            phone: data.phone || '',
+            vehicle: data.vehicle_type || 'Motorcycle',
+            plateNumber: data.plate_number || '',
+            estimatedArrival: 'Calculating...',
+            currentLocation: 'Updating...',
+          });
+        }
+      } catch (error) {
+        console.error('[tracking] Error fetching rider info:', error);
+      }
     };
-  }, []);
+
+    fetchRiderInfo();
+  }, [riderId, activeDelivery]);
 
   // Subscribe to Supabase Realtime for rider location
   useEffect(() => {
-    // Replace with the actual rider_id for this delivery at runtime
-    const RIDER_ID = 'REPLACE_WITH_RIDER_ID';
-    if (!RIDER_ID || RIDER_ID === 'REPLACE_WITH_RIDER_ID') {
+    if (!riderId) {
       console.warn(
-        '[tracking] Missing RIDER_ID — realtime subscription skipped.'
+        '[tracking] Missing RIDER_ID — realtime subscription skipped. No active delivery with assigned rider.'
       );
       return;
     }
 
     const channel = supabase
-      .channel(`rider-location:${RIDER_ID}`)
+      .channel(`rider-location:${riderId}`)
       .on(
         'postgres_changes',
         {
           event: 'UPDATE',
           schema: 'public',
           table: 'rider_locations',
-          filter: `rider_id=eq.${RIDER_ID}`,
+          filter: `rider_id=eq.${riderId}`,
         },
         (payload) => {
           if (payload.new) {
@@ -158,7 +236,7 @@ export default function TrackingScreen() {
         const { data, error } = await supabase
           .from('rider_locations')
           .select('latitude,longitude')
-          .eq('rider_id', RIDER_ID)
+          .eq('rider_id', riderId)
           .single();
 
         if (error) {
@@ -193,7 +271,7 @@ export default function TrackingScreen() {
         console.warn('[tracking] subscription cleanup failed', e);
       }
     };
-  }, []);
+  }, [riderId]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -311,41 +389,61 @@ export default function TrackingScreen() {
           activeOpacity={0.8}
           onPress={() => setMapExpanded(true)}
         >
-          {MapboxGL ? (
-            <MapboxGL.MapView style={styles.map}>
-              <MapboxGL.Camera
-                centerCoordinate={[riderCoords.longitude, riderCoords.latitude]}
-                zoomLevel={14}
+          <MapView
+            key={`map-${riderCoords.latitude}-${riderCoords.longitude}`}
+            style={styles.map}
+            initialRegion={{
+              latitude: riderCoords.latitude,
+              longitude: riderCoords.longitude,
+              latitudeDelta: 0.05,
+              longitudeDelta: 0.05,
+            }}
+            region={{
+              latitude: riderCoords.latitude,
+              longitude: riderCoords.longitude,
+              latitudeDelta: 0.05,
+              longitudeDelta: 0.05,
+            }}
+          >
+            {/* Route polyline */}
+            {routeCoordinates.length > 0 && (
+              <Polyline
+                coordinates={routeCoordinates}
+                strokeColor="#5A47FF"
+                strokeWidth={4}
+                lineCap="round"
+                lineJoin="round"
               />
-              <MapboxGL.PointAnnotation
-                id="rider"
-                coordinate={[riderCoords.longitude, riderCoords.latitude]}
-              >
-                {/* Optionally add a custom marker here */}
-                <View
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: 14,
-                    backgroundColor: theme.colors.primary,
-                  }}
-                />
-              </MapboxGL.PointAnnotation>
-            </MapboxGL.MapView>
-          ) : (
-            // Fallback simple static map placeholder / prompt
-            <View
-              style={[
-                styles.map,
-                { justifyContent: 'center', alignItems: 'center' },
-              ]}
-            >
-              <Text style={{ color: isDark ? theme.colors.text : '#374151' }}>
-                Map unavailable in Expo Go. Run EAS build or use react-native-maps
-                for dev.
-              </Text>
-            </View>
-          )}
+            )}
+            
+            {/* Pickup marker */}
+            {pickupCoords && (
+              <Marker
+                coordinate={pickupCoords}
+                title="Pickup Location"
+                pinColor="#10B981"
+              />
+            )}
+            
+            {/* Dropoff marker */}
+            {dropoffCoords && (
+              <Marker
+                coordinate={dropoffCoords}
+                title="Dropoff Location"
+                pinColor="#EF4444"
+              />
+            )}
+            
+            {/* Rider marker */}
+            <Marker
+              coordinate={{
+                latitude: riderCoords.latitude,
+                longitude: riderCoords.longitude,
+              }}
+              title="Rider Location"
+              pinColor={theme.colors.primary}
+            />
+          </MapView>
         </TouchableOpacity>
 
         {/* Draggable Status Card - Moved outside map container */}
@@ -390,42 +488,61 @@ export default function TrackingScreen() {
         {/* Fullscreen Map Modal */}
         {mapExpanded && (
           <View style={StyleSheet.absoluteFill}>
-            {MapboxGL ? (
-              <MapboxGL.MapView style={{ flex: 1 }}>
-                <MapboxGL.Camera
-                  centerCoordinate={[riderCoords.longitude, riderCoords.latitude]}
-                  zoomLevel={14}
+            <MapView
+              key={`map-expanded-${riderCoords.latitude}-${riderCoords.longitude}`}
+              style={{ flex: 1 }}
+              initialRegion={{
+                latitude: riderCoords.latitude,
+                longitude: riderCoords.longitude,
+                latitudeDelta: 0.05,
+                longitudeDelta: 0.05,
+              }}
+              region={{
+                latitude: riderCoords.latitude,
+                longitude: riderCoords.longitude,
+                latitudeDelta: 0.05,
+                longitudeDelta: 0.05,
+              }}
+            >
+              {/* Route polyline */}
+              {routeCoordinates.length > 0 && (
+                <Polyline
+                  coordinates={routeCoordinates}
+                  strokeColor="#5A47FF"
+                  strokeWidth={4}
+                  lineCap="round"
+                  lineJoin="round"
                 />
-                <MapboxGL.PointAnnotation
-                  id="rider-full"
-                  coordinate={[riderCoords.longitude, riderCoords.latitude]}
-                >
-                  <View
-                    style={{
-                      width: 38,
-                      height: 38,
-                      borderRadius: 19,
-                      backgroundColor: theme.colors.primary,
-                    }}
-                  />
-                </MapboxGL.PointAnnotation>
-              </MapboxGL.MapView>
-            ) : (
-              <View
-                style={{
-                  flex: 1,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  padding: 20,
-                  backgroundColor: theme.colors.background,
+              )}
+              
+              {/* Pickup marker */}
+              {pickupCoords && (
+                <Marker
+                  coordinate={pickupCoords}
+                  title="Pickup Location"
+                  pinColor="#10B981"
+                />
+              )}
+              
+              {/* Dropoff marker */}
+              {dropoffCoords && (
+                <Marker
+                  coordinate={dropoffCoords}
+                  title="Dropoff Location"
+                  pinColor="#EF4444"
+                />
+              )}
+              
+              {/* Rider marker */}
+              <Marker
+                coordinate={{
+                  latitude: riderCoords.latitude,
+                  longitude: riderCoords.longitude,
                 }}
-              >
-                <Text style={{ textAlign: 'center', color: theme.colors.text }}>
-                  Map unavailable in Expo Go. To test Mapbox, run an EAS/custom
-                  build or switch to react-native-maps.
-                </Text>
-              </View>
-            )}
+                title="Rider Location"
+                pinColor={theme.colors.primary}
+              />
+            </MapView>
             <TouchableOpacity
               style={{
                 position: 'absolute',

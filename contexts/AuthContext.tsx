@@ -81,7 +81,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const loadUserProfile = async (userId: string) => {
+  const loadUserProfile = async (userId: string): Promise<boolean> => {
     console.log('Loading user profile for userId:', userId);
     try {
       // Check if user is a rider first
@@ -97,7 +97,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUserProfile(riderData);
         setUserType('rider');
         console.log('User is a rider');
-        return;
+        return true;
       }
 
       // Check if user is a regular user
@@ -113,11 +113,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUserProfile(userData);
         setUserType('user');
         console.log('User is a regular user');
+        return true;
       } else {
         console.log('No user profile found for userId:', userId);
+        return false;
       }
     } catch (error) {
       console.error('Error loading user profile:', error);
+      return false;
     }
     // Remove setLoading(false) from here since we want to keep loading true
     // until navigation completes in signIn
@@ -132,37 +135,79 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setLoading(true);
 
     try {
-      // 1. Sign up
+      // 1. Sign up with user metadata for profile creation
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           emailRedirectTo: undefined, // Disable email confirmation for now
+          data: {
+            fullName: userData.fullName,
+            phone: userData.phone,
+            userType: userType,
+          },
         },
       });
 
       if (error) {
-        // Handle specific case where user already exists in Supabase Auth
-        if (error.message.includes('already registered')) {
-          throw new Error(
-            'An account with this email already exists. Please try signing in instead.'
-          );
+        // Handle various cases where user already exists
+        const errorMessage = (error.message || '').toLowerCase();
+        const errorCode = error.status || error.code || '';
+        const errorString = String(errorCode).toLowerCase();
+        
+        // Check for various patterns that indicate user already exists
+        const isExistingAccount = 
+          errorMessage.includes('already registered') ||
+          errorMessage.includes('user already registered') ||
+          errorMessage.includes('email already registered') ||
+          errorMessage.includes('already exists') ||
+          errorMessage.includes('user already exists') ||
+          errorMessage.includes('email address is already registered') ||
+          errorString === '422' || // Unprocessable Entity
+          errorString === 'user_already_registered';
+        
+        if (isExistingAccount) {
+          setLoading(false);
+          throw new Error('ACCOUNT_EXISTS: An account with this email already exists. Please sign in instead.');
         }
+        
+        // Handle other errors
+        setLoading(false);
         throw error;
       }
 
       // Check if we received user data from signUp
       if (!data.user) {
+        setLoading(false);
         throw new Error('No user data received from sign up');
       }
 
-      // Use the user data from signUp directly instead of signing in again
       const userId = data.user.id;
       if (!userId) {
+        setLoading(false);
         throw new Error('No user ID received from sign up');
       }
 
-      // 4. Insert profile
+      // Check if email confirmation is required (no session returned)
+      // This is NOT an error - it's expected behavior when email confirmation is enabled
+      if (!data.session) {
+        // Email confirmation is enabled - this is normal for first-time signups
+        // Profile will be created automatically via database trigger when email is confirmed
+        setLoading(false);
+        // Return a special success indicator instead of throwing an error
+        return; // Success - user needs to check email
+      }
+
+      // We have a session, proceed with profile creation
+      const activeSession = data.session;
+
+      // Verify the session user ID matches the user ID we're inserting
+      if (activeSession.user.id !== userId) {
+        throw new Error('Session user ID does not match signup user ID');
+      }
+
+      // 4. Insert profile with active session
+      // The id must match auth.uid() for RLS policy to allow the insert
       type ProfileData = {
         id: string;
         email: string;
@@ -171,7 +216,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       };
 
       const profileData: ProfileData = {
-        id: userId,
+        id: userId, // This must match auth.uid() for RLS to work
         email,
         full_name: userData.fullName,
         phone: userData.phone,
@@ -184,6 +229,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       if (profileError) {
         console.error('Profile creation error:', profileError);
+
+        // Handle RLS policy violation (42501)
+        if (profileError.code === '42501') {
+          // Clean up the auth user we just created
+          await supabase.auth.signOut();
+          throw new Error(
+            'Failed to create profile due to security policy. Please contact support.'
+          );
+        }
 
         // Handle duplicate email constraint error
         if (profileError.code === '23505') {
@@ -203,32 +257,36 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Load the newly created profile
       await loadUserProfile(userId);
 
-      // Update session state
-      setSession(data.session);
-      setUser(data.user);
+      // Update session state with the active session
+      setSession(activeSession);
+      setUser(activeSession.user);
 
       // Set loading to false before returning
       setLoading(false);
     } catch (error) {
       console.error('Signup error:', error);
 
-      // Additional cleanup for specific error cases
+      // Re-throw ACCOUNT_EXISTS errors as-is (they're already user-friendly)
       if (
         error instanceof Error &&
-        error.message.includes('An account with this email already exists')
+        (error.message.includes('ACCOUNT_EXISTS') ||
+         error.message.includes('An account with this email already exists'))
       ) {
-        // Supabase cleanup is handled in the profileError block
-        // Here we just need to ensure loading state is reset
         setLoading(false);
         throw error;
       }
 
-      // General error case
+      // General error case - wrap in user-friendly message
       setLoading(false);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      // Don't wrap if it's already a user-friendly message
+      if (errorMessage.includes('ACCOUNT_EXISTS') || errorMessage.includes('EMAIL_CONFIRMATION')) {
+        throw error;
+      }
+      
       throw new Error(
-        `Registration failed: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`
+        `Registration failed: ${errorMessage}`
       );
     }
   };
@@ -258,7 +316,46 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Load user profile
       if (data.user) {
         console.log('Loading profile for user:', data.user.id);
-        await loadUserProfile(data.user.id);
+        const profileLoaded = await loadUserProfile(data.user.id);
+
+        // If profile doesn't exist, try to create it from user metadata
+        // This handles cases where the database trigger didn't fire or email confirmation happened differently
+        if (!profileLoaded && data.user.user_metadata) {
+          console.log('Profile not found, creating from user metadata...');
+          const metadata = data.user.user_metadata;
+          
+          type ProfileData = {
+            id: string;
+            email: string;
+            full_name: string;
+            phone: string;
+          };
+
+          const profileData: ProfileData = {
+            id: data.user.id,
+            email: data.user.email || '',
+            full_name: metadata.fullName || metadata.full_name || 'User',
+            phone: metadata.phone || '',
+          };
+
+          const userTypeFromMeta = metadata.userType || 'user';
+          const table: 'riders' | 'users' = userTypeFromMeta === 'rider' ? 'riders' : 'users';
+          const { error: profileError } = await supabase
+            .from(table)
+            .insert([profileData] as any);
+
+          if (profileError) {
+            console.error('Failed to create profile after signin:', profileError);
+            // If RLS error, user might need to complete signup flow again
+            if (profileError.code === '42501') {
+              console.warn('RLS policy violation - user may need to complete signup');
+            }
+            // Don't throw error, just log it - user can still sign in
+          } else {
+            // Reload profile after creation
+            await loadUserProfile(data.user.id);
+          }
+        }
 
         // After successful sign in and profile load, navigate to home
         // We'll handle navigation before setting loading to false

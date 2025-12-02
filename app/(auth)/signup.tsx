@@ -96,15 +96,17 @@ export default function SignupScreen() {
         userType
       );
       
-      // If we get here, the signup was successful
+      // If we get here without error, check if email confirmation is needed
+      // (signUp returns successfully when email confirmation is required)
+      // Show success message for email confirmation
       Alert.alert(
-        'Account Created!',
-        'Your account has been created successfully. You can now sign in.',
+        'Check Your Email 📧',
+        'We\'ve sent you a confirmation email. Please check your inbox and click the confirmation link to activate your account. Once confirmed, you can sign in.',
         [
           {
-            text: 'Sign In',
-            onPress: () => router.replace('/(auth)/login'),
-          },
+            text: 'OK',
+            onPress: () => router.replace('/(auth)/login')
+          }
         ]
       );
     } catch (error: any) {
@@ -112,15 +114,14 @@ export default function SignupScreen() {
       
       // Handle specific error messages
       if (error.message) {
-        if (error.message.includes('already registered') || 
-            error.message.includes('already exists') ||
-            error.message.includes('User already registered')) {
+        if (error.message.includes('ACCOUNT_EXISTS')) {
+          // User already has an account - show friendly message
           Alert.alert(
-            'Account Exists',
-            'An account with this email already exists. Please try signing in instead.',
+            'Account Already Exists',
+            'An account with this email already exists. Please sign in instead.',
             [
               {
-                text: 'OK',
+                text: 'Cancel',
                 style: 'cancel'
               },
               {
@@ -129,8 +130,22 @@ export default function SignupScreen() {
               }
             ]
           );
+        } else if (error.message.includes('EMAIL_CONFIRMATION_REQUIRED')) {
+          // This shouldn't happen anymore, but handle it just in case
+          Alert.alert(
+            'Check Your Email 📧',
+            'We\'ve sent you a confirmation email. Please check your inbox and click the confirmation link to activate your account. Then you can sign in.',
+            [
+              {
+                text: 'OK',
+                onPress: () => router.replace('/(auth)/login')
+              }
+            ]
+          );
         } else {
-          Alert.alert('Signup Failed', error.message);
+          // Generic error - show user-friendly message
+          const errorMsg = error.message || 'An unexpected error occurred. Please try again.';
+          Alert.alert('Signup Failed', errorMsg);
         }
       } else {
         Alert.alert('Signup Failed', 'An unexpected error occurred. Please try again.');

@@ -24,6 +24,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import * as Location from 'expo-location';
 import { supabase } from '@/lib/supabase';
+import MapView, { Marker } from 'react-native-maps';
 
 /**
  * Active Delivery Screen
@@ -351,20 +352,61 @@ export default function ActiveDeliveryScreen() {
             )}
           </MapboxGL.MapView>
         ) : (
-          // Fallback simple static map placeholder / prompt
-          <View
-            style={{
-              flex: 1,
-              justifyContent: 'center',
-              alignItems: 'center',
-              borderRadius: 16,
+          <MapView
+            key={`rider-map-${riderCoords?.latitude || pickupCoords.latitude}-${riderCoords?.longitude || pickupCoords.longitude}`}
+            style={{ flex: 1, borderRadius: 16, overflow: 'hidden' }}
+            initialRegion={{
+              latitude: riderCoords?.latitude || pickupCoords.latitude,
+              longitude: riderCoords?.longitude || pickupCoords.longitude,
+              latitudeDelta: 0.01,
+              longitudeDelta: 0.01,
+            }}
+            region={{
+              latitude: riderCoords?.latitude || pickupCoords.latitude,
+              longitude: riderCoords?.longitude || pickupCoords.longitude,
+              latitudeDelta: 0.01,
+              longitudeDelta: 0.01,
             }}
           >
-            <Text style={{ color: theme.colors.text }}>
-              Map unavailable in Expo Go. Run EAS build or use react-native-maps
-              for dev.
-            </Text>
-          </View>
+            {/* Pickup marker */}
+            {(deliveryStatus === 'heading_to_pickup' ||
+              deliveryStatus === 'at_pickup' ||
+              deliveryStatus === 'picked_up') && (
+              <Marker
+                coordinate={{
+                  latitude: pickupCoords.latitude,
+                  longitude: pickupCoords.longitude,
+                }}
+                title="Pickup Location"
+                pinColor={theme.colors.success}
+              />
+            )}
+            {/* Dropoff marker */}
+            {(deliveryStatus === 'heading_to_dropoff' ||
+              deliveryStatus === 'at_dropoff' ||
+              deliveryStatus === 'delivered' ||
+              deliveryStatus === 'picked_up') && (
+              <Marker
+                coordinate={{
+                  latitude: dropoffCoords.latitude,
+                  longitude: dropoffCoords.longitude,
+                }}
+                title="Dropoff Location"
+                pinColor={theme.colors.error}
+              />
+            )}
+            {/* Rider's own location marker */}
+            {riderCoords && (
+              <Marker
+                coordinate={{
+                  latitude: riderCoords.latitude,
+                  longitude: riderCoords.longitude,
+                }}
+                title="Your Location"
+                pinColor={theme.colors.primary}
+              />
+            )}
+          </MapView>
         )}
         {/* Status Overlay */}
         <View

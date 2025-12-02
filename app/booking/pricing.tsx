@@ -32,12 +32,20 @@ export default function PricingScreen() {
     size,
     pickupAddress,
     dropoffAddress,
+    pickupLat,
+    pickupLon,
+    dropoffLat,
+    dropoffLon,
     deliveryTime,
     scheduledTime,
   } = useLocalSearchParams<{
     size: string;
     pickupAddress: string;
     dropoffAddress: string;
+    pickupLat?: string;
+    pickupLon?: string;
+    dropoffLat?: string;
+    dropoffLon?: string;
     deliveryTime: string;
     scheduledTime?: string;
   }>();
@@ -46,41 +54,136 @@ export default function PricingScreen() {
   const [pricing, setPricing] = useState<PricingBreakdown | null>(null);
   const [estimatedTime, setEstimatedTime] = useState('25-35 mins');
 
-  // Simulate Google Maps API pricing calculation
+  // Calculate road distance using Mapbox Directions API (very accurate, as accurate as Google Maps)
+  const calculateRoadDistance = async (
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number
+  ): Promise<{ distance: number; duration: number }> => {
+    const mapboxToken = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN;
+
+    // Use Mapbox Directions API for accurate road distance calculation
+    if (mapboxToken) {
+      try {
+        const response = await fetch(
+          `https://api.mapbox.com/directions/v5/mapbox/driving/${lon1},${lat1};${lon2},${lat2}?geometries=geojson&access_token=${mapboxToken}`,
+          {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+            },
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          
+          if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+            const route = data.routes[0];
+            const distanceMeters = route.distance;
+            const durationSeconds = route.duration;
+            
+            const distanceKm = distanceMeters / 1000;
+            const minutes = Math.round(durationSeconds / 60);
+            setEstimatedTime(`${minutes}-${minutes + 10} mins`);
+            
+            return {
+              distance: distanceKm,
+              duration: durationSeconds,
+            };
+          }
+        }
+      } catch (error) {
+        console.error('Mapbox API error:', error);
+      }
+    } else {
+      console.warn('Mapbox access token not found. Please add EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN to your .env file');
+    }
+
+    // Fallback: Haversine formula with buffer if Mapbox fails or token is missing
+    console.warn('Using estimated distance (Mapbox API unavailable). Please configure EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN for accurate calculations.');
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = (lat2 - lat1) * (Math.PI / 180);
+    const dLon = (lon2 - lon1) * (Math.PI / 180);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * (Math.PI / 180)) *
+        Math.cos(lat2 * (Math.PI / 180)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const straightLineDistance = R * c;
+    
+    // Add 40% buffer for road distance approximation
+    const estimatedRoadDistance = straightLineDistance * 1.4;
+    setEstimatedTime('25-35 mins');
+    
+    return {
+      distance: estimatedRoadDistance,
+      duration: 0,
+    };
+  };
+
+  // Calculate pricing based on road distance
   useEffect(() => {
     const calculatePrice = async () => {
       setLoading(true);
       
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Mock calculation based on distance and size
-      const baseDistance = Math.random() * 10 + 5; // 5-15 km
-      const basePrice = 8 + (baseDistance * 0.8); // Base pricing formula
-      
-      let sizeSurcharge = 0;
-      if (size === 'medium') {
-        sizeSurcharge = basePrice * 0.02; // 2% surcharge
-      } else if (size === 'large') {
-        sizeSurcharge = basePrice * 0.05; // 5% surcharge
+      // Check if we have valid coordinates
+      if (!pickupLat || !pickupLon || !dropoffLat || !dropoffLon) {
+        // Fallback if coordinates are missing
+        setPricing({
+          basePrice: 0,
+          distance: 0,
+          sizeSurcharge: 0,
+          timeSurcharge: 0,
+          total: 0,
+        });
+        setLoading(false);
+        return;
       }
-      
-      const timeSurcharge = deliveryTime === 'scheduled' ? 2.5 : 0;
-      const total = basePrice + sizeSurcharge + timeSurcharge;
-      
-      setPricing({
-        basePrice: Number(basePrice.toFixed(2)),
-        distance: Number(baseDistance.toFixed(1)),
-        sizeSurcharge: Number(sizeSurcharge.toFixed(2)),
-        timeSurcharge: timeSurcharge,
-        total: Number(total.toFixed(2)),
-      });
-      
-      setLoading(false);
+
+      try {
+        // Calculate actual road distance in kilometers
+        const { distance: distanceKm } = await calculateRoadDistance(
+          parseFloat(pickupLat),
+          parseFloat(pickupLon),
+          parseFloat(dropoffLat),
+          parseFloat(dropoffLon)
+        );
+
+        // Calculate price: 250 naira per kilometer
+        const PRICE_PER_KM = 250;
+        const basePrice = distanceKm * PRICE_PER_KM;
+        
+        // No surcharges, just distance-based pricing
+        const total = basePrice;
+        
+        setPricing({
+          basePrice: Number(basePrice.toFixed(2)),
+          distance: Number(distanceKm.toFixed(2)),
+          sizeSurcharge: 0,
+          timeSurcharge: 0,
+          total: Number(total.toFixed(2)),
+        });
+      } catch (error) {
+        console.error('Error calculating price:', error);
+        // Fallback pricing
+        setPricing({
+          basePrice: 0,
+          distance: 0,
+          sizeSurcharge: 0,
+          timeSurcharge: 0,
+          total: 0,
+        });
+      } finally {
+        setLoading(false);
+      }
     };
 
     calculatePrice();
-  }, [size, deliveryTime]);
+  }, [pickupLat, pickupLon, dropoffLat, dropoffLon]);
 
   const handleConfirmBooking = () => {
     if (pricing) {
@@ -90,6 +193,10 @@ export default function PricingScreen() {
           size,
           pickupAddress,
           dropoffAddress,
+          pickupLat: pickupLat || '',
+          pickupLon: pickupLon || '',
+          dropoffLat: dropoffLat || '',
+          dropoffLon: dropoffLon || '',
           deliveryTime,
           scheduledTime,
           price: pricing.total.toString(),
@@ -142,7 +249,7 @@ export default function PricingScreen() {
               <ActivityIndicator size="large" color="#5A47FF" />
               <Text style={styles.loadingText}>Calculating best price...</Text>
               <Text style={styles.loadingSubtext}>
-                Using Google Maps to find the optimal route
+                Calculating route distance using road network
               </Text>
             </View>
           ) : (
@@ -152,7 +259,7 @@ export default function PricingScreen() {
                 <View style={styles.priceHeader}>
                   <DollarSign size={32} color="#5A47FF" strokeWidth={2} />
                   <View style={styles.priceInfo}>
-                    <Text style={styles.totalPrice}>${pricing?.total}</Text>
+                    <Text style={styles.totalPrice}>₦{pricing?.total ? pricing.total.toLocaleString('en-NG') : '0'}</Text>
                     <Text style={styles.priceLabel}>Total Cost</Text>
                   </View>
                   <View style={styles.estimatedTime}>
@@ -188,7 +295,7 @@ export default function PricingScreen() {
                 <View style={styles.detailItem}>
                   <Truck size={20} color="#6B7280" strokeWidth={2} />
                   <Text style={styles.detailText}>
-                    Distance: {pricing?.distance} km
+                    Distance: {pricing?.distance ? pricing.distance.toFixed(2) : '0.00'} km
                   </Text>
                 </View>
                 
@@ -207,31 +314,15 @@ export default function PricingScreen() {
                 <Text style={styles.cardTitle}>Price Breakdown</Text>
                 
                 <View style={styles.breakdownItem}>
-                  <Text style={styles.breakdownLabel}>Base delivery fee</Text>
-                  <Text style={styles.breakdownValue}>${pricing?.basePrice}</Text>
+                  <Text style={styles.breakdownLabel}>Delivery fee ({pricing?.distance ? pricing.distance.toFixed(2) : '0.00'} km × ₦250)</Text>
+                  <Text style={styles.breakdownValue}>₦{pricing?.basePrice ? pricing.basePrice.toLocaleString('en-NG') : '0'}</Text>
                 </View>
-                
-                {pricing?.sizeSurcharge ? (
-                  <View style={styles.breakdownItem}>
-                    <Text style={styles.breakdownLabel}>
-                      Size surcharge ({size === 'medium' ? '2%' : '5%'})
-                    </Text>
-                    <Text style={styles.breakdownValue}>+${pricing.sizeSurcharge}</Text>
-                  </View>
-                ) : null}
-                
-                {pricing?.timeSurcharge ? (
-                  <View style={styles.breakdownItem}>
-                    <Text style={styles.breakdownLabel}>Scheduling fee</Text>
-                    <Text style={styles.breakdownValue}>+${pricing.timeSurcharge}</Text>
-                  </View>
-                ) : null}
                 
                 <View style={styles.breakdownDivider} />
                 
                 <View style={styles.breakdownItem}>
                   <Text style={styles.breakdownTotal}>Total</Text>
-                  <Text style={styles.breakdownTotalValue}>${pricing?.total}</Text>
+                  <Text style={styles.breakdownTotalValue}>₦{pricing?.total ? pricing.total.toLocaleString('en-NG') : '0'}</Text>
                 </View>
               </View>
             </>

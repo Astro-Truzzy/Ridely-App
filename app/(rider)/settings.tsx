@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Bell, Moon, Globe, Zap, CircleHelp as HelpCircle, FileText, Shield, LogOut, ChevronRight, Smartphone, Mail, MessageSquare, Sun, Monitor } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme, ThemeMode } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface SettingsState {
   pushNotifications: boolean;
@@ -23,6 +24,7 @@ interface SettingsState {
 
 export default function SettingsScreen() {
   const { theme, themeMode, setThemeMode } = useTheme();
+  const { signOut, loading } = useAuth();
   
   const [settings, setSettings] = useState<SettingsState>({
     pushNotifications: true,
@@ -130,7 +132,7 @@ export default function SettingsScreen() {
     },
   ];
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     Alert.alert(
       'Logout',
       'Are you sure you want to logout?',
@@ -139,9 +141,16 @@ export default function SettingsScreen() {
         {
           text: 'Logout',
           style: 'destructive',
-          onPress: () => {
-            
-            Alert.alert('Success', 'You have been logged out');
+          onPress: async () => {
+            try {
+              await signOut();
+              // Navigation is handled by signOut function in AuthContext
+            } catch (error: any) {
+              Alert.alert(
+                'Logout Failed',
+                error.message || 'An error occurred while logging out. Please try again.'
+              );
+            }
           },
         },
       ]

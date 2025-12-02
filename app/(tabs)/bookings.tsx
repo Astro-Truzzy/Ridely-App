@@ -11,6 +11,8 @@ import { Package, Clock, CheckCircle, XCircle, MapPin } from 'lucide-react-nativ
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { GestureHandlerRootView, PanGestureHandler, State } from 'react-native-gesture-handler';
+import { useDeliveries } from '@/hooks/useDeliveries';
+import { useEffect } from 'react';
 
 interface Booking {
   id: string;
@@ -27,52 +29,60 @@ interface Booking {
 export default function BookingsScreen() {
   const { theme } = useTheme();
   const [activeTab, setActiveTab] = useState<'all' | 'active' | 'completed' | 'cancelled'>('all');
+  const { deliveries, loading } = useDeliveries();
 
-  const bookings: Booking[] = [
-    {
-      id: 'DEL001',
-      date: 'Today',
-      time: '2:30 PM',
-      from: '123 Main St, Downtown',
-      to: '456 Oak Ave, Uptown',
-      status: 'in_transit',
-      price: '$15.75',
-      riderName: 'Mike Johnson',
-      parcelSize: 'medium',
-    },
-    {
-      id: 'DEL002',
-      date: 'Today',
-      time: '11:15 AM',
-      from: 'Home',
-      to: 'Office Building',
-      status: 'delivered',
-      price: '$12.50',
-      riderName: 'Sarah Wilson',
-      parcelSize: 'small',
-    },
-    {
-      id: 'DEL003',
-      date: 'Yesterday',
-      time: '4:20 PM',
-      from: 'Electronics Store',
-      to: 'Customer Residence',
-      status: 'delivered',
-      price: '$22.00',
-      riderName: 'Alex Thompson',
-      parcelSize: 'large',
-    },
-    {
-      id: 'DEL004',
-      date: 'Yesterday',
-      time: '10:30 AM',
-      from: 'Restaurant',
-      to: 'Office Complex',
-      status: 'cancelled',
-      price: '$8.50',
-      parcelSize: 'small',
-    },
-  ];
+  // Helper function to format date
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    if (date.toDateString() === today.toDateString()) {
+      return 'Today';
+    } else if (date.toDateString() === yesterday.toDateString()) {
+      return 'Yesterday';
+    } else {
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+  };
+
+  // Helper function to format time
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  };
+
+  // Map delivery status to booking status
+  const mapDeliveryStatus = (status: string): 'delivered' | 'in_transit' | 'pending' | 'cancelled' => {
+    switch (status) {
+      case 'delivered':
+        return 'delivered';
+      case 'in_transit':
+      case 'picked_up':
+      case 'rider_assigned':
+        return 'in_transit';
+      case 'pending':
+        return 'pending';
+      case 'cancelled':
+        return 'cancelled';
+      default:
+        return 'pending';
+    }
+  };
+
+  // Convert deliveries to bookings format
+  const bookings: Booking[] = deliveries.map((delivery) => ({
+    id: delivery.id.substring(0, 8).toUpperCase(),
+    date: formatDate(delivery.created_at),
+    time: formatTime(delivery.created_at),
+    from: delivery.pickup_address,
+    to: delivery.dropoff_address,
+    status: mapDeliveryStatus(delivery.status),
+    price: `₦${delivery.total_cost.toLocaleString('en-NG')}`,
+    riderName: delivery.rider_id ? undefined : undefined, // TODO: Fetch rider name if needed
+    parcelSize: delivery.parcel_size,
+  }));
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -128,6 +138,17 @@ export default function BookingsScreen() {
     
     return bookings;
   };
+
+  // Show loading state (using inline styles since styles is defined later)
+  if (loading) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: theme.colors.text }}>Loading bookings...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   const onGestureEvent = (event: any) => {
     // Handle horizontal swipe gesture

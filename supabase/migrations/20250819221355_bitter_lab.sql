@@ -1,11 +1,3 @@
--- Rider Locations Table for Real-Time Tracking
-create table if not exists public.rider_locations (
-  rider_id uuid primary key references public.riders(id) on delete cascade,
-  latitude double precision not null,
-  longitude double precision not null,
-  updated_at timestamptz not null default now()
-);
-
 -- Enable Realtime on this table
 -- alter publication supabase_realtime add table public.rider_locations;
 /*
@@ -127,85 +119,87 @@ DO $$ BEGIN
 END $$;
 
 -- Users table
--- CREATE TABLE users (
---   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
---   email text UNIQUE NOT NULL,
---   full_name text NOT NULL,
---   phone text NOT NULL,
---   created_at timestamptz DEFAULT now(),
---   updated_at timestamptz DEFAULT now()
--- );
+CREATE TABLE IF NOT EXISTS users (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email text UNIQUE NOT NULL,
+  full_name text NOT NULL,
+  phone text NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  avatar_url text
+);
 
 -- Riders table
--- CREATE TABLE riders (
---   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
---   email text UNIQUE NOT NULL,
---   full_name text NOT NULL,
---   phone text NOT NULL,
---   vehicle_type text,
---   plate_number text,
---   license_status verification_status DEFAULT 'pending',
---   insurance_status verification_status DEFAULT 'pending',
---   background_check verification_status DEFAULT 'pending',
---   rating numeric DEFAULT 5.0,
---   total_deliveries integer DEFAULT 0,
---   is_available boolean DEFAULT false,
---   created_at timestamptz DEFAULT now(),
---   updated_at timestamptz DEFAULT now()
--- );
+CREATE TABLE IF NOT EXISTS riders (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email text UNIQUE NOT NULL,
+  full_name text NOT NULL,
+  phone text NOT NULL,
+  vehicle_type text,
+  plate_number text,
+  license_status verification_status DEFAULT 'pending',
+  insurance_status verification_status DEFAULT 'pending',
+  background_check verification_status DEFAULT 'pending',
+  rating numeric DEFAULT 5.0,
+  total_deliveries integer DEFAULT 0,
+  is_available boolean DEFAULT false,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  avatar_url text
+);
+
+-- Rider Locations Table for Real-Time Tracking
+CREATE TABLE IF NOT EXISTS public.rider_locations (
+  rider_id uuid PRIMARY KEY REFERENCES public.riders(id) ON DELETE CASCADE,
+  latitude double precision NOT NULL,
+  longitude double precision NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 
 -- Deliveries table
--- CREATE TABLE deliveries (
---   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
---   rider_id uuid REFERENCES riders(id),
---   user_id uuid REFERENCES users(id) NOT NULL,
---   pickup_address text NOT NULL,
---   dropoff_address text NOT NULL,
---   parcel_size parcel_size NOT NULL,
---   status delivery_status DEFAULT 'pending',
---   total_cost numeric NOT NULL,
---   distance numeric NOT NULL,
---   estimated_time text NOT NULL,
---   delivery_time delivery_time_type DEFAULT 'now',
---   scheduled_time timestamptz,
---   created_at timestamptz DEFAULT now(),
---   updated_at timestamptz DEFAULT now(),
---   completed_at timestamptz
--- );
+CREATE TABLE IF NOT EXISTS deliveries (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  rider_id uuid REFERENCES riders(id),
+  user_id uuid REFERENCES users(id) NOT NULL,
+  pickup_address text NOT NULL,
+  dropoff_address text NOT NULL,
+  parcel_size parcel_size NOT NULL,
+  status delivery_status DEFAULT 'pending',
+  total_cost numeric NOT NULL,
+  distance numeric NOT NULL,
+  estimated_time text NOT NULL,
+  delivery_time delivery_time_type DEFAULT 'now',
+  scheduled_time timestamptz,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  completed_at timestamptz
+);
 
 -- Earnings table
--- CREATE TABLE earnings (
---   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
---   delivery_id uuid REFERENCES deliveries(id) NOT NULL,
---   rider_id uuid REFERENCES riders(id) NOT NULL,
---   gross_amount numeric NOT NULL,
---   ridely_fee numeric NOT NULL,
---   net_amount numeric NOT NULL,
---   status earning_status DEFAULT 'pending',
---   created_at timestamptz DEFAULT now(),
---   updated_at timestamptz DEFAULT now()
--- );
+CREATE TABLE IF NOT EXISTS earnings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  delivery_id uuid REFERENCES deliveries(id) NOT NULL,
+  rider_id uuid REFERENCES riders(id) NOT NULL,
+  gross_amount numeric NOT NULL,
+  ridely_fee numeric NOT NULL,
+  net_amount numeric NOT NULL,
+  status earning_status DEFAULT 'pending',
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
 
 -- Notifications table
--- CREATE TABLE notifications (
---   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
---   user_id uuid REFERENCES users(id) NOT NULL,
---   rider_id uuid REFERENCES riders(id),
---   type notification_type NOT NULL,
---   title text NOT NULL,
---   message text NOT NULL,
---   read boolean DEFAULT false,
---   actionable boolean DEFAULT false,
---   created_at timestamptz DEFAULT now()
--- );
-
--- Create the rider_locations table for real-time tracking
--- CREATE TABLE public.rider_locations (
---   rider_id uuid PRIMARY KEY REFERENCES public.riders(id) ON DELETE CASCADE,
---   latitude double precision NOT NULL,
---   longitude double precision NOT NULL,
---   updated_at timestamptz NOT NULL DEFAULT now()
--- );
+CREATE TABLE IF NOT EXISTS notifications (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid REFERENCES users(id) NOT NULL,
+  rider_id uuid REFERENCES riders(id),
+  type notification_type NOT NULL,
+  title text NOT NULL,
+  message text NOT NULL,
+  read boolean DEFAULT false,
+  actionable boolean DEFAULT false,
+  created_at timestamptz DEFAULT now()
+);
 
 -- Enable Realtime on this table (in Supabase dashboard: Database > Replication > Add table to publication)
 -- Or run this SQL if needed:
