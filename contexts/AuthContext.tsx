@@ -416,9 +416,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       const table = userType === 'rider' ? 'riders' : 'users';
 
+      // Create a copy of updates without undefined values to avoid type issues
+      const updatesToApply: Record<string, any> = {};
+      if (updates.full_name !== undefined) updatesToApply.full_name = updates.full_name;
+      if (updates.phone !== undefined) updatesToApply.phone = updates.phone;
+      if (updates.email !== undefined) updatesToApply.email = updates.email;
+      if (updates.avatar_url !== undefined) updatesToApply.avatar_url = updates.avatar_url;
+
       const { error } = await supabase
         .from(table)
-        .update(updates)
+        .update(updatesToApply)
         .eq('id', user.id);
 
       if (error) {
