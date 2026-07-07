@@ -1,11 +1,28 @@
-import { Tabs } from 'expo-router';
+import { useEffect } from 'react';
+import { Tabs, useRouter } from 'expo-router';
 import { House as Home, Package, User, Settings, Bell } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { LanguageProvider } from '@/contexts/LanguageContext';
 
 export default function TabLayout() {
   const { theme } = useTheme();
-  
+  const { session, userType, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (loading) return;
+    if (!session) {
+      router.replace('/(auth)/loading');
+      return;
+    }
+    if (userType === 'rider') {
+      router.replace('/(rider)/dashboard');
+    }
+  }, [session, userType, loading]);
+
   return (
+    <LanguageProvider>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -62,5 +79,6 @@ export default function TabLayout() {
         }}
       />
     </Tabs>
+    </LanguageProvider>
   );
 }

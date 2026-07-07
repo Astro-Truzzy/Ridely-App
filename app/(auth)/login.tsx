@@ -6,12 +6,13 @@ import {
   TouchableOpacity,
   TextInput,
   KeyboardAvoidingView,
+  ScrollView,
   Platform,
-  Alert,
   Image,
   Pressable,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import {
   ArrowLeft,
   Mail,
@@ -19,20 +20,22 @@ import {
   Eye,
   EyeOff,
   Package,
-  AppleIcon,
 } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAlert } from '@/contexts/AlertContext';
 import { useLogo } from '@/hooks/useLogo';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
-import GoogleIcon from '@/lib/googleIcon';
-import FacebookIcon from '@/lib/FacebookIcon';
+import { GoogleLogo, FacebookLogo, AppleLogo } from '@/lib/SocialIcons';
+import { getEnabledOAuthProviders, OAuthProvider, startOAuth } from '@/lib/socialAuth';
 
 export default function LoginScreen() {
-  const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
   const { logo } = useLogo();
   const { signIn } = useAuth();
+  const { showAlert } = useAlert();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -40,12 +43,12 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      showAlert('Error', 'Please fill in all fields');
       return;
     }
 
     if (!email.includes('@')) {
-      Alert.alert('Error', 'Please enter a valid email address');
+      showAlert('Error', 'Please enter a valid email address');
       return;
     }
 
@@ -67,14 +70,34 @@ export default function LoginScreen() {
         errorMessage = 'Please confirm your email address before signing in.';
       }
 
-      Alert.alert('Login Error', errorMessage);
+      showAlert('Login Error', errorMessage);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSocialLogin = (provider: string) => {
-    Alert.alert('Social Login', `${provider} login coming soon!`);
+  const enabledProviders = getEnabledOAuthProviders();
+
+  const [isSocialLoading, setIsSocialLoading] = useState(false);
+
+  const handleSocialLogin = async (provider: OAuthProvider) => {
+    setIsSocialLoading(true);
+    try {
+      const result = await startOAuth(provider);
+      if (result === 'cancel') {
+        showAlert('Social Login', 'Sign-in was cancelled.');
+        return;
+      }
+      router.replace('/');
+    } catch (e) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : 'Social login could not be started. Check provider setup in Supabase.';
+      showAlert('Social Login', msg);
+    } finally {
+      setIsSocialLoading(false);
+    }
   };
 
   // Animated scale for button feedback
@@ -89,13 +112,16 @@ export default function LoginScreen() {
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
     >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => router.back()}
@@ -104,6 +130,12 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
 
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
         <View style={styles.content}>
           {/* Logo */}
           <View style={styles.logoSection}>
@@ -258,65 +290,85 @@ export default function LoginScreen() {
           </View>
 
           {/* Social Login */}
-          <View style={styles.socialContainer}>
-            <TouchableOpacity
-              style={[
-                styles.socialButton,
-                {
-                  backgroundColor: theme.colors.surface,
-                  borderColor: theme.colors.border,
-                },
-              ]}
-              onPress={() => handleSocialLogin('Google')}
-            >
-              <Text style={styles.socialButtonText}>
-                <GoogleIcon size={24} />
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.socialButton,
-                {
-                  backgroundColor: theme.colors.surface,
-                  borderColor: theme.colors.border,
-                },
-              ]}
-              onPress={() => handleSocialLogin('Facebook')}
-            >
-              <Text style={styles.socialButtonText}>
-                <FacebookIcon size={30} color={theme.colors.text} />
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.socialButton,
-                {
-                  backgroundColor: theme.colors.surface,
-                  borderColor: theme.colors.border,
-                },
-              ]}
-              onPress={() => handleSocialLogin('Apple')}
-            >
-              <Text style={styles.socialButtonText}>
-                <AppleIcon size={25} color="#A3AAAE" />
+          {enabledProviders.length > 0 ? (
+            <View style={styles.socialContainer}>
+              {enabledProviders.includes('google') ? (
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  style={[
+                    styles.socialButton,
+                    {
+                      backgroundColor: theme.colors.surface,
+                      borderColor: theme.colors.border,
+                      ...theme.shadows?.small,
+                    },
+                  ]}
+                  onPress={() => handleSocialLogin('google')}
+                  disabled={isSocialLoading || isLoading}
+                >
+                  <View style={styles.socialIconWrapper}>
+                    <GoogleLogo size={26} />
+                  </View>
+                </TouchableOpacity>
+              ) : null}
+              {enabledProviders.includes('facebook') ? (
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  style={[
+                    styles.socialButton,
+                    {
+                      backgroundColor: theme.colors.surface,
+                      borderColor: theme.colors.border,
+                      ...theme.shadows?.small,
+                    },
+                  ]}
+                  onPress={() => handleSocialLogin('facebook')}
+                >
+                  <View style={styles.socialIconWrapper}>
+                    <FacebookLogo size={26} color={theme.colors.text} />
+                  </View>
+                </TouchableOpacity>
+              ) : null}
+              {enabledProviders.includes('apple') ? (
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  style={[
+                    styles.socialButton,
+                    {
+                      backgroundColor: theme.colors.surface,
+                      borderColor: theme.colors.border,
+                      ...theme.shadows?.small,
+                    },
+                  ]}
+                  onPress={() => handleSocialLogin('apple')}
+                >
+                  <View style={styles.socialIconWrapper}>
+                    <AppleLogo size={26} color={theme.colors.text} />
+                  </View>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : (
+            <Text style={[styles.socialDisabledText, { color: theme.colors.textSecondary }]}>
+              Social sign-in is currently unavailable.
+            </Text>
+          )}
+        </View>
+
+          {/* Sign up prompt – below form, scrolls with content so it stays visible above keyboard */}
+          <View style={styles.bottomContainer}>
+            <TouchableOpacity onPress={() => router.push('/(auth)/signup')} activeOpacity={0.7}>
+              <Text style={[styles.signupText, { color: theme.colors.textSecondary }]}>
+                Don't have an account?{' '}
+                <Text
+                  style={[styles.signupLink, { color: theme.colors.primary }]}
+                >
+                  Sign Up
+                </Text>
               </Text>
             </TouchableOpacity>
           </View>
-        </View>
-
-        {/* Bottom */}
-        <View style={styles.bottomContainer}>
-          <TouchableOpacity onPress={() => router.push('/(auth)/signup')}>
-            <Text style={styles.signupText}>
-              Don't have an account?{' '}
-              <Text
-                style={[styles.signupLink, { color: theme.colors.primary }]}
-              >
-                Sign Up
-              </Text>
-            </Text>
-          </TouchableOpacity>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -328,6 +380,13 @@ const styles = StyleSheet.create({
   },
   keyboardAvoidingView: {
     flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 32,
   },
   header: {
     paddingHorizontal: 20,
@@ -351,10 +410,10 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   logoImage: {
-    width: 80,
-    height: 80,
+    width: 120,
+    height: 120,
     resizeMode: 'contain',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   title: {
     fontSize: 28,
@@ -418,7 +477,7 @@ const styles = StyleSheet.create({
   divider: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 28,
   },
   dividerLine: {
     flex: 1,
@@ -431,28 +490,41 @@ const styles = StyleSheet.create({
   socialContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 16,
+    alignItems: 'center',
+    gap: 20,
   },
   socialButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
-  socialButtonText: {
-    fontSize: 20,
-    fontWeight: '600',
+  socialIconWrapper: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  socialDisabledText: {
+    textAlign: 'center',
+    marginTop: -6,
+    marginBottom: 12,
+    fontSize: 13,
   },
   bottomContainer: {
     paddingHorizontal: 24,
-    paddingBottom: 40,
+    paddingTop: 24,
+    paddingBottom: 16,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   signupText: {
-    fontSize: 14,
-    color: '#6B7280', // Keep neutral for readability
+    fontSize: 15,
   },
   signupLink: {
     fontWeight: '600',

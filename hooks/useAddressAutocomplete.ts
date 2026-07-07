@@ -4,7 +4,7 @@ export interface AddressSuggestion {
   display_name: string;
   lat: string;
   lon: string;
-  place_id: number;
+  place_id: string | number;
   address?: {
     house_number?: string;
     road?: string;
@@ -15,96 +15,131 @@ export interface AddressSuggestion {
   };
 }
 
-const DEBOUNCE_DELAY = 300; // milliseconds
+const DEBOUNCE_DELAY = 250;
+const MIN_QUERY_LENGTH = 2;
+
+function getGoogleMapsKey(): string {
+  return (
+    process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ||
+    process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY ||
+    ''
+  );
+}
 
 export function useAddressAutocomplete() {
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastQueryRef = useRef<string>('');
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const searchAddresses = async (query: string) => {
-    if (!query || query.length < 3) {
+    const trimmed = (query || '').trim();
+    if (trimmed.length < MIN_QUERY_LENGTH) {
+      lastQueryRef.current = '';
       setSuggestions([]);
       return;
     }
 
-    const mapboxToken = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN;
-    
-    if (!mapboxToken) {
-      console.warn('Mapbox access token not found. Please add EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN to your .env file');
+    const key = getGoogleMapsKey();
+    if (!key) {
+      console.warn('Google Maps API key not found. Set EXPO_PUBLIC_GOOGLE_MAPS_API_KEY.');
       setSuggestions([]);
       return;
     }
+
+    // Cancel any in-flight request so it can't overwrite newer results
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+    lastQueryRef.current = trimmed;
 
     setLoading(true);
-
     try {
-      // Using Mapbox Geocoding API for accurate address autocomplete
-      // Filtered to Nigeria (country code: ng) for better results
-      const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?country=ng&limit=5&access_token=${mapboxToken}`,
-        {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-          },
-        }
-      );
+      // No 'types' restriction so we get both addresses and establishments (malls, shops, landmarks e.g. Shoprite, Market Square, Hypercity in Port Harcourt)
+      const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(trimmed)}&components=country:ng&key=${key}`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        signal,
+      });
 
       if (!response.ok) {
         throw new Error('Failed to fetch address suggestions');
       }
 
       const data = await response.json();
-      
-      // Map Mapbox response format to our AddressSuggestion interface
-      const formattedData: AddressSuggestion[] = data.features.map((feature: any, index: number) => {
-        const [longitude, latitude] = feature.center;
-        const context = feature.context || [];
-        
-        // Extract address components from context
-        const address: any = {};
-        context.forEach((item: any) => {
-          if (item.id.startsWith('place.')) {
-            address.city = item.text;
-          } else if (item.id.startsWith('region.')) {
-            address.state = item.text;
-          } else if (item.id.startsWith('postcode.')) {
-            address.postcode = item.text;
-          } else if (item.id.startsWith('neighborhood.')) {
-            address.suburb = item.text;
-          }
-        });
 
-        // Build formatted display name
-        let displayName = feature.place_name;
-        
-        // Clean up the display name (remove country if already in it)
-        if (displayName.includes(', Nigeria')) {
-          displayName = displayName.replace(', Nigeria', '');
-        }
+      // Only apply results if this response is still for the current query (avoid race)
+      if (lastQueryRef.current !== trimmed) {
+        return;
+      }
 
-        return {
-          display_name: displayName,
-          lat: latitude.toString(),
-          lon: longitude.toString(),
-          place_id: index,
-          address: {
-            road: feature.properties.address || feature.text,
-            city: address.city,
-            state: address.state,
-            suburb: address.suburb,
-            postcode: address.postcode,
-          },
-        };
-      });
-      
-      setSuggestions(formattedData);
+      if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+        throw new Error(data.error_message || 'Places request failed');
+      }
+
+      const predictions = data.predictions || [];
+      const formatted: AddressSuggestion[] = predictions.map((p: { place_id: string; description: string }) => ({
+        display_name: p.description.replace(/, Nigeria$/, '').trim(),
+        lat: '',
+        lon: '',
+        place_id: p.place_id,
+        address: {},
+      }));
+      setSuggestions(formatted);
     } catch (error) {
+      if ((error as Error).name === 'AbortError') return;
       console.error('Error fetching address suggestions:', error);
-      setSuggestions([]);
+      if (lastQueryRef.current === trimmed) {
+        setSuggestions([]);
+      }
     } finally {
-      setLoading(false);
+      if (lastQueryRef.current === trimmed) {
+        setLoading(false);
+      }
+      abortControllerRef.current = null;
+    }
+  };
+
+  /** Fetch full address with coordinates for a Google place_id. Call this when user selects a suggestion. */
+  const getPlaceDetails = async (placeId: string): Promise<AddressSuggestion | null> => {
+    const key = getGoogleMapsKey();
+    if (!key) return null;
+    try {
+      const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(placeId)}&fields=geometry,formatted_address,address_components&key=${key}`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) return null;
+      const data = await response.json();
+      if (data.status !== 'OK' || !data.result) return null;
+      const r = data.result;
+      const lat = r.geometry?.location?.lat;
+      const lng = r.geometry?.location?.lng;
+      const display_name = r.formatted_address || '';
+      const address: AddressSuggestion['address'] = {};
+      (r.address_components || []).forEach((c: { types: string[]; long_name: string }) => {
+        if (c.types.includes('street_number')) address!.house_number = c.long_name;
+        if (c.types.includes('route')) address!.road = c.long_name;
+        if (c.types.includes('sublocality') || c.types.includes('neighborhood')) address!.suburb = c.long_name;
+        if (c.types.includes('locality')) address!.city = c.long_name;
+        if (c.types.includes('administrative_area_level_1')) address!.state = c.long_name;
+        if (c.types.includes('postal_code')) address!.postcode = c.long_name;
+      });
+      return {
+        display_name: display_name.replace(/, Nigeria$/, '').trim(),
+        lat: lat != null ? String(lat) : '',
+        lon: lng != null ? String(lng) : '',
+        place_id: placeId,
+        address,
+      };
+    } catch (error) {
+      console.error('Error fetching place details:', error);
+      return null;
     }
   };
 
@@ -112,7 +147,6 @@ export function useAddressAutocomplete() {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
-
     debounceTimerRef.current = setTimeout(() => {
       searchAddresses(query);
     }, DEBOUNCE_DELAY);
@@ -135,6 +169,6 @@ export function useAddressAutocomplete() {
     loading,
     searchAddresses: debouncedSearch,
     clearSuggestions,
+    getPlaceDetails,
   };
 }
-

@@ -6,12 +6,13 @@ import {
   TouchableOpacity,
   ScrollView,
   TextInput,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Image,
+  ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import {
   ArrowLeft,
   User,
@@ -25,10 +26,15 @@ import {
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAlert } from '@/contexts/AlertContext';
+import { pickProfileImage, uploadAvatar } from '@/lib/avatarUpload';
 
 export default function EditProfileScreen() {
-  const { theme } = useTheme();
-  const { userProfile, updateProfile } = useAuth();
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
+  const { userProfile, user, updateProfile } = useAuth();
+  const { showAlert } = useAlert();
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [profile, setProfile] = useState({
     name: userProfile?.full_name || '',
     email: userProfile?.email || '',
@@ -62,34 +68,34 @@ export default function EditProfileScreen() {
   const handleSave = async () => {
     // Validate inputs
     if (!profile.name.trim()) {
-      Alert.alert('Error', 'Name is required');
+      showAlert('Error', 'Name is required');
       return;
     }
 
     if (!profile.email.trim() || !profile.email.includes('@')) {
-      Alert.alert('Error', 'Please enter a valid email address');
+      showAlert('Error', 'Please enter a valid email address');
       return;
     }
 
     if (!profile.phone.trim()) {
-      Alert.alert('Error', 'Phone number is required');
+      showAlert('Error', 'Phone number is required');
       return;
     }
 
     // Validate password change if user is trying to change it
     if (profile.newPassword || profile.confirmPassword) {
       if (!profile.currentPassword) {
-        Alert.alert('Error', 'Current password is required to change password');
+        showAlert('Error', 'Current password is required to change password');
         return;
       }
 
       if (profile.newPassword !== profile.confirmPassword) {
-        Alert.alert('Error', 'New passwords do not match');
+        showAlert('Error', 'New passwords do not match');
         return;
       }
 
       if (profile.newPassword.length < 6) {
-        Alert.alert('Error', 'New password must be at least 6 characters');
+        showAlert('Error', 'New password must be at least 6 characters');
         return;
       }
     }
@@ -112,30 +118,54 @@ export default function EditProfileScreen() {
       // Update profile in the database
       await updateProfile(updates);
 
-      Alert.alert(
+      showAlert(
         'Success',
         'Your profile has been updated successfully!',
         [{ text: 'OK', onPress: () => router.back() }]
       );
     } catch (error: any) {
       console.error('Profile update error:', error);
-      Alert.alert('Error', error.message || 'Failed to update profile');
+      showAlert('Error', error.message || 'Failed to update profile');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleImageUpload = () => {
-    Alert.alert(
-      'Update Profile Picture',
-      'Choose an option',
-      [
-        { text: 'Camera', onPress: () => console.log('Camera selected') },
-        { text: 'Gallery', onPress: () => console.log('Gallery selected') },
-        { text: 'Remove Photo', onPress: () => setAvatar(null), style: 'destructive' },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+  const handleImageUpload = async () => {
+    const choice = await new Promise<'camera' | 'gallery' | 'remove' | null>((resolve) => {
+      showAlert(
+        'Update Profile Picture',
+        'Choose an option',
+        [
+          { text: 'Camera', onPress: () => resolve('camera') },
+          { text: 'Gallery', onPress: () => resolve('gallery') },
+          { text: 'Remove Photo', onPress: () => resolve('remove'), style: 'destructive' },
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve(null) },
+        ]
+      );
+    });
+    if (choice === 'remove') {
+      try {
+        await updateProfile({ avatar_url: null });
+        setAvatar(null);
+      } catch (e) {
+        showAlert('Error', e instanceof Error ? e.message : 'Could not remove photo.');
+      }
+      return;
+    }
+    if (!choice || !user?.id) return;
+    setUploadingAvatar(true);
+    try {
+      const picked = await pickProfileImage(choice);
+      if (!picked) return;
+      const avatarUrl = await uploadAvatar(user.id, picked);
+      await updateProfile({ avatar_url: avatarUrl });
+      setAvatar(avatarUrl);
+    } catch (e) {
+      showAlert('Error', e instanceof Error ? e.message : 'Could not update profile picture.');
+    } finally {
+      setUploadingAvatar(false);
+    }
   };
 
   const styles = StyleSheet.create({
@@ -206,6 +236,16 @@ export default function EditProfileScreen() {
       height: 100,
       borderRadius: 50,
       backgroundColor: theme.colors.primary,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    avatarOverlay: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      width: 100,
+      height: 100,
+      borderRadius: 50,
       justifyContent: 'center',
       alignItems: 'center',
     },
@@ -302,9 +342,13 @@ export default function EditProfileScreen() {
   });
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
+    >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
@@ -323,7 +367,11 @@ export default function EditProfileScreen() {
         <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
           {/* Profile Picture */}
           <View style={styles.avatarSection}>
-            <TouchableOpacity style={styles.avatarContainer} onPress={handleImageUpload}>
+            <TouchableOpacity
+              style={styles.avatarContainer}
+              onPress={handleImageUpload}
+              disabled={uploadingAvatar}
+            >
               {avatar ? (
                 <Image source={{ uri: avatar }} style={styles.avatar} />
               ) : (
@@ -331,9 +379,15 @@ export default function EditProfileScreen() {
                   <User size={40} color={theme.colors.surface} strokeWidth={2} />
                 </View>
               )}
-              <View style={styles.cameraOverlay}>
-                <Camera size={16} color={theme.colors.surface} strokeWidth={2} />
-              </View>
+              {uploadingAvatar ? (
+                <View style={[styles.avatarOverlay, { backgroundColor: 'rgba(0,0,0,0.4)' }]}>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                </View>
+              ) : (
+                <View style={styles.cameraOverlay}>
+                  <Camera size={16} color={theme.colors.surface} strokeWidth={2} />
+                </View>
+              )}
             </TouchableOpacity>
             <Text style={styles.avatarLabel}>Tap to change photo</Text>
           </View>

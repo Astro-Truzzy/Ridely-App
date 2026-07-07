@@ -4,7 +4,7 @@
 
 - **Type:** React Native (Expo) app for motorcycle dispatch riders and regular users
 - **Backend:** Supabase (auth, database, RLS, Realtime)
-- **Major Features:** Dual user types, real-time delivery tracking (MapboxGL), earnings management, secure authentication, responsive theming, live location sharing (user ↔ rider)
+- **Major Features:** Dual user types, real-time delivery tracking (Google Maps via react-native-maps), earnings management, secure authentication, responsive theming, live location sharing (user ↔ rider)
 
 ## Key Architecture & Patterns
 
@@ -49,8 +49,8 @@
 - **Assets:**
   - Images/illustrations in `assets/`
 - **Live Location Sharing:**
-  - MapboxGL used for all map screens (see `app/tracking.tsx`, `app/(rider)/active-delivery.tsx`)
-  - Pickup/dropoff selection: all users can use map to select locations
+  - Google Maps (react-native-maps) used for all map screens (see `app/tracking.tsx`, `app/(rider)/active-delivery.tsx`)
+  - Address autocomplete and directions via Google Places and Google Directions API (`lib/googleDirections.ts`, `hooks/useAddressAutocomplete.ts`)
   - During delivery, only the assigned user and rider can see each other's live locations (see RLS policy in migration)
 
 ## Integration Points
@@ -77,7 +77,7 @@
 
 - Added 'nearby' to `delivery_status` enum (see migration order above)
 - RLS policy for `rider_locations` now restricts SELECT to only the rider or the user assigned to the same delivery
-- MapboxGL map is always visible for riders, with pickup/dropoff and live rider marker
+- Google Map (react-native-maps) is used for riders and tracking, with pickup/dropoff and live rider marker
 - All users can select pickup/dropoff on map, but only delivery participants see live locations
 - When updating enums, always run enum migration and commit before using new value in policies or data
 

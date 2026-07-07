@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,10 +6,19 @@ import {
   TouchableOpacity,
   ScrollView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Bell, Package, DollarSign, CircleAlert as AlertCircle, CircleCheck as CheckCircle, Clock } from 'lucide-react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import Animated from 'react-native-reanimated';
+import { ArrowLeft, Bell, Package, DollarSign, CircleAlert as AlertCircle, CircleCheck as CheckCircle } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNotifications } from '@/contexts/NotificationsContext';
+import { useAppSettings } from '@/contexts/AppSettingsContext';
+import { useDeliveries } from '@/hooks/useDeliveries';
+import { staggeredCardEnter } from '@/lib/riderAnimations';
+import { AnimatedPressable } from '@/components/rider/AnimatedPressable';
+import { supabase } from '@/lib/supabase';
 
 interface Notification {
   id: string;
@@ -22,50 +31,110 @@ interface Notification {
 }
 
 export default function NotificationsScreen() {
-  const { theme } = useTheme();
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: '1',
-      type: 'job_request',
-      title: 'New Delivery Request',
-      message: 'Medium package delivery available - $18.50 reward, 3.2km distance',
-      timestamp: new Date(Date.now() - 300000),
-      read: false,
-      actionable: true,
-    },
-    {
-      id: '2',
-      type: 'payment',
-      title: 'Payment Received',
-      message: 'You received $21.04 for delivery #DEL002',
-      timestamp: new Date(Date.now() - 1800000),
-      read: false,
-    },
-    {
-      id: '3',
-      type: 'delivery_update',
-      title: 'Delivery Completed',
-      message: 'Delivery #DEL001 has been marked as completed by receiver',
-      timestamp: new Date(Date.now() - 3600000),
-      read: true,
-    },
-    {
-      id: '4',
-      type: 'system',
-      title: 'Weekly Earnings Summary',
-      message: 'You earned $892.40 this week from 42 completed deliveries',
-      timestamp: new Date(Date.now() - 86400000),
-      read: true,
-    },
-    {
-      id: '5',
-      type: 'system',
-      title: 'Document Verification',
-      message: 'Your driver\'s license has been successfully verified',
-      timestamp: new Date(Date.now() - 172800000),
-      read: true,
-    },
-  ]);
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
+  const { user } = useAuth();
+  const { refetchUnreadCount, decrementUnreadCount, clearUnreadCount } = useNotifications();
+  const { deliveries } = useDeliveries();
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { animations: animationsEnabled } = useAppSettings();
+  const enterItem = (i: number) => (animationsEnabled ? staggeredCardEnter(i) : undefined);
+
+  useEffect(() => {
+    if (user) {
+      fetchNotifications();
+
+      const subscription = supabase
+        .channel('rider-notifications')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'notifications',
+            filter: `rider_id=eq.${user.id}`,
+          },
+          (payload) => {
+            if (payload.new) {
+              const newNotification: Notification = {
+                id: payload.new.id,
+                type: payload.new.type,
+                title: payload.new.title,
+                message: payload.new.message,
+                timestamp: new Date(payload.new.created_at),
+                read: payload.new.read,
+                actionable: payload.new.actionable,
+              };
+              setNotifications(prev => [newNotification, ...prev]);
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'notifications',
+            filter: `rider_id=eq.${user.id}`,
+          },
+          (payload) => {
+            if (payload.new) {
+              setNotifications((prev) =>
+                prev.map((notif) =>
+                  notif.id === payload.new.id ? { ...notif, read: payload.new.read } : notif
+                )
+              );
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        subscription.unsubscribe();
+      };
+    }
+  }, [user]);
+
+  const fetchNotifications = async () => {
+    if (!user) return;
+
+    try {
+      const { data, error } = await (supabase as any)
+        .from('notifications')
+        .select('*')
+        .eq('rider_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const formattedNotifications: Notification[] = (data ?? []).map(
+        (item: {
+          id: string;
+          type: string;
+          title: string;
+          message: string;
+          created_at: string;
+          read: boolean;
+          actionable?: boolean;
+        }) => ({
+          id: item.id,
+          type: item.type,
+          title: item.title,
+          message: item.message,
+          timestamp: new Date(item.created_at),
+          read: item.read,
+          actionable: item.actionable ?? false,
+        })
+      );
+
+      setNotifications(formattedNotifications);
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -100,7 +169,7 @@ export default function NotificationsScreen() {
   const formatTime = (date: Date) => {
     const now = new Date();
     const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / 60000);
-    
+
     if (diffInMinutes < 60) {
       return `${diffInMinutes}m ago`;
     } else if (diffInMinutes < 1440) {
@@ -110,34 +179,108 @@ export default function NotificationsScreen() {
     }
   };
 
-  const markAsRead = (id: string) => {
+  const markAsRead = async (id: string) => {
+    const target = notifications.find((n) => n.id === id);
+    if (!target || target.read) return;
+
     setNotifications(prev =>
       prev.map(notif =>
         notif.id === id ? { ...notif, read: true } : notif
       )
     );
+    decrementUnreadCount(1);
+
+    const { error } = await (supabase as any)
+      .from('notifications')
+      .update({ read: true })
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error marking notification as read:', error);
+      setNotifications(prev =>
+        prev.map(notif =>
+          notif.id === id ? { ...notif, read: false } : notif
+        )
+      );
+      await refetchUnreadCount();
+      return;
+    }
+
+    await refetchUnreadCount();
   };
 
-  const markAllAsRead = () => {
-    setNotifications(prev =>
-      prev.map(notif => ({ ...notif, read: true }))
+  const markAllAsRead = async () => {
+    if (notifications.every((n) => n.read)) return;
+
+    setNotifications(prev => prev.map(notif => ({ ...notif, read: true })));
+    clearUnreadCount();
+
+    if (user?.id) {
+      const { error } = await (supabase as any)
+        .from('notifications')
+        .update({ read: true })
+        .eq('rider_id', user.id)
+        .eq('read', false);
+
+      if (error) {
+        console.error('Error marking all notifications as read:', error);
+        await fetchNotifications();
+        await refetchUnreadCount();
+        return;
+      }
+    }
+
+    await refetchUnreadCount();
+  };
+
+  const handleOpenMap = () => {
+    const activeDelivery = deliveries.find(
+      (d) =>
+        d.status !== 'delivered' &&
+        d.status !== 'cancelled' &&
+        d.status !== 'completed' &&
+        d.status !== 'cancelled_no_rider'
     );
+    if (activeDelivery) {
+      const jobData = {
+        id: activeDelivery.id,
+        reward: activeDelivery.total_cost,
+        parcelSize: activeDelivery.parcel_size,
+        pickupAddress: activeDelivery.pickup_address,
+        dropoffAddress: activeDelivery.dropoff_address,
+        distance: activeDelivery.distance,
+        estimatedTime: activeDelivery.estimated_time,
+        senderName: 'Customer',
+        pickupCoords: null,
+        dropoffCoords: null,
+      };
+      router.push({
+        pathname: '/(rider)/active-delivery',
+        params: { jobId: activeDelivery.id, jobData: JSON.stringify(jobData) },
+      });
+    } else {
+      router.push('/(rider)/dashboard');
+    }
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
+    >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+      <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
+        <AnimatedPressable style={styles.backButton} onPress={() => router.back()}>
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
-        </TouchableOpacity>
+        </AnimatedPressable>
         <Text style={[styles.title, { color: theme.colors.text }]}>Notifications</Text>
         {unreadCount > 0 && (
-          <TouchableOpacity style={styles.markAllButton} onPress={markAllAsRead}>
+          <AnimatedPressable style={styles.markAllButton} onPress={markAllAsRead}>
             <Text style={[styles.markAllText, { color: theme.colors.primary }]}>Mark All Read</Text>
-          </TouchableOpacity>
+          </AnimatedPressable>
         )}
       </View>
 
@@ -151,17 +294,17 @@ export default function NotificationsScreen() {
       )}
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {notifications.map((notification) => (
-          <TouchableOpacity
-            key={notification.id}
-            style={[
-              styles.notificationCard,
-              { backgroundColor: theme.colors.surface },
-              !notification.read && { borderLeftWidth: 4, borderLeftColor: theme.colors.primary },
-              theme.shadows.small
-            ]}
-            onPress={() => markAsRead(notification.id)}>
-            
+        {notifications.map((notification, index) => (
+          <Animated.View key={notification.id} entering={enterItem(index)}>
+            <AnimatedPressable
+              style={[
+                styles.notificationCard,
+                { backgroundColor: theme.colors.surface },
+                !notification.read && { borderLeftWidth: 4, borderLeftColor: theme.colors.primary },
+                theme.shadows.small,
+              ]}
+              onPress={() => markAsRead(notification.id)}
+            >
             <View style={styles.notificationHeader}>
               <View style={[styles.iconContainer, { backgroundColor: getNotificationColor(notification.type) }]}>
                 {getNotificationIcon(notification.type)}
@@ -182,19 +325,33 @@ export default function NotificationsScreen() {
               )}
             </View>
 
-            {notification.actionable && !notification.read && (
-              <View style={styles.actionContainer}>
-                <TouchableOpacity
-                  style={[styles.actionButton, { backgroundColor: theme.colors.primary }]}
-                  onPress={() => router.push('/(rider)/dashboard')}>
-                  <Text style={styles.actionText}>View Jobs</Text>
-                </TouchableOpacity>
+            {notification.actionable && (
+              <View style={[styles.actionContainer, { borderTopColor: theme.colors.border }]}>
+                {notification.type === 'delivery_update' ? (
+                  <AnimatedPressable
+                    style={[styles.actionButton, { backgroundColor: theme.colors.primary }]}
+                    onPress={() => {
+                      markAsRead(notification.id);
+                      handleOpenMap();
+                    }}
+                  >
+                    <Text style={styles.actionText}>Open map</Text>
+                  </AnimatedPressable>
+                ) : (
+                  <AnimatedPressable
+                    style={[styles.actionButton, { backgroundColor: theme.colors.primary }]}
+                    onPress={() => router.push('/(rider)/dashboard')}
+                  >
+                    <Text style={styles.actionText}>View Jobs</Text>
+                  </AnimatedPressable>
+                )}
               </View>
             )}
-          </TouchableOpacity>
+            </AnimatedPressable>
+          </Animated.View>
         ))}
 
-        {notifications.length === 0 && (
+        {notifications.length === 0 && !loading && (
           <View style={styles.emptyState}>
             <Bell size={48} color={theme.colors.textTertiary} strokeWidth={2} />
             <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No notifications</Text>
@@ -232,8 +389,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   markAllButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    padding: 8,
   },
   markAllText: {
     fontSize: 14,
@@ -261,12 +417,12 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: 12,
   },
   notificationInfo: {
     flex: 1,
@@ -278,8 +434,8 @@ const styles = StyleSheet.create({
   },
   notificationMessage: {
     fontSize: 14,
-    lineHeight: 20,
     marginBottom: 8,
+    lineHeight: 20,
   },
   notificationTime: {
     fontSize: 12,
@@ -288,28 +444,31 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    marginTop: 8,
+    marginLeft: 12,
+    marginTop: 6,
   },
   actionContainer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
   },
   actionButton: {
-    paddingVertical: 8,
     paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 8,
-    alignSelf: 'flex-start',
   },
   actionText: {
-    color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '600',
+    color: '#FFFFFF',
   },
   emptyState: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 60,
+    paddingTop: 80,
   },
   emptyTitle: {
     fontSize: 18,
@@ -320,6 +479,7 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 14,
     textAlign: 'center',
-    paddingHorizontal: 40,
+    lineHeight: 20,
+    paddingHorizontal: 20,
   },
 });

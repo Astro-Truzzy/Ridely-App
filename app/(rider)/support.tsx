@@ -5,11 +5,11 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
   TextInput,
   Linking,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import {
   ArrowLeft,
   Mail,
@@ -22,6 +22,9 @@ import {
 } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { useAlert } from '@/contexts/AlertContext';
+import { supabase } from '@/lib/supabase';
 
 interface FAQItem {
   id: string;
@@ -30,9 +33,27 @@ interface FAQItem {
 }
 
 export default function RiderSupportScreen() {
+  const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
+  const { user } = useAuth();
+  const { showAlert } = useAlert();
   const [activeFAQ, setActiveFAQ] = useState<string | null>(null);
   const [message, setMessage] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const SUPPORT_PHONE = '+15551234357';
+  const SUPPORT_EMAIL = 'support@ridely.com';
+
+  const openLiveChat = async () => {
+    try {
+      const text = encodeURIComponent('Hello Ridely rider support, I need help with a delivery issue.');
+      const whatsappUrl = `https://wa.me/${SUPPORT_PHONE.replace(/\D/g, '')}?text=${text}`;
+      await Linking.openURL(whatsappUrl);
+    } catch {
+      const subject = encodeURIComponent('Ridely rider support request');
+      const body = encodeURIComponent('Hello rider support team, I need help with:');
+      await Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`);
+    }
+  };
 
   const faqs: FAQItem[] = [
     {
@@ -68,7 +89,7 @@ export default function RiderSupportScreen() {
       title: 'Live Chat',
       subtitle: 'Chat with support team',
       color: '#5A47FF',
-      action: () => Alert.alert('Live Chat', 'Live chat will be available soon!'),
+      action: openLiveChat,
     },
     {
       icon: Mail,
@@ -90,22 +111,51 @@ export default function RiderSupportScreen() {
     setActiveFAQ(activeFAQ === id ? null : id);
   };
 
-  const handleSubmit = () => {
-    if (message.trim()) {
-      Alert.alert(
+  const handleSubmit = async () => {
+    const trimmed = message.trim();
+    if (!trimmed) {
+      showAlert('Error', 'Please enter a message before submitting.');
+      return;
+    }
+    if (!user?.id) {
+      showAlert('Error', 'You must be signed in to send a support request.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const { error } = await (supabase as any)
+        .from('support_requests')
+        .insert({
+          user_id: user.id,
+          user_type: 'rider',
+          message: trimmed,
+          category: 'general',
+        });
+      if (error) throw error;
+      showAlert(
         'Message Sent',
         'Thank you for contacting support. We\'ll get back to you as soon as possible.',
         [{ text: 'OK' }]
       );
       setMessage('');
-    } else {
-      Alert.alert('Error', 'Please enter a message before submitting.');
+    } catch (e) {
+      console.error('Support request error:', e);
+      showAlert(
+        'Error',
+        e instanceof Error ? e.message : 'Failed to send message. Please try again.'
+      );
+    } finally {
+      setSubmitting(false);
     }
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
+    >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border, paddingTop: 16 + insets.top }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
@@ -192,9 +242,10 @@ export default function RiderSupportScreen() {
               />
             </View>
             <TouchableOpacity
-              style={[styles.submitButton, { backgroundColor: theme.colors.primary }]}
-              onPress={handleSubmit}>
-              <Text style={styles.submitButtonText}>Send Message</Text>
+              style={[styles.submitButton, { backgroundColor: theme.colors.primary }, submitting && { opacity: 0.7 }]}
+              onPress={handleSubmit}
+              disabled={submitting}>
+              <Text style={styles.submitButtonText}>{submitting ? 'Sending...' : 'Send Message'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -238,6 +289,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     paddingHorizontal: 20,
     marginBottom: 16,
+    marginTop: 16,
   },
   optionsContainer: {
     paddingHorizontal: 20,
@@ -293,7 +345,6 @@ const styles = StyleSheet.create({
   },
   faqIcon: {
     transform: [{ rotate: '0deg' }],
-    transition: 'transform 0.2s ease',
   },
   faqIconActive: {
     transform: [{ rotate: '180deg' }],

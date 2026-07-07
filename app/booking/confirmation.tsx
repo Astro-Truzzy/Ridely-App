@@ -1,13 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   ScrollView,
-  Alert,
+  Modal,
+  ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { WebView } from 'react-native-webview';
+import { useTheme } from '@/contexts/ThemeContext';
+import { useAlert } from '@/contexts/AlertContext';
 import {
   ArrowLeft,
   CheckCircle,
@@ -17,18 +22,23 @@ import {
   MapPin,
   Clock,
   Package,
+  X,
 } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useDeliveries } from '@/hooks/useDeliveries';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePaymentMethods, type PaymentMethodDisplay } from '@/hooks/usePaymentMethods';
+import { useWallet } from '@/hooks/useWallet';
+import { supabase } from '@/lib/supabase';
+import {
+  initializePaystackTransaction,
+  verifyPaystackTransaction,
+  chargePaystackSavedCard,
+  getPaystackCallbackPath,
+  PAYSTACK_NEW_CARD_OPTION_ID,
+} from '@/lib/paystack';
 
-interface PaymentMethod {
-  id: string;
-  type: 'card' | 'cash' | 'wallet';
-  label: string;
-  details: string;
-  icon: any;
-}
+type PaymentOption = PaymentMethodDisplay & { icon: typeof CreditCard };
 
 export default function ConfirmationScreen() {
   const {
@@ -57,87 +67,298 @@ export default function ConfirmationScreen() {
     dropoffLon?: string;
   }>();
 
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
   const { createDelivery } = useDeliveries();
-  const { user } = useAuth();
-  const [selectedPayment, setSelectedPayment] = useState<string>('card1');
+  const { user, userProfile } = useAuth();
+  const { showAlert } = useAlert();
+  const { methods: savedMethods, loading: methodsLoading, addPlaceholderMethodsIfEmpty } =
+    usePaymentMethods();
+  const { balance: walletBalance } = useWallet();
+  const [selectedPayment, setSelectedPayment] = useState<string>('');
   const [isBooking, setIsBooking] = useState(false);
+  const [paystackAuthUrl, setPaystackAuthUrl] = useState<string | null>(null);
+  const [paystackLoading, setPaystackLoading] = useState(false);
 
-  const paymentMethods: PaymentMethod[] = [
-    {
-      id: 'card1',
-      type: 'card',
-      label: 'Credit Card',
-      details: '**** **** **** 4242',
-      icon: CreditCard,
-    },
-    {
-      id: 'cash',
-      type: 'cash',
-      label: 'Cash on Delivery',
-      details: 'Pay the rider directly',
-      icon: DollarSign,
-    },
-    {
-      id: 'wallet',
-      type: 'wallet',
-      label: 'Ridely Wallet',
-      details: 'Balance: $45.20',
-      icon: Wallet,
-    },
-  ];
+  useEffect(() => {
+    addPlaceholderMethodsIfEmpty();
+  }, [addPlaceholderMethodsIfEmpty]);
+
+  const paymentMethods: PaymentOption[] = useMemo(() => {
+    const iconFor = (type: PaymentMethodDisplay['type']) => {
+      if (type === 'cash') return DollarSign;
+      if (type === 'wallet') return Wallet;
+      return CreditCard;
+    };
+
+    const options: PaymentOption[] = savedMethods
+      .filter((m) => m.type === 'card' || m.type === 'cash' || m.type === 'wallet')
+      .map((m) => ({
+        ...m,
+        details:
+          m.type === 'wallet'
+            ? `Balance: ₦${(walletBalance ?? 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`
+            : m.details,
+        icon: iconFor(m.type),
+      }));
+
+    const hasChargeableCard = savedMethods.some(
+      (m) => m.type === 'card' && !!m.gatewayPaymentMethodId
+    );
+    if (hasChargeableCard || savedMethods.some((m) => m.type === 'card')) {
+      options.push({
+        id: PAYSTACK_NEW_CARD_OPTION_ID,
+        type: 'card',
+        label: 'Pay with a different card',
+        details: 'Opens secure Paystack checkout',
+        icon: CreditCard,
+        isDefault: false,
+        gatewayPaymentMethodId: null,
+      });
+    } else {
+      options.unshift({
+        id: PAYSTACK_NEW_CARD_OPTION_ID,
+        type: 'card',
+        label: 'Pay with card',
+        details: 'Opens secure Paystack checkout',
+        icon: CreditCard,
+        isDefault: true,
+        gatewayPaymentMethodId: null,
+      });
+    }
+
+    return options;
+  }, [savedMethods, walletBalance]);
+
+  useEffect(() => {
+    if (paymentMethods.length === 0 || selectedPayment) return;
+    const defaultSaved = savedMethods.find((m) => m.isDefault && m.type === 'card' && m.gatewayPaymentMethodId);
+    const defaultAny = savedMethods.find((m) => m.isDefault);
+    const cash = savedMethods.find((m) => m.type === 'cash');
+    if (defaultSaved) setSelectedPayment(defaultSaved.id);
+    else if (defaultAny) setSelectedPayment(defaultAny.id);
+    else if (cash) setSelectedPayment(cash.id);
+    else setSelectedPayment(paymentMethods[0]?.id ?? PAYSTACK_NEW_CARD_OPTION_ID);
+  }, [paymentMethods, savedMethods, selectedPayment]);
+
+  const completeBooking = useCallback(async () => {
+    if (!user) return;
+    const deliveryData = {
+      user_id: user.id,
+      pickup_address: pickupAddress,
+      dropoff_address: dropoffAddress,
+      parcel_size: size as 'small' | 'medium' | 'large',
+      total_cost: parseFloat(price),
+      distance: parseFloat(distance),
+      estimated_time: '25-35 mins',
+      delivery_time: deliveryTime as 'now' | 'scheduled',
+      scheduled_time: deliveryTime === 'scheduled' && scheduledTime ? scheduledTime : null,
+    };
+    const newDelivery = await createDelivery(deliveryData) as { id: string } | null;
+    if (user && pickupLat != null && pickupLon != null && newDelivery?.id) {
+      try {
+        // @ts-expect-error - find_nearby_riders RPC args not in generated types
+        const { data: nearbyRiders } = (await supabase.rpc('find_nearby_riders', {
+          pickup_lat: parseFloat(pickupLat),
+          pickup_lng: parseFloat(pickupLon),
+          radius: 5000,
+        })) as { data: { id: string }[] | null };
+        if (Array.isArray(nearbyRiders) && nearbyRiders.length > 0) {
+          const notifications = nearbyRiders.map((r: { id: string }) => ({
+            user_id: user.id,
+            rider_id: r.id,
+            type: 'job_request',
+            title: 'New delivery request',
+            message: `Pickup: ${pickupAddress?.split(',')[0] ?? 'See details'} → Dropoff nearby. Tap to view.`,
+            read: false,
+            actionable: true,
+            delivery_id: newDelivery.id,
+          }));
+          // @ts-expect-error - notifications table insert not in generated types
+          await supabase.from('notifications').insert(notifications);
+          // Send push notifications to riders
+          const pushBody = {
+            riderIds: nearbyRiders.map((r: { id: string }) => r.id),
+            title: 'New delivery request',
+            body: `Pickup: ${pickupAddress?.split(',')[0] ?? 'See details'} → Dropoff nearby. Tap to accept or decline.`,
+            data: { type: 'job_request', deliveryId: newDelivery.id },
+          };
+          try {
+            await supabase.functions.invoke('send-push', { body: pushBody });
+          } catch (pushErr) {
+            console.warn('Push send failed (riders may still get in-app notification):', pushErr);
+          }
+        }
+      } catch (rpcErr) {
+        console.warn('Proximity match / notify failed (booking still succeeded):', rpcErr);
+      }
+    }
+    showAlert(
+      'Booking Confirmed! 🎉',
+      'Your delivery has been booked successfully. You will receive a notification when a rider accepts your request.',
+      [
+        { text: 'View Bookings', onPress: () => router.replace('/(tabs)/bookings') },
+        { text: 'Go to Home', onPress: () => router.replace('/(tabs)') },
+      ]
+    );
+  }, [user, pickupAddress, dropoffAddress, size, price, distance, deliveryTime, scheduledTime, pickupLat, pickupLon, createDelivery]);
+
+  const startNewCardPayment = useCallback(async () => {
+    const email = user?.email || userProfile?.email || '';
+    if (!email) {
+      showAlert('Error', 'Your account email is required for card payment.');
+      return;
+    }
+    const amountKobo = Math.round(parseFloat(price || '0') * 100);
+    if (amountKobo < 100) {
+      showAlert('Error', 'Amount must be at least ₦1.00');
+      return;
+    }
+    setPaystackLoading(true);
+    try {
+      const { authorization_url } = await initializePaystackTransaction({
+        amountInKobo: amountKobo,
+        email,
+        metadata: user?.id
+          ? { source: 'ridely_booking', user_id: user.id }
+          : { source: 'ridely_booking' },
+      });
+      setPaystackAuthUrl(authorization_url);
+    } catch (e) {
+      showAlert(
+        'Payment error',
+        e instanceof Error ? e.message : 'Could not start payment. Check README_PAYMENT_METHODS for setup.'
+      );
+    } finally {
+      setPaystackLoading(false);
+    }
+  }, [user?.id, user?.email, userProfile?.email, price, showAlert]);
 
   const handleBooking = async () => {
     if (!user) {
-      Alert.alert('Error', 'You must be logged in to create a booking');
+      showAlert('Error', 'You must be logged in to create a booking');
       return;
     }
 
-    setIsBooking(true);
-    
-    try {
-      // Create delivery in database
-      const deliveryData = {
-        pickup_address: pickupAddress,
-        dropoff_address: dropoffAddress,
-        parcel_size: size as 'small' | 'medium' | 'large',
-        total_cost: parseFloat(price),
-        distance: parseFloat(distance),
-        estimated_time: '25-35 mins', // This could be calculated from route
-        delivery_time: (deliveryTime as 'now' | 'scheduled'),
-        scheduled_time: deliveryTime === 'scheduled' && scheduledTime ? scheduledTime : null,
-      };
-
-      const newDelivery = await createDelivery(deliveryData);
-      
-      setIsBooking(false);
-      
-      Alert.alert(
-        'Booking Confirmed! 🎉',
-        'Your delivery has been booked successfully. You will receive a notification when a rider accepts your request.',
-        [
-          {
-            text: 'View Bookings',
-            onPress: () => {
-              router.replace('/(tabs)/bookings');
-            },
-          },
-          {
-            text: 'Go to Home',
-            onPress: () => {
-              router.replace('/(tabs)');
-            },
-          },
-        ]
-      );
-    } catch (error: any) {
-      console.error('Error creating delivery:', error);
-      setIsBooking(false);
-      Alert.alert(
-        'Booking Failed',
-        error?.message || 'Failed to create booking. Please try again.'
-      );
+    if (!selectedPayment) {
+      showAlert('Error', 'Please select a payment method.');
+      return;
     }
+
+    const selected = paymentMethods.find((m) => m.id === selectedPayment);
+    if (!selected) {
+      showAlert('Error', 'Invalid payment method.');
+      return;
+    }
+
+    if (selected.type === 'wallet') {
+      showAlert('Not available', 'Paying with Ridely Wallet is coming soon. Choose card or cash.');
+      return;
+    }
+
+    if (selected.type === 'cash') {
+      setIsBooking(true);
+      try {
+        await completeBooking();
+      } catch (error: unknown) {
+        console.error('Error creating delivery:', error);
+        showAlert(
+          'Booking Failed',
+          error instanceof Error ? error.message : 'Failed to create booking. Please try again.'
+        );
+      } finally {
+        setIsBooking(false);
+      }
+      return;
+    }
+
+    const useNewCardCheckout = selectedPayment === PAYSTACK_NEW_CARD_OPTION_ID;
+    const savedCard =
+      selected.type === 'card' && selected.gatewayPaymentMethodId
+        ? selected
+        : null;
+
+    if (useNewCardCheckout) {
+      await startNewCardPayment();
+      return;
+    }
+
+    if (savedCard?.gatewayPaymentMethodId) {
+      const email = user.email || userProfile?.email || '';
+      if (!email) {
+        showAlert('Error', 'Your account email is required for card payment.');
+        return;
+      }
+      const amountKobo = Math.round(parseFloat(price || '0') * 100);
+      if (amountKobo < 100) {
+        showAlert('Error', 'Amount must be at least ₦1.00');
+        return;
+      }
+
+      setPaystackLoading(true);
+      try {
+        const chargeResult = await chargePaystackSavedCard({
+          amountInKobo: amountKobo,
+          email,
+          paymentMethodId: savedCard.id,
+          authorizationCode: savedCard.gatewayPaymentMethodId,
+          reference: `ridely_booking_${user.id}_${Date.now()}`,
+        });
+        if (!chargeResult.success) {
+          showAlert('Payment failed', chargeResult.error || 'Could not charge your saved card.');
+          return;
+        }
+        setIsBooking(true);
+        await completeBooking();
+      } catch (e) {
+        showAlert(
+          'Payment error',
+          e instanceof Error ? e.message : 'Could not charge saved card. Try paying with a different card.'
+        );
+      } finally {
+        setPaystackLoading(false);
+        setIsBooking(false);
+      }
+      return;
+    }
+
+    await startNewCardPayment();
   };
+
+  const handlePaystackCallback = useCallback(
+    async (url: string) => {
+      const callbackPath = getPaystackCallbackPath();
+      if (!callbackPath || !url.includes('/paystack-callback') || !url.includes('reference=')) return null;
+      const match = url.match(/reference=([^&]+)/);
+      const reference = match ? decodeURIComponent(match[1]) : null;
+      if (!reference) return null;
+      const result = await verifyPaystackTransaction(reference);
+      return result.success ? reference : null;
+    },
+    []
+  );
+
+  const closePaystackWebView = useCallback(() => {
+    setPaystackAuthUrl(null);
+  }, []);
+
+  const onPaystackNavigationStateChange = useCallback(
+    async (navState: { url: string }) => {
+      const url = navState?.url || '';
+      const success = await handlePaystackCallback(url);
+      if (!success) return;
+      closePaystackWebView();
+      setIsBooking(true);
+      try {
+        await completeBooking();
+      } catch (e) {
+        showAlert('Booking Failed', e instanceof Error ? e.message : 'Could not complete booking.');
+      } finally {
+        setIsBooking(false);
+      }
+    },
+    [handlePaystackCallback, closePaystackWebView, completeBooking]
+  );
 
   const getSizeLabel = (size: string) => {
     switch (size) {
@@ -153,13 +374,23 @@ export default function ConfirmationScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
+    >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <ArrowLeft size={24} color="#1F2937" strokeWidth={2} />
+      <View style={[styles.header, {
+        backgroundColor: theme.colors.card,
+        borderBottomColor: theme.colors.border,
+        paddingTop: 16 + insets.top,
+      }]}>
+        <TouchableOpacity
+          style={[styles.backButton, { backgroundColor: theme.colors.surface }]}
+          onPress={() => router.back()}>
+          <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
-        <Text style={styles.title}>Confirm Booking</Text>
+        <Text style={[styles.title, { color: theme.colors.text }]}>Confirm Booking</Text>
         <View style={styles.placeholder} />
       </View>
 
@@ -167,61 +398,76 @@ export default function ConfirmationScreen() {
         {/* Progress Indicator */}
         <View style={styles.progressContainer}>
           <View style={styles.progressBar}>
-            <View style={[styles.progressStep, styles.completedStep]} />
-            <View style={[styles.progressStep, styles.completedStep]} />
-            <View style={[styles.progressStep, styles.completedStep]} />
-            <View style={[styles.progressStep, styles.activeStep]} />
+            <View style={[styles.progressStep, { backgroundColor: theme.colors.success }]} />
+            <View style={[styles.progressStep, { backgroundColor: theme.colors.success }]} />
+            <View style={[styles.progressStep, { backgroundColor: theme.colors.success }]} />
+            <View style={[styles.progressStep, { backgroundColor: theme.colors.primary }]} />
           </View>
-          <Text style={styles.progressText}>Step 4 of 4</Text>
+          <Text style={[styles.progressText, { color: theme.colors.textSecondary }]}>Step 4 of 4</Text>
         </View>
 
         {/* Content */}
         <View style={styles.content}>
           {/* Summary Card */}
-          <View style={styles.summaryCard}>
+          <View style={[
+            styles.summaryCard,
+            {
+              backgroundColor: theme.colors.card,
+              borderColor: theme.colors.success,
+            },
+            theme.shadows.large,
+          ]}>
             <View style={styles.summaryHeader}>
-              <CheckCircle size={32} color="#10B981" strokeWidth={2} />
+              <CheckCircle size={32} color={theme.colors.success} strokeWidth={2} />
               <View style={styles.summaryInfo}>
-                <Text style={styles.summaryTitle}>Almost Done!</Text>
-                <Text style={styles.summarySubtitle}>Review and confirm your booking</Text>
+                <Text style={[styles.summaryTitle, { color: theme.colors.text }]}>Almost Done!</Text>
+                <Text style={[styles.summarySubtitle, { color: theme.colors.textSecondary }]}>
+                  Review and confirm your booking
+                </Text>
               </View>
-              <Text style={styles.totalPrice}>₦{parseFloat(price || '0').toLocaleString('en-NG')}</Text>
+              <Text style={[styles.totalPrice, { color: theme.colors.success }]}>
+                ₦{parseFloat(price || '0').toLocaleString('en-NG')}
+              </Text>
             </View>
           </View>
 
           {/* Booking Details */}
-          <View style={styles.detailsCard}>
-            <Text style={styles.cardTitle}>Booking Summary</Text>
+          <View style={[
+            styles.detailsCard,
+            { backgroundColor: theme.colors.card },
+            theme.shadows.medium,
+          ]}>
+            <Text style={[styles.cardTitle, { color: theme.colors.text }]}>Booking Summary</Text>
             
             <View style={styles.detailRow}>
-              <Package size={20} color="#5A47FF" strokeWidth={2} />
+              <Package size={20} color={theme.colors.primary} strokeWidth={2} />
               <View style={styles.detailInfo}>
-                <Text style={styles.detailLabel}>Package Size</Text>
-                <Text style={styles.detailValue}>{getSizeLabel(size)}</Text>
+                <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Package Size</Text>
+                <Text style={[styles.detailValue, { color: theme.colors.text }]}>{getSizeLabel(size)}</Text>
               </View>
             </View>
             
             <View style={styles.detailRow}>
-              <MapPin size={20} color="#10B981" strokeWidth={2} />
+              <MapPin size={20} color={theme.colors.success} strokeWidth={2} />
               <View style={styles.detailInfo}>
-                <Text style={styles.detailLabel}>Pickup</Text>
-                <Text style={styles.detailValue} numberOfLines={2}>{pickupAddress}</Text>
+                <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Pickup</Text>
+                <Text style={[styles.detailValue, { color: theme.colors.text }]} numberOfLines={2}>{pickupAddress}</Text>
               </View>
             </View>
             
             <View style={styles.detailRow}>
-              <MapPin size={20} color="#EF4444" strokeWidth={2} />
+              <MapPin size={20} color={theme.colors.error} strokeWidth={2} />
               <View style={styles.detailInfo}>
-                <Text style={styles.detailLabel}>Dropoff</Text>
-                <Text style={styles.detailValue} numberOfLines={2}>{dropoffAddress}</Text>
+                <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Dropoff</Text>
+                <Text style={[styles.detailValue, { color: theme.colors.text }]} numberOfLines={2}>{dropoffAddress}</Text>
               </View>
             </View>
             
             <View style={styles.detailRow}>
-              <Clock size={20} color="#FFC947" strokeWidth={2} />
+              <Clock size={20} color={theme.colors.warning} strokeWidth={2} />
               <View style={styles.detailInfo}>
-                <Text style={styles.detailLabel}>Delivery Time</Text>
-                <Text style={styles.detailValue}>
+                <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Delivery Time</Text>
+                <Text style={[styles.detailValue, { color: theme.colors.text }]}>
                   {deliveryTime === 'now' 
                     ? 'Immediate Pickup' 
                     : `Scheduled: ${scheduledTime || 'Later'}`}
@@ -229,34 +475,49 @@ export default function ConfirmationScreen() {
               </View>
             </View>
             
-            <View style={styles.estimateRow}>
-              <Text style={styles.estimateText}>
+            <View style={[styles.estimateRow, { borderTopColor: theme.colors.border }]}>
+              <Text style={[styles.estimateText, { color: theme.colors.textSecondary }]}>
                 📍 Distance: {distance} km • ⏱️ Est. delivery: 25-35 mins
               </Text>
             </View>
           </View>
 
           {/* Payment Method */}
-          <View style={styles.paymentCard}>
-            <Text style={styles.cardTitle}>Payment Method</Text>
-            
+          <View style={[
+            styles.paymentCard,
+            { backgroundColor: theme.colors.card },
+            theme.shadows.medium,
+          ]}>
+            <Text style={[styles.cardTitle, { color: theme.colors.text }]}>Payment Method</Text>
+
+            {methodsLoading ? (
+              <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginVertical: 16 }} />
+            ) : null}
+
             {paymentMethods.map((method) => (
               <TouchableOpacity
                 key={method.id}
                 style={[
                   styles.paymentOption,
-                  selectedPayment === method.id && styles.selectedPayment,
+                  {
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.card,
+                  },
+                  selectedPayment === method.id && {
+                    borderColor: theme.colors.primary,
+                    backgroundColor: isDark ? theme.colors.surface : theme.colors.primary + '12',
+                  },
                 ]}
                 onPress={() => setSelectedPayment(method.id)}>
-                <View style={styles.paymentIcon}>
-                  <method.icon size={24} color="#5A47FF" strokeWidth={2} />
+                <View style={[styles.paymentIcon, { backgroundColor: theme.colors.surface }]}>
+                  <method.icon size={24} color={theme.colors.primary} strokeWidth={2} />
                 </View>
                 <View style={styles.paymentInfo}>
-                  <Text style={styles.paymentLabel}>{method.label}</Text>
-                  <Text style={styles.paymentDetails}>{method.details}</Text>
+                  <Text style={[styles.paymentLabel, { color: theme.colors.text }]}>{method.label}</Text>
+                  <Text style={[styles.paymentDetails, { color: theme.colors.textSecondary }]}>{method.details}</Text>
                 </View>
                 {selectedPayment === method.id && (
-                  <View style={styles.checkmark}>
+                  <View style={[styles.checkmark, { backgroundColor: theme.colors.primary }]}>
                     <Text style={styles.checkmarkText}>✓</Text>
                   </View>
                 )}
@@ -266,10 +527,10 @@ export default function ConfirmationScreen() {
 
           {/* Terms */}
           <View style={styles.termsContainer}>
-            <Text style={styles.termsText}>
+            <Text style={[styles.termsText, { color: theme.colors.textSecondary }]}>
               By confirming this booking, you agree to our{' '}
-              <Text style={styles.termsLink}>Terms of Service</Text> and{' '}
-              <Text style={styles.termsLink}>Privacy Policy</Text>. The rider will arrive
+              <Text style={[styles.termsLink, { color: theme.colors.primary }]}>Terms of Service</Text> and{' '}
+              <Text style={[styles.termsLink, { color: theme.colors.primary }]}>Privacy Policy</Text>. The rider will arrive
               within the estimated time frame.
             </Text>
           </View>
@@ -277,16 +538,56 @@ export default function ConfirmationScreen() {
       </ScrollView>
 
       {/* Bottom Button */}
-      <View style={styles.bottomContainer}>
+      <View style={[styles.bottomContainer, {
+        backgroundColor: theme.colors.card,
+        borderTopColor: theme.colors.border,
+      }]}>
         <TouchableOpacity
-          style={[styles.bookingButton, isBooking && styles.bookingButtonDisabled]}
+          style={[
+            styles.bookingButton,
+            { backgroundColor: theme.colors.primary },
+            (isBooking || paystackLoading) && { backgroundColor: theme.colors.textTertiary },
+          ]}
           onPress={handleBooking}
-          disabled={isBooking}>
+          disabled={isBooking || paystackLoading}>
           <Text style={styles.bookingText}>
-            {isBooking ? 'Confirming Booking...' : `Confirm & Pay ₦${parseFloat(price || '0').toLocaleString('en-NG')}`}
+            {paystackLoading
+              ? selectedPayment !== PAYSTACK_NEW_CARD_OPTION_ID &&
+                paymentMethods.find((m) => m.id === selectedPayment)?.gatewayPaymentMethodId
+                ? 'Charging card...'
+                : 'Opening payment...'
+              : isBooking
+                ? 'Confirming Booking...'
+                : paymentMethods.find((m) => m.id === selectedPayment)?.type === 'cash'
+                  ? 'Confirm'
+                  : `Confirm & Pay ₦${parseFloat(price || '0').toLocaleString('en-NG')}`}
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* Paystack card payment WebView */}
+      <Modal visible={!!paystackAuthUrl} animationType="slide" onRequestClose={closePaystackWebView}>
+        <SafeAreaView style={[styles.paystackModal, { backgroundColor: theme.colors.background }]}>
+          <View style={[styles.paystackHeader, { backgroundColor: theme.colors.card, borderBottomColor: theme.colors.border }]}>
+            <TouchableOpacity onPress={closePaystackWebView} style={styles.paystackClose}>
+              <X size={24} color={theme.colors.text} strokeWidth={2} />
+            </TouchableOpacity>
+            <Text style={[styles.paystackHeaderTitle, { color: theme.colors.text }]}>Complete payment</Text>
+            <View style={styles.paystackClose} />
+          </View>
+          {paystackAuthUrl ? (
+            <WebView
+              source={{ uri: paystackAuthUrl }}
+              style={styles.webview}
+              onNavigationStateChange={onPaystackNavigationStateChange}
+            />
+          ) : (
+            <View style={styles.webviewPlaceholder}>
+              <ActivityIndicator size="large" color={theme.colors.primary} />
+            </View>
+          )}
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -294,7 +595,6 @@ export default function ConfirmationScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F7F8FA',
   },
   header: {
     flexDirection: 'row',
@@ -303,22 +603,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 20,
-    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#1F2937',
   },
   placeholder: {
     width: 40,
@@ -338,36 +634,21 @@ const styles = StyleSheet.create({
   progressStep: {
     width: 60,
     height: 4,
-    backgroundColor: '#E5E7EB',
     marginHorizontal: 4,
     borderRadius: 2,
   },
-  activeStep: {
-    backgroundColor: '#5A47FF',
-  },
-  completedStep: {
-    backgroundColor: '#10B981',
-  },
   progressText: {
     fontSize: 14,
-    color: '#6B7280',
     fontWeight: '500',
   },
   content: {
     paddingHorizontal: 20,
   },
   summaryCard: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 20,
     padding: 24,
     marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 6,
     borderWidth: 2,
-    borderColor: '#10B981',
   },
   summaryHeader: {
     flexDirection: 'row',
@@ -381,33 +662,23 @@ const styles = StyleSheet.create({
   summaryTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#1F2937',
     marginBottom: 4,
   },
   summarySubtitle: {
     fontSize: 14,
-    color: '#6B7280',
   },
   totalPrice: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#10B981',
   },
   detailsCard: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
     marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
   },
   cardTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1F2937',
     marginBottom: 16,
   },
   detailRow: {
@@ -421,36 +692,26 @@ const styles = StyleSheet.create({
   },
   detailLabel: {
     fontSize: 12,
-    color: '#6B7280',
     fontWeight: '500',
     marginBottom: 4,
   },
   detailValue: {
     fontSize: 14,
-    color: '#1F2937',
     fontWeight: '500',
   },
   estimateRow: {
     marginTop: 8,
     paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
   },
   estimateText: {
     fontSize: 12,
-    color: '#6B7280',
     textAlign: 'center',
   },
   paymentCard: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
     marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
   },
   paymentOption: {
     flexDirection: 'row',
@@ -458,18 +719,12 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#E5E7EB',
     marginBottom: 12,
-  },
-  selectedPayment: {
-    borderColor: '#5A47FF',
-    backgroundColor: '#F8F9FF',
   },
   paymentIcon: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#F0F2FF',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
@@ -480,18 +735,15 @@ const styles = StyleSheet.create({
   paymentLabel: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1F2937',
     marginBottom: 4,
   },
   paymentDetails: {
     fontSize: 14,
-    color: '#6B7280',
   },
   checkmark: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#5A47FF',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -505,32 +757,53 @@ const styles = StyleSheet.create({
   },
   termsText: {
     fontSize: 12,
-    color: '#6B7280',
     lineHeight: 18,
     textAlign: 'center',
   },
   termsLink: {
-    color: '#5A47FF',
     fontWeight: '500',
   },
   bottomContainer: {
     padding: 20,
-    backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
   },
   bookingButton: {
-    backgroundColor: '#5A47FF',
     paddingVertical: 18,
     borderRadius: 16,
     alignItems: 'center',
-  },
-  bookingButtonDisabled: {
-    backgroundColor: '#9CA3AF',
   },
   bookingText: {
     fontSize: 16,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  paystackModal: {
+    flex: 1,
+  },
+  paystackHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  paystackClose: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  paystackHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  webview: {
+    flex: 1,
+  },
+  webviewPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

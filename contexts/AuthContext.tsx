@@ -14,7 +14,11 @@ interface ProfileUpdates {
   full_name?: string;
   phone?: string;
   email?: string;
-  avatar_url?: string;
+  avatar_url?: string | null;
+  /** Rider-only: vehicle type (e.g. Motorcycle, Bike) */
+  vehicle_type?: string;
+  /** Rider-only: license plate number */
+  plate_number?: string;
 }
 
 interface AuthContextType {
@@ -23,6 +27,7 @@ interface AuthContextType {
   userProfile: any | null;
   userType: 'user' | 'rider' | null;
   loading: boolean;
+  refreshProfile: () => Promise<void>;
   signUp: (
     email: string,
     password: string,
@@ -48,13 +53,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [userType, setUserType] = useState<'user' | 'rider' | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Read role from JWT app_metadata when set by Custom Access Token hook (avoids DB hit for redirect)
+  const getRoleFromSession = (s: Session | null): 'user' | 'rider' | null => {
+    const ut = (s?.user?.app_metadata as { user_type?: string } | undefined)?.user_type;
+    return ut === 'rider' || ut === 'user' ? ut : null;
+  };
+
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        loadUserProfile(session.user.id);
+        const jwtRole = getRoleFromSession(session);
+        if (jwtRole) {
+          setUserType(jwtRole);
+          setLoading(false);
+          loadUserProfile(session.user.id); // background: fill userProfile
+        } else {
+          const resolved = await loadUserProfile(session.user.id);
+          if (resolved) setUserType(resolved);
+          setLoading(false);
+        }
       } else {
         setUserProfile(null);
         setUserType(null);
@@ -62,15 +81,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     });
 
-    // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
-
       if (session?.user) {
-        await loadUserProfile(session.user.id);
+        const jwtRole = getRoleFromSession(session);
+        if (jwtRole) {
+          setUserType(jwtRole);
+          setLoading(false);
+          loadUserProfile(session.user.id);
+        } else {
+          const resolved = await loadUserProfile(session.user.id);
+          if (resolved) setUserType(resolved);
+          setLoading(false);
+        }
       } else {
         setUserProfile(null);
         setUserType(null);
@@ -81,49 +107,36 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const loadUserProfile = async (userId: string): Promise<boolean> => {
-    console.log('Loading user profile for userId:', userId);
+  const loadUserProfile = async (userId: string): Promise<'user' | 'rider' | null> => {
     try {
-      // Check if user is a rider first
       const { data: riderData, error: riderError } = await supabase
         .from('riders')
         .select('*')
         .eq('id', userId)
         .single();
 
-      console.log('Rider data:', riderData, 'Rider error:', riderError);
-
       if (riderData && !riderError) {
         setUserProfile(riderData);
         setUserType('rider');
-        console.log('User is a rider');
-        return true;
+        return 'rider';
       }
 
-      // Check if user is a regular user
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*')
         .eq('id', userId)
         .single();
 
-      console.log('User data:', userData, 'User error:', userError);
-
       if (userData && !userError) {
         setUserProfile(userData);
         setUserType('user');
-        console.log('User is a regular user');
-        return true;
-      } else {
-        console.log('No user profile found for userId:', userId);
-        return false;
+        return 'user';
       }
+      return null;
     } catch (error) {
       console.error('Error loading user profile:', error);
-      return false;
+      return null;
     }
-    // Remove setLoading(false) from here since we want to keep loading true
-    // until navigation completes in signIn
   };
 
   const signUp = async (
@@ -284,6 +297,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (errorMessage.includes('ACCOUNT_EXISTS') || errorMessage.includes('EMAIL_CONFIRMATION')) {
         throw error;
       }
+
+      // Auth "Database error updating user" usually means a trigger failed; run migration 20250632000000_handle_new_user_defensive.sql
+      if (errorMessage.toLowerCase().includes('database error updating user')) {
+        throw new Error(
+          'Registration failed: a server configuration issue prevented creating your account. Please try again in a moment or contact support.'
+        );
+      }
       
       throw new Error(
         `Registration failed: ${errorMessage}`
@@ -313,61 +333,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setSession(data.session);
       setUser(data.user);
 
-      // Load user profile
       if (data.user) {
-        console.log('Loading profile for user:', data.user.id);
-        const profileLoaded = await loadUserProfile(data.user.id);
+        let resolvedType = await loadUserProfile(data.user.id);
 
-        // If profile doesn't exist, try to create it from user metadata
-        // This handles cases where the database trigger didn't fire or email confirmation happened differently
-        if (!profileLoaded && data.user.user_metadata) {
-          console.log('Profile not found, creating from user metadata...');
+        if (!resolvedType && data.user.user_metadata) {
           const metadata = data.user.user_metadata;
-          
-          type ProfileData = {
-            id: string;
-            email: string;
-            full_name: string;
-            phone: string;
-          };
-
-          const profileData: ProfileData = {
-            id: data.user.id,
-            email: data.user.email || '',
-            full_name: metadata.fullName || metadata.full_name || 'User',
-            phone: metadata.phone || '',
-          };
-
           const userTypeFromMeta = metadata.userType || 'user';
           const table: 'riders' | 'users' = userTypeFromMeta === 'rider' ? 'riders' : 'users';
           const { error: profileError } = await supabase
             .from(table)
-            .insert([profileData] as any);
+            .insert({
+              id: data.user.id,
+              email: data.user.email || '',
+              full_name: metadata.fullName || metadata.full_name || 'User',
+              phone: metadata.phone || '',
+            } as any);
 
-          if (profileError) {
-            console.error('Failed to create profile after signin:', profileError);
-            // If RLS error, user might need to complete signup flow again
-            if (profileError.code === '42501') {
-              console.warn('RLS policy violation - user may need to complete signup');
-            }
-            // Don't throw error, just log it - user can still sign in
-          } else {
-            // Reload profile after creation
-            await loadUserProfile(data.user.id);
+          if (!profileError) {
+            resolvedType = await loadUserProfile(data.user.id);
           }
         }
 
-        // After successful sign in and profile load, navigate to home
-        // We'll handle navigation before setting loading to false
-        if (userType === 'rider') {
+        if (resolvedType === 'rider') {
           router.push('/(rider)/dashboard');
         } else {
           router.push('/(tabs)');
         }
-      } else {
-        console.log('No user in sign in response');
-        setLoading(false);
       }
+      setLoading(false);
     } catch (error: any) {
       console.error('Sign in error:', error);
       setLoading(false);
@@ -422,8 +415,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (updates.phone !== undefined) updatesToApply.phone = updates.phone;
       if (updates.email !== undefined) updatesToApply.email = updates.email;
       if (updates.avatar_url !== undefined) updatesToApply.avatar_url = updates.avatar_url;
+      if (table === 'riders') {
+        if (updates.vehicle_type !== undefined) updatesToApply.vehicle_type = updates.vehicle_type;
+        if (updates.plate_number !== undefined) updatesToApply.plate_number = updates.plate_number;
+      }
 
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from(table)
         .update(updatesToApply)
         .eq('id', user.id);
@@ -441,12 +438,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
+  const refreshProfile = async () => {
+    if (user?.id) await loadUserProfile(user.id);
+  };
+
   const value: AuthContextType = {
     session,
     user,
     userProfile,
     userType,
     loading,
+    refreshProfile,
     signUp,
     signIn,
     signOut,

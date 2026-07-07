@@ -4,18 +4,21 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Alert,
   TextInput,
   Platform,
   KeyboardAvoidingView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, Shield } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAlert } from '@/contexts/AlertContext';
 
 export default function VerifyOTPScreen() {
-  const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
+  const { showAlert } = useAlert();
   const { email, type } = useLocalSearchParams<{ email: string; type: string }>();
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [isLoading, setIsLoading] = useState(false);
@@ -180,7 +183,7 @@ export default function VerifyOTPScreen() {
     const otpCode = otp.join('');
     
     if (otpCode.length !== 6) {
-      Alert.alert('Error', 'Please enter the complete 6-digit code');
+      showAlert('Error', 'Please enter the complete 6-digit code');
       return;
     }
 
@@ -192,7 +195,7 @@ export default function VerifyOTPScreen() {
     setIsLoading(false);
 
     if (type === 'signup') {
-      Alert.alert(
+      showAlert(
         'Account Created! 🎉',
         'Your account has been successfully created and verified.',
         [
@@ -203,7 +206,7 @@ export default function VerifyOTPScreen() {
         ]
       );
     } else {
-      Alert.alert(
+      showAlert(
         'Login Successful! 🎉',
         'You have been successfully logged in.',
         [
@@ -225,21 +228,22 @@ export default function VerifyOTPScreen() {
     // Simulate API call
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    Alert.alert('Code Sent', 'A new verification code has been sent to your email.');
+    showAlert('Code Sent', 'A new verification code has been sent to your email.');
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => router.back()}>
-            <ArrowLeft size={24} color="#1F2937" strokeWidth={2} />
+            <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
           </TouchableOpacity>
         </View>
 

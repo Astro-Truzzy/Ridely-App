@@ -1,14 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   ScrollView,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, Package, ChevronRight } from 'lucide-react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 
 interface ParcelSize {
@@ -20,52 +21,85 @@ interface ParcelSize {
   icon: string;
 }
 
+const PARCEL_SIZES: ParcelSize[] = [
+  { id: 'small', title: 'Small', description: 'Documents, keys, small items', dimensions: 'Up to 20cm x 15cm x 5cm', maxWeight: 'Max 1kg', icon: '📄' },
+  { id: 'medium', title: 'Medium', description: 'Clothing, books, electronics', dimensions: 'Up to 40cm x 30cm x 20cm', maxWeight: 'Max 5kg', icon: '📦' },
+  { id: 'large', title: 'Large', description: 'Large packages, multiple items', dimensions: 'Up to 60cm x 45cm x 40cm', maxWeight: 'Max 15kg', icon: '📫' },
+];
+
+function ParcelSizeCard({
+  size,
+  selected,
+  onSelect,
+  theme,
+  isDark,
+}: {
+  size: ParcelSize;
+  selected: boolean;
+  onSelect: () => void;
+  theme: { colors: { card: string; border: string; text: string; textSecondary: string; primary: string }; shadows: { medium: object } };
+  isDark: boolean;
+}) {
+  return (
+    <TouchableOpacity
+      style={[
+        styles.sizeCard,
+        { backgroundColor: theme.colors.card, borderColor: theme.colors.border, ...theme.shadows.medium },
+        selected && styles.selectedSizeCard,
+        selected && { borderColor: theme.colors.primary, backgroundColor: isDark ? theme.colors.surface : '#F8F9FF' },
+      ]}
+      onPress={onSelect}
+      activeOpacity={0.7}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      accessibilityLabel={`${size.title}: ${size.description}`}
+    >
+      <View style={styles.sizeHeader}>
+        <Text style={styles.sizeIcon}>{size.icon}</Text>
+        <View style={styles.sizeInfo}>
+          <Text style={[styles.sizeTitle, { color: theme.colors.text }, selected && { color: theme.colors.primary }]}>{size.title}</Text>
+          <Text style={[styles.sizeDescription, { color: theme.colors.textSecondary }, selected && { color: theme.colors.primary }]}>{size.description}</Text>
+        </View>
+        {selected && (
+          <View style={[styles.checkmark, { backgroundColor: theme.colors.primary }]}>
+            <Text style={styles.checkmarkText}>✓</Text>
+          </View>
+        )}
+      </View>
+      <View style={styles.sizeDetails}>
+        <Text style={[styles.sizeDimensions, { color: theme.colors.textSecondary }, selected && { color: theme.colors.primary }]}>📏 {size.dimensions}</Text>
+        <Text style={[styles.sizeWeight, { color: theme.colors.textSecondary }, selected && { color: theme.colors.primary }]}>⚖️ {size.maxWeight}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 export default function BookingScreen() {
+  const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
+  const { scheduleLater } = useLocalSearchParams<{ scheduleLater?: string }>();
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
 
-  const parcelSizes: ParcelSize[] = [
-    {
-      id: 'small',
-      title: 'Small',
-      description: 'Documents, keys, small items',
-      dimensions: 'Up to 20cm x 15cm x 5cm',
-      maxWeight: 'Max 1kg',
-      icon: '📄',
-    },
-    {
-      id: 'medium',
-      title: 'Medium',
-      description: 'Clothing, books, electronics',
-      dimensions: 'Up to 40cm x 30cm x 20cm',
-      maxWeight: 'Max 5kg',
-      icon: '📦',
-    },
-    {
-      id: 'large',
-      title: 'Large',
-      description: 'Large packages, multiple items',
-      dimensions: 'Up to 60cm x 45cm x 40cm',
-      maxWeight: 'Max 15kg',
-      icon: '📫',
-    },
-  ];
-
-  const handleContinue = () => {
+  const handleContinue = useCallback(() => {
     if (selectedSize) {
       router.push({
         pathname: '/booking/address',
-        params: { size: selectedSize },
+        params: { size: selectedSize, ...(scheduleLater ? { scheduleLater: '1' } : {}) },
       });
     }
-  };
+  }, [selectedSize, scheduleLater]);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      {/* Header */}
-      <View style={[styles.header, { 
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
+    >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      {/* Header - card background fills to top; content padded below status bar */}
+      <View style={[styles.header, {
         backgroundColor: theme.colors.card,
-        borderBottomColor: theme.colors.border
+        borderBottomColor: theme.colors.border,
+        paddingTop: 10 + insets.top,
       }]}>
         <TouchableOpacity
           style={[styles.backButton, { backgroundColor: isDark ? theme.colors.card : '#F3F4F6' }]}
@@ -101,75 +135,25 @@ export default function BookingScreen() {
 
           {/* Size Options */}
           <View style={styles.sizeContainer}>
-            {parcelSizes.map((size) => (
-              <TouchableOpacity
+            {PARCEL_SIZES.map((size) => (
+              <ParcelSizeCard
                 key={size.id}
-                style={[
-                  styles.sizeCard,
-                  { 
-                    backgroundColor: theme.colors.card,
-                    borderColor: theme.colors.border,
-                    ...theme.shadows.medium
-                  },
-                  selectedSize === size.id && styles.selectedSizeCard,
-                  selectedSize === size.id && { borderColor: theme.colors.primary, backgroundColor: isDark ? '#1a1a2e' : '#F8F9FF' }
-                ]}
-                onPress={() => setSelectedSize(size.id)}>
-                <View style={styles.sizeHeader}>
-                  <Text style={styles.sizeIcon}>{size.icon}</Text>
-                  <View style={styles.sizeInfo}>
-                    <Text
-                      style={[
-                        styles.sizeTitle,
-                        { color: theme.colors.text },
-                        selectedSize === size.id && { color: theme.colors.primary },
-                      ]}>
-                      {size.title}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.sizeDescription,
-                        { color: theme.colors.textSecondary },
-                        selectedSize === size.id && { color: theme.colors.primary },
-                      ]}>
-                      {size.description}
-                    </Text>
-                  </View>
-                  {selectedSize === size.id && (
-                    <View style={[styles.checkmark, { backgroundColor: theme.colors.primary }]}>
-                      <Text style={styles.checkmarkText}>✓</Text>
-                    </View>
-                  )}
-                </View>
-                <View style={styles.sizeDetails}>
-                  <Text
-                    style={[
-                      styles.sizeDimensions,
-                      { color: theme.colors.textSecondary },
-                      selectedSize === size.id && { color: theme.colors.primary },
-                    ]}>
-                    {'📏 '}{size.dimensions}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.sizeWeight,
-                      { color: theme.colors.textSecondary },
-                      selectedSize === size.id && { color: theme.colors.primary },
-                    ]}>
-                    {'⚖️ '}{size.maxWeight}
-                  </Text>
-                </View>
-              </TouchableOpacity>
+                size={size}
+                selected={selectedSize === size.id}
+                onSelect={() => setSelectedSize(size.id)}
+                theme={theme}
+                isDark={!!isDark}
+              />
             ))}
           </View>
 
           {/* Info Box */}
           <View style={[styles.infoBox, { 
-            backgroundColor: isDark ? '#0c2d48' : '#F0F9FF',
+            backgroundColor: isDark ? theme.colors.info + '18' : '#F0F9FF',
             borderLeftColor: theme.colors.info
           }]}>
-            <Text style={[styles.infoTitle, { color: isDark ? '#38bdf8' : '#0C4A6E' }]}>{'💡 Good to know'}</Text>
-            <Text style={[styles.infoText, { color: isDark ? '#e0f2fe' : '#0C4A6E' }]}>
+            <Text style={[styles.infoTitle, { color: isDark ? theme.colors.info : '#0C4A6E' }]}>{'💡 Good to know'}</Text>
+            <Text style={[styles.infoText, { color: isDark ? theme.colors.textSecondary : '#0C4A6E' }]}>
               {'• Medium parcels include a 2% size surcharge\n'}
               {'• Large parcels include a 5% size surcharge\n'}
               {'• Final pricing is calculated after address selection\n'}
@@ -185,13 +169,18 @@ export default function BookingScreen() {
         borderTopColor: theme.colors.border
       }]}>
         <TouchableOpacity
-          style={[styles.continueButton, 
+          style={[styles.continueButton,
             !selectedSize && { backgroundColor: theme.colors.border },
-            selectedSize && { backgroundColor: theme.colors.primary }
+            selectedSize && { backgroundColor: theme.colors.primary },
           ]}
           onPress={handleContinue}
           disabled={!selectedSize}>
-          <Text style={[styles.continueText, !selectedSize && { color: theme.colors.textTertiary }]}>
+          <Text
+            style={[
+              styles.continueText,
+              !selectedSize && { color: theme.colors.textTertiary },
+              selectedSize && { color: '#FFFFFF' },
+            ]}>
             {'Continue to Addresses'}
           </Text>
           <ChevronRight
@@ -214,7 +203,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 16,
     paddingBottom: 20,
     borderBottomWidth: 1,
   },

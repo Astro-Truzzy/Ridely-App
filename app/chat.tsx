@@ -4,12 +4,14 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   FlatList,
   TextInput,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { useTheme } from '@/contexts/ThemeContext';
 import { ArrowLeft, Send, User, Phone, Info } from 'lucide-react-native';
 import { router } from 'expo-router';
 
@@ -22,6 +24,8 @@ interface Message {
 }
 
 export default function ChatScreen() {
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -125,9 +129,13 @@ export default function ChatScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.primary }]}
+      edges={['left', 'right', 'bottom']}
+    >
+      <StatusBar style="light" />
+      {/* Header - primary background extends under status bar */}
+      <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <ArrowLeft size={24} color="#FFFFFF" strokeWidth={2} />
         </TouchableOpacity>

@@ -87,15 +87,16 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.anonymous.ridely'
+    namespace 'com.deliveryapp.ridely'
     defaultConfig {
-        applicationId 'com.anonymous.ridely'
+        applicationId 'com.deliveryapp.ridely'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0.0"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
+        manifestPlaceholders = [GOOGLE_MAPS_API_KEY: findProperty("GOOGLE_MAPS_ANDROID_API_KEY") ?: ""]
     }
     signingConfigs {
         debug {

@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
-  Alert,
   TextInput,
+  Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 
 import {
   ArrowLeft,
@@ -20,11 +20,15 @@ import {
   CircleCheck as CheckCircle,
   User,
 } from 'lucide-react-native';
+import Constants from 'expo-constants';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { useAlert } from '@/contexts/AlertContext';
+import { AnimatedPressable } from '@/components/rider/AnimatedPressable';
 import * as Location from 'expo-location';
 import { supabase } from '@/lib/supabase';
-import MapView, { Marker } from 'react-native-maps';
+import { geocodeAddress, fetchGoogleDirections } from '@/lib/googleDirections';
 
 /**
  * Active Delivery Screen
@@ -42,27 +46,41 @@ type DeliveryStatus =
   | 'at_dropoff'
   | 'delivered';
 
+const DEFAULT_DELTA = { latitudeDelta: 0.05, longitudeDelta: 0.05 };
+
+function getZoomForSpeed(speedKmh: number): number {
+  if (speedKmh < 10) return 16.8;
+  if (speedKmh < 25) return 15.8;
+  if (speedKmh < 45) return 14.8;
+  return 13.8;
+}
+
 export default function ActiveDeliveryScreen() {
-  const [MapboxGL, setMapboxGL] = useState<any | null>(null);
-  // Pickup and dropoff coordinates (should come from job data in real app)
-  // (moved below job variable)
-  // Rider's real-time location
-  
-  // Guarded Mapbox import (avoids crash in Expo Go)
+  const [RNMaps, setRNMaps] = useState<{
+    default: React.ComponentType<any>;
+    Marker: React.ComponentType<any>;
+    Polyline: React.ComponentType<any>;
+  } | null>(null);
+
+  // Load react-native-maps only in dev builds; Expo Go has no native maps module (RNMapsAirModule)
   useEffect(() => {
     let mounted = true;
-    try {
-      // Lazy require so Metro doesn't crash when native module not linked
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const mb = require('@rnmapbox/maps');
-      if (mounted) setMapboxGL(mb);
-    } catch (err) {
-      console.warn(
-        '[active-delivery] @rnmapbox/maps not available. Use EAS build or react-native-maps for dev.',
-        err
-      );
-      if (mounted) setMapboxGL(null);
+    const isExpoGo = Constants.appOwnership === 'expo';
+    if (isExpoGo) {
+      setRNMaps(null);
+      return;
     }
+    import('react-native-maps')
+      .then((maps) => {
+        if (mounted) setRNMaps({
+          default: maps.default as unknown as React.ComponentType<any>,
+          Marker: maps.Marker as unknown as React.ComponentType<any>,
+          Polyline: maps.Polyline as unknown as React.ComponentType<any>,
+        });
+      })
+      .catch(() => {
+        if (mounted) setRNMaps(null);
+      });
     return () => {
       mounted = false;
     };
@@ -72,28 +90,70 @@ export default function ActiveDeliveryScreen() {
     latitude: number;
     longitude: number;
   } | null>(null);
+  const [pickupCoordsState, setPickupCoordsState] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [dropoffCoordsState, setDropoffCoordsState] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
+  const mapRef = useRef<any>(null);
+  const [mapReady, setMapReady] = useState(false);
+  const didInitialFitRef = useRef(false);
+  const [followMode, setFollowMode] = useState(true);
+  const [riderSpeedKmh, setRiderSpeedKmh] = useState(0);
+  const lastSpeedSampleRef = useRef<{ lat: number; lng: number; ts: number } | null>(null);
 
-  // Watch and update rider's own location
+  const lastSentLocationRef = useRef<{ lat: number; lng: number } | null>(null);
+  const MIN_MOVEMENT_METERS = 20;
+
+  const haversineMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371000;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  // Watch and update rider's own location: throttle 3–5s, only write when movement > 20m; dual write rider_locations + riders.location
   useEffect(() => {
-    let locationSubscription;
+    let locationSubscription: { remove: () => void } | undefined;
     (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
+      const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return;
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
       locationSubscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
-          timeInterval: 5000,
-          distanceInterval: 10,
+          timeInterval: 4000,
+          distanceInterval: 20,
         },
         async (loc) => {
           const { latitude, longitude } = loc.coords;
           setRiderCoords({ latitude, longitude });
-          // Get current user
-          const {
-            data: { user },
-          } = await supabase.auth.getUser();
-          if (!user) return;
-          // Upsert location
+
+          const now = Date.now();
+          const prev = lastSpeedSampleRef.current;
+          if (prev) {
+            const meters = haversineMeters(prev.lat, prev.lng, latitude, longitude);
+            const seconds = Math.max((now - prev.ts) / 1000, 1);
+            const kmh = (meters / seconds) * 3.6;
+            setRiderSpeedKmh((old) => old * 0.7 + Math.min(kmh, 120) * 0.3);
+          }
+          lastSpeedSampleRef.current = { lat: latitude, lng: longitude, ts: now };
+
+          const last = lastSentLocationRef.current;
+          const shouldWrite =
+            last === null ||
+            haversineMeters(last.lat, last.lng, latitude, longitude) >= MIN_MOVEMENT_METERS;
+
+          if (!shouldWrite) return;
+
+          lastSentLocationRef.current = { lat: latitude, lng: longitude };
+
           await supabase
             .from('rider_locations')
             .upsert({
@@ -102,6 +162,8 @@ export default function ActiveDeliveryScreen() {
               longitude,
               updated_at: new Date().toISOString(),
             } as never);
+
+          await (supabase as any).rpc('update_rider_location', { lat: latitude, lng: longitude });
         }
       );
     })();
@@ -109,25 +171,295 @@ export default function ActiveDeliveryScreen() {
       if (locationSubscription) locationSubscription.remove();
     };
   }, []);
-  const { theme } = useTheme();
+
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
+  const { user } = useAuth();
+  const { showAlert } = useAlert();
   const { jobId, jobData } = useLocalSearchParams<{
     jobId: string;
     jobData: string;
   }>();
+  const [delivery, setDelivery] = useState<{ id: string; status: string } | null>(() =>
+    jobId ? { id: jobId, status: 'accepted' } : null
+  );
+  const [routeTarget, setRouteTarget] = useState<'pickup' | 'dropoff' | null>('pickup');
   const [deliveryStatus, setDeliveryStatus] =
     useState<DeliveryStatus>('heading_to_pickup');
   const [deliveryOTP, setDeliveryOTP] = useState('');
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [confirming, setConfirming] = useState(false);
 
   const job = jobData ? JSON.parse(jobData) : null;
-  const pickupCoords = job?.pickupCoords || {
-    latitude: 37.78825,
-    longitude: -122.4324,
+
+  // Geocode pickup and dropoff addresses (like user tracking screen)
+  useEffect(() => {
+    if (!job?.pickupAddress || !job?.dropoffAddress) return;
+    let cancelled = false;
+    (async () => {
+      const [pickup, dropoff] = await Promise.all([
+        geocodeAddress(job.pickupAddress),
+        geocodeAddress(job.dropoffAddress),
+      ]);
+      if (cancelled) return;
+      if (pickup) setPickupCoordsState(pickup);
+      if (dropoff) setDropoffCoordsState(dropoff);
+    })();
+    return () => { cancelled = true; };
+  }, [job?.pickupAddress, job?.dropoffAddress]);
+
+  // Fetch route from rider to current target (pickup or dropoff), debounced
+  const riderCoordsRef = useRef(riderCoords);
+  const deliveryStatusRef = useRef(deliveryStatus);
+  riderCoordsRef.current = riderCoords;
+  deliveryStatusRef.current = deliveryStatus;
+  const routeFetchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const rider = riderCoordsRef.current;
+    const status = deliveryStatusRef.current;
+    const pickup = pickupCoordsState;
+    const dropoff = dropoffCoordsState;
+    if (!rider || (!pickup && !dropoff)) return;
+
+    const destination = (status === 'picked_up' || status === 'heading_to_dropoff' || status === 'at_dropoff') ? dropoff : pickup;
+    if (!destination) return;
+
+    const fetchRoute = async () => {
+      const result = await fetchGoogleDirections(
+        rider.latitude,
+        rider.longitude,
+        destination.latitude,
+        destination.longitude
+      );
+      if (result?.coordinates?.length) setRouteCoordinates(result.coordinates);
+    };
+
+    if (routeFetchRef.current) clearTimeout(routeFetchRef.current);
+    routeFetchRef.current = setTimeout(() => {
+      routeFetchRef.current = null;
+      fetchRoute();
+    }, 800);
+
+    return () => {
+      if (routeFetchRef.current) clearTimeout(routeFetchRef.current);
+    };
+  }, [riderCoords?.latitude, riderCoords?.longitude, pickupCoordsState, dropoffCoordsState, deliveryStatus]);
+
+  useEffect(() => {
+    if (!jobId) return;
+    const fetchDelivery = async () => {
+      const { data } = await (supabase as any).from('deliveries').select('id, status').eq('id', jobId).maybeSingle();
+      if (data) setDelivery({ id: data.id, status: data.status });
+    };
+    fetchDelivery();
+
+    const channel = supabase
+      .channel(`delivery-${jobId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'deliveries', filter: `id=eq.${jobId}` },
+        (payload: { new: { id?: string; status?: string } }) => {
+          const next = payload.new;
+          if (next?.id != null && next?.status != null) setDelivery({ id: next.id, status: next.status });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [jobId]);
+
+  useEffect(() => {
+    if (!delivery) return;
+    const s = delivery.status;
+    if (s === 'accepted' || s === 'rider_assigned') {
+      setRouteTarget('pickup');
+      setDeliveryStatus('at_pickup');
+    } else if (s === 'picked_up') {
+      setRouteTarget('dropoff');
+      setDeliveryStatus('at_dropoff');
+    } else if (s === 'delivered' || s === 'completed') {
+      setRouteTarget(null);
+      setDeliveryStatus('delivered');
+    }
+  }, [delivery?.status]);
+
+  useEffect(() => {
+    if (delivery?.status === 'delivered' || delivery?.status === 'completed') {
+      showAlert(
+        'Delivery Completed',
+        `You've earned ₦${job?.reward ?? 0}!\n\nNet earnings: ₦${(((job?.reward ?? 0) * 0.85)).toFixed(2)} (after 15% platform fee)\n\nThank you for using Ridely!`,
+        [
+          { text: 'View Earnings', onPress: () => router.replace('/(rider)/earnings') },
+          { text: 'Back to Dashboard', onPress: () => router.replace('/(rider)/dashboard') },
+        ]
+      );
+    }
+  }, [delivery?.status]);
+
+  const handleConfirmPickup = async () => {
+    if (!jobId || !user) return;
+    setConfirming(true);
+    try {
+      const { data, error } = await (supabase as any)
+        .from('deliveries')
+        .update({ status: 'picked_up' })
+        .eq('id', jobId)
+        .eq('status', 'accepted')
+        .select('user_id');
+      if (error) throw error;
+      let customerUserId: string | null = data?.[0]?.user_id ?? null;
+      if (!data?.length) {
+        const { data: d2 } = await (supabase as any).from('deliveries').update({ status: 'picked_up' }).eq('id', jobId).eq('status', 'rider_assigned').select('user_id');
+        if (!d2?.length) {
+          showAlert('Error', 'Invalid state. Cannot confirm pickup.');
+          return;
+        }
+        customerUserId = d2[0]?.user_id ?? null;
+      }
+      if (customerUserId) {
+        await (supabase as any).from('notifications').insert({
+          user_id: customerUserId,
+          rider_id: null,
+          type: 'delivery_update',
+          title: 'Rider picked up your package',
+          message: 'Your delivery is on the way. Track it on the map.',
+          read: false,
+          actionable: true,
+          delivery_id: jobId,
+        });
+        try {
+          await supabase.functions.invoke('send-push', {
+            body: {
+              userIds: [customerUserId],
+              title: 'Rider picked up your package',
+              body: 'Your delivery is on the way. Track it on the map.',
+              data: { type: 'delivery_update', deliveryId: jobId },
+            },
+          });
+        } catch (_) {}
+      }
+    } catch (e) {
+      showAlert('Error', e instanceof Error ? e.message : 'Failed to confirm pickup.');
+    } finally {
+      setConfirming(false);
+    }
   };
-  const dropoffCoords = job?.dropoffCoords || {
-    latitude: 37.78925,
-    longitude: -122.4224,
+
+  const handleConfirmDelivery = async () => {
+    if (!jobId || !user) return;
+    setConfirming(true);
+    try {
+      const { data, error } = await (supabase as any)
+        .from('deliveries')
+        .update({ status: 'delivered', completed_at: new Date().toISOString() })
+        .eq('id', jobId)
+        .eq('status', 'picked_up')
+        .select('user_id');
+      if (error) throw error;
+      if (!data?.length) {
+        showAlert('Error', 'Invalid state. Cannot confirm delivery.');
+        setConfirming(false);
+        return;
+      }
+      const customerUserId = data[0]?.user_id ?? null;
+      if (customerUserId) {
+        await (supabase as any).from('notifications').insert({
+          user_id: customerUserId,
+          rider_id: null,
+          type: 'delivery_update',
+          title: 'Delivery completed',
+          message: 'Your package has been delivered. Thank you for using Ridely!',
+          read: false,
+          actionable: true,
+          delivery_id: jobId,
+        });
+        try {
+          await supabase.functions.invoke('send-push', {
+            body: {
+              userIds: [customerUserId],
+              title: 'Delivery completed',
+              body: 'Your package has been delivered. Thank you for using Ridely!',
+              data: { type: 'delivery_update', deliveryId: jobId },
+            },
+          });
+        } catch (_) {}
+      }
+      await (supabase as any).from('riders').update({ is_available: true }).eq('id', user.id);
+      setDelivery((prev) => (prev ? { ...prev, status: 'delivered' } : null));
+    } catch (e) {
+      showAlert('Error', e instanceof Error ? e.message : 'Failed to confirm delivery.');
+    } finally {
+      setConfirming(false);
+    }
   };
+
+  const pickupCoords = pickupCoordsState ?? { latitude: 6.5244, longitude: 3.3792 };
+  const dropoffCoords = dropoffCoordsState ?? { latitude: 6.5244, longitude: 3.3892 };
+  const riderCoordsForMap = riderCoords ?? pickupCoords;
+
+  const mapRegion = useMemo(() => {
+    const allMapPoints = [riderCoordsForMap, pickupCoords, dropoffCoords].filter(Boolean);
+    if (allMapPoints.length >= 2) {
+      const lats = allMapPoints.map((p) => p.latitude);
+      const lngs = allMapPoints.map((p) => p.longitude);
+      const minLat = Math.min(...lats);
+      const maxLat = Math.max(...lats);
+      const minLng = Math.min(...lngs);
+      const maxLng = Math.max(...lngs);
+      const pad = 0.01;
+      return {
+        latitude: (minLat + maxLat) / 2,
+        longitude: (minLng + maxLng) / 2,
+        latitudeDelta: Math.max(maxLat - minLat + pad, 0.02),
+        longitudeDelta: Math.max(maxLng - minLng + pad, 0.02),
+      };
+    }
+    return {
+      latitude: riderCoordsForMap.latitude,
+      longitude: riderCoordsForMap.longitude,
+      ...DEFAULT_DELTA,
+    };
+  }, [riderCoordsForMap.latitude, riderCoordsForMap.longitude, pickupCoords.latitude, pickupCoords.longitude, dropoffCoords.latitude, dropoffCoords.longitude]);
+  const speedKmhRounded = Math.max(0, Math.round(riderSpeedKmh));
+
+  // Fit once to show rider, pickup, and dropoff together.
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || didInitialFitRef.current) return;
+    mapRef.current.fitToCoordinates?.([riderCoordsForMap, pickupCoords, dropoffCoords], {
+      edgePadding: { top: 80, right: 50, bottom: 280, left: 50 },
+      animated: false,
+    });
+    didInitialFitRef.current = true;
+  }, [mapReady, riderCoordsForMap, pickupCoords, dropoffCoords]);
+
+  // Smoothly follow rider after initial fit without controlling the full region.
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !riderCoords || !followMode) return;
+    mapRef.current.animateCamera?.(
+      {
+        center: {
+          latitude: riderCoords.latitude,
+          longitude: riderCoords.longitude,
+        },
+        zoom: getZoomForSpeed(riderSpeedKmh),
+      },
+      { duration: 500 }
+    );
+  }, [mapReady, followMode, riderCoords?.latitude, riderCoords?.longitude, riderSpeedKmh]);
+
+  // Snap to route bounds whenever route gets refreshed while follow mode is on.
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !followMode) return;
+    const points = routeCoordinates.length > 1 ? routeCoordinates : [riderCoordsForMap, pickupCoords, dropoffCoords];
+    if (points.length < 2) return;
+    mapRef.current.fitToCoordinates?.(points, {
+      edgePadding: { top: 80, right: 50, bottom: 280, left: 50 },
+      animated: true,
+    });
+  }, [mapReady, followMode, routeCoordinates.length, pickupCoords.latitude, pickupCoords.longitude, dropoffCoords.latitude, dropoffCoords.longitude]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -163,6 +495,13 @@ export default function ActiveDeliveryScreen() {
   };
 
   const getNextAction = () => {
+    const s = delivery?.status;
+    if (s === 'accepted' || s === 'rider_assigned') {
+      return { text: 'Confirm Pickup', action: handleConfirmPickup };
+    }
+    if (s === 'picked_up') {
+      return { text: 'Confirm Delivery', action: handleConfirmDelivery };
+    }
     switch (deliveryStatus) {
       case 'heading_to_pickup':
         return {
@@ -172,7 +511,7 @@ export default function ActiveDeliveryScreen() {
       case 'at_pickup':
         return {
           text: 'Mark as Picked Up',
-          action: () => setDeliveryStatus('picked_up'),
+          action: handleConfirmPickup,
         };
       case 'picked_up':
         return {
@@ -185,51 +524,35 @@ export default function ActiveDeliveryScreen() {
           action: () => setDeliveryStatus('at_dropoff'),
         };
       case 'at_dropoff':
-        return { text: 'Complete Delivery', action: handleCompleteDelivery };
+        return { text: 'Complete Delivery', action: handleConfirmDelivery };
       default:
         return null;
     }
   };
 
-  const handleCompleteDelivery = () => {
-    Alert.alert(
-      'Delivery Completed',
-      `You've earned ₦${job?.reward}!\n\nNet earnings: ₦${(
-        job?.reward * 0.85
-      ).toFixed(2)} (after 15% platform fee)\n\nThank you for using Ridely!`,
-      [
-        {
-          text: 'View Earnings',
-          onPress: () => router.replace('/(rider)/earnings'),
-        },
-        { text: 'Back to Dashboard', onPress: () => router.replace('/(rider)/dashboard') },
-      ]
-    );
-  };
-
   const handleContactSender = () => {
-    Alert.alert('Contact Sender', `Contact ${job?.senderName}`, [
+    showAlert('Contact Sender', `Contact ${job?.senderName}`, [
       {
         text: 'Call',
-        onPress: () => Alert.alert('Calling', `Calling ${job?.senderName}...`),
+        onPress: () => showAlert('Calling', `Calling ${job?.senderName}...`),
       },
       {
         text: 'Message',
-        onPress: () => Alert.alert('Message', 'Opening chat...'),
+        onPress: () => showAlert('Message', 'Opening chat...'),
       },
       { text: 'Cancel', style: 'cancel' },
     ]);
   };
 
   const handleContactReceiver = () => {
-    Alert.alert('Contact Receiver', 'Contact the package receiver', [
+    showAlert('Contact Receiver', 'Contact the package receiver', [
       {
         text: 'Call',
-        onPress: () => Alert.alert('Calling', 'Calling receiver...'),
+        onPress: () => showAlert('Calling', 'Calling receiver...'),
       },
       {
         text: 'Message',
-        onPress: () => Alert.alert('Message', 'Opening chat...'),
+        onPress: () => showAlert('Message', 'Opening chat...'),
       },
       { text: 'Cancel', style: 'cancel' },
     ]);
@@ -244,7 +567,7 @@ export default function ActiveDeliveryScreen() {
           <Text style={[styles.errorText, { color: theme.colors.text }]}>
             Job data not found
           </Text>
-          <TouchableOpacity
+          <AnimatedPressable
             style={[
               styles.backButton,
               { backgroundColor: theme.colors.primary },
@@ -252,7 +575,7 @@ export default function ActiveDeliveryScreen() {
             onPress={() => router.back()}
           >
             <Text style={styles.backButtonText}>Go Back</Text>
-          </TouchableOpacity>
+          </AnimatedPressable>
         </View>
       </SafeAreaView>
     );
@@ -263,150 +586,88 @@ export default function ActiveDeliveryScreen() {
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
     >
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      {/* Header - extends under status bar */}
+      <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
+        <AnimatedPressable
           style={styles.headerBackButton}
           onPress={() => router.back()}
         >
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
-        </TouchableOpacity>
+        </AnimatedPressable>
         <Text style={[styles.title, { color: theme.colors.text }]}>
           Active Delivery
         </Text>
         <View style={styles.placeholder} />
       </View>
 
-      {/* MapboxGL Map - always visible */}
+      {/* Google Map (react-native-maps) - always visible */}
       <View
         style={[styles.mapContainer, { backgroundColor: theme.colors.surface }]}
       >
-        {MapboxGL ? (
-          <MapboxGL.MapView
+        {RNMaps ? (
+          <RNMaps.default
+            ref={mapRef}
             style={{ flex: 1, borderRadius: 16, overflow: 'hidden' }}
+            mapType="standard"
+            initialRegion={mapRegion}
+            onMapReady={() => setMapReady(true)}
+            loadingEnabled
+            moveOnMarkerPress={false}
+            toolbarEnabled={false}
+            onPanDrag={() => setFollowMode(false)}
+            onTouchStart={() => {
+              if (followMode) setFollowMode(false);
+            }}
           >
-            <MapboxGL.Camera
-              centerCoordinate={
-                riderCoords
-                  ? [riderCoords.longitude, riderCoords.latitude]
-                  : [pickupCoords.longitude, pickupCoords.latitude]
-              }
-              zoomLevel={14}
-            />
-            {/* Pickup marker: show before pickup is completed */}
-            {(deliveryStatus === 'heading_to_pickup' ||
-              deliveryStatus === 'at_pickup' ||
-              deliveryStatus === 'picked_up') && (
-              <MapboxGL.PointAnnotation
-                id="pickup"
-                coordinate={[pickupCoords.longitude, pickupCoords.latitude]}
-              >
-                <View
-                  style={{
-                    backgroundColor: theme.colors.success,
-                    borderRadius: 12,
-                    padding: 4,
-                  }}
-                >
-                  <MapPin size={20} color="#fff" />
-                </View>
-              </MapboxGL.PointAnnotation>
+            {routeCoordinates.length > 0 && RNMaps.Polyline && (
+              <RNMaps.Polyline
+                coordinates={routeCoordinates}
+                strokeColor={theme.colors.primary ?? '#5A47FF'}
+                strokeWidth={4}
+                lineCap="round"
+                lineJoin="round"
+              />
             )}
-            {/* Dropoff marker: show after pickup is completed */}
-            {(deliveryStatus === 'heading_to_dropoff' ||
-              deliveryStatus === 'at_dropoff' ||
-              deliveryStatus === 'delivered' ||
-              deliveryStatus === 'picked_up') && (
-              <MapboxGL.PointAnnotation
-                id="dropoff"
-                coordinate={[dropoffCoords.longitude, dropoffCoords.latitude]}
-              >
-                <View
-                  style={{
-                    backgroundColor: theme.colors.error,
-                    borderRadius: 12,
-                    padding: 4,
-                  }}
-                >
-                  <MapPin size={20} color="#fff" />
-                </View>
-              </MapboxGL.PointAnnotation>
+            {pickupCoordsState && (
+              <RNMaps.Marker
+                coordinate={pickupCoords}
+                title="Pickup"
+                description={job?.pickupAddress}
+                pinColor={Platform.OS === 'android' ? '#10B981' : undefined}
+                tracksViewChanges={false}
+              />
             )}
-            {/* Rider's own location marker */}
+            {dropoffCoordsState && (
+              <RNMaps.Marker
+                coordinate={dropoffCoords}
+                title="Dropoff"
+                description={job?.dropoffAddress}
+                pinColor={Platform.OS === 'android' ? '#EF4444' : undefined}
+                tracksViewChanges={false}
+              />
+            )}
             {riderCoords && (
-              <MapboxGL.PointAnnotation
-                id="rider"
-                coordinate={[riderCoords.longitude, riderCoords.latitude]}
-              >
-                <View
-                  style={{
-                    backgroundColor: theme.colors.primary,
-                    borderRadius: 12,
-                    padding: 4,
-                  }}
-                >
-                  <Navigation size={20} color="#fff" />
-                </View>
-              </MapboxGL.PointAnnotation>
+              <RNMaps.Marker
+                coordinate={{ latitude: riderCoords.latitude, longitude: riderCoords.longitude }}
+                title="Your location"
+                pinColor={Platform.OS === 'android' ? (theme.colors.primary ?? '#5A47FF') : undefined}
+                tracksViewChanges={false}
+              />
             )}
-          </MapboxGL.MapView>
+          </RNMaps.default>
         ) : (
-          <MapView
-            key={`rider-map-${riderCoords?.latitude || pickupCoords.latitude}-${riderCoords?.longitude || pickupCoords.longitude}`}
-            style={{ flex: 1, borderRadius: 16, overflow: 'hidden' }}
-            initialRegion={{
-              latitude: riderCoords?.latitude || pickupCoords.latitude,
-              longitude: riderCoords?.longitude || pickupCoords.longitude,
-              latitudeDelta: 0.01,
-              longitudeDelta: 0.01,
-            }}
-            region={{
-              latitude: riderCoords?.latitude || pickupCoords.latitude,
-              longitude: riderCoords?.longitude || pickupCoords.longitude,
-              latitudeDelta: 0.01,
-              longitudeDelta: 0.01,
-            }}
-          >
-            {/* Pickup marker */}
-            {(deliveryStatus === 'heading_to_pickup' ||
-              deliveryStatus === 'at_pickup' ||
-              deliveryStatus === 'picked_up') && (
-              <Marker
-                coordinate={{
-                  latitude: pickupCoords.latitude,
-                  longitude: pickupCoords.longitude,
-                }}
-                title="Pickup Location"
-                pinColor={theme.colors.success}
-              />
-            )}
-            {/* Dropoff marker */}
-            {(deliveryStatus === 'heading_to_dropoff' ||
-              deliveryStatus === 'at_dropoff' ||
-              deliveryStatus === 'delivered' ||
-              deliveryStatus === 'picked_up') && (
-              <Marker
-                coordinate={{
-                  latitude: dropoffCoords.latitude,
-                  longitude: dropoffCoords.longitude,
-                }}
-                title="Dropoff Location"
-                pinColor={theme.colors.error}
-              />
-            )}
-            {/* Rider's own location marker */}
-            {riderCoords && (
-              <Marker
-                coordinate={{
-                  latitude: riderCoords.latitude,
-                  longitude: riderCoords.longitude,
-                }}
-                title="Your Location"
-                pinColor={theme.colors.primary}
-              />
-            )}
-          </MapView>
+          <View style={[styles.mapPlaceholder, { backgroundColor: theme.colors.surface }]}>
+            <MapPin size={48} color={theme.colors.textSecondary} strokeWidth={2} />
+            <Text style={[styles.mapText, { color: theme.colors.text }]}>
+              Map unavailable in Expo Go
+            </Text>
+            <Text style={[styles.mapSubtext, { color: theme.colors.textSecondary }]}>
+              Run a development build (expo run:android / expo run:ios) for maps.
+            </Text>
+          </View>
         )}
         {/* Status Overlay */}
         <View
@@ -436,6 +697,49 @@ export default function ActiveDeliveryScreen() {
               <Text style={styles.rewardText}>₦{job.reward}</Text>
             </View>
           </View>
+        </View>
+        <AnimatedPressable
+          style={[
+            styles.followToggle,
+            { backgroundColor: followMode ? theme.colors.primary : theme.colors.surface },
+            theme.shadows.medium,
+          ]}
+          onPress={() => {
+            const next = !followMode;
+            setFollowMode(next);
+            if (next && riderCoords) {
+              mapRef.current?.animateCamera?.(
+                {
+                  center: {
+                    latitude: riderCoords.latitude,
+                    longitude: riderCoords.longitude,
+                  },
+                  zoom: getZoomForSpeed(riderSpeedKmh),
+                },
+                { duration: 450 }
+              );
+            }
+          }}
+        >
+          <Text style={{ color: followMode ? '#FFFFFF' : theme.colors.text, fontWeight: '600' }}>
+            Follow
+          </Text>
+        </AnimatedPressable>
+        <View
+          style={[
+            styles.followStateChip,
+            {
+              backgroundColor: followMode ? `${theme.colors.primary}E6` : theme.colors.surface,
+            },
+            theme.shadows.small,
+          ]}
+        >
+          <Text style={{ color: followMode ? '#FFFFFF' : theme.colors.text, fontSize: 11, fontWeight: '700' }}>
+            {followMode ? 'FOLLOWING' : 'FREE PAN'}
+          </Text>
+          <Text style={{ color: followMode ? 'rgba(255,255,255,0.92)' : theme.colors.textSecondary, fontSize: 11, marginTop: 2 }}>
+            {speedKmhRounded} km/h
+          </Text>
         </View>
       </View>
 
@@ -527,7 +831,7 @@ export default function ActiveDeliveryScreen() {
 
       {/* Contact Options */}
       <View style={styles.contactContainer}>
-        <TouchableOpacity
+        <AnimatedPressable
           style={[
             styles.contactButton,
             { backgroundColor: theme.colors.surface },
@@ -539,9 +843,9 @@ export default function ActiveDeliveryScreen() {
           <Text style={[styles.contactText, { color: theme.colors.text }]}>
             Contact Sender
           </Text>
-        </TouchableOpacity>
+        </AnimatedPressable>
 
-        <TouchableOpacity
+        <AnimatedPressable
           style={[
             styles.contactButton,
             { backgroundColor: theme.colors.surface },
@@ -553,22 +857,23 @@ export default function ActiveDeliveryScreen() {
           <Text style={[styles.contactText, { color: theme.colors.text }]}>
             Contact Receiver
           </Text>
-        </TouchableOpacity>
+        </AnimatedPressable>
       </View>
 
       {/* Action Button */}
       {nextAction && deliveryStatus !== 'delivered' && (
         <View style={styles.actionContainer}>
-          <TouchableOpacity
+          <AnimatedPressable
             style={[
               styles.actionButton,
               { backgroundColor: theme.colors.primary },
             ]}
             onPress={nextAction.action}
+            disabled={confirming}
           >
             <CheckCircle size={20} color="#FFFFFF" strokeWidth={2} />
-            <Text style={styles.actionText}>{nextAction.text}</Text>
-          </TouchableOpacity>
+            <Text style={styles.actionText}>{confirming ? 'Updating…' : nextAction.text}</Text>
+          </AnimatedPressable>
         </View>
       )}
 
@@ -646,6 +951,23 @@ const styles = StyleSheet.create({
     right: 20,
     borderRadius: 12,
     padding: 16,
+  },
+  followToggle: {
+    position: 'absolute',
+    right: 20,
+    top: 98,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  followStateChip: {
+    position: 'absolute',
+    right: 20,
+    top: 148,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignItems: 'center',
   },
   statusHeader: {
     flexDirection: 'row',

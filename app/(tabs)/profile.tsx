@@ -6,9 +6,10 @@ import {
   TouchableOpacity,
   ScrollView,
   Image,
-  Alert,
+  ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import {
   Edit3,
   Camera,
@@ -23,6 +24,8 @@ import {
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAlert } from '@/contexts/AlertContext';
+import { pickProfileImage, uploadAvatar } from '@/lib/avatarUpload';
 
 interface UserProfile {
   name: string;
@@ -36,8 +39,11 @@ interface UserProfile {
 }
 
 export default function ProfileScreen() {
-  const { theme } = useTheme();
-  const { userProfile } = useAuth();
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
+  const { userProfile, user, updateProfile } = useAuth();
+  const { showAlert } = useAlert();
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [profile, setProfile] = useState<UserProfile>({
     name: userProfile?.full_name || 'User',
     email: userProfile?.email || '',
@@ -82,26 +88,54 @@ export default function ProfileScreen() {
       icon: MapPin,
       title: 'Saved Addresses',
       subtitle: 'Home, work, and favorite locations',
-      onPress: () => Alert.alert('Feature', 'Saved addresses coming soon!'),
+      onPress: () => router.push('/profile/saved-addresses'),
     },
     {
       icon: Star,
       title: 'Rate & Review',
-      subtitle: 'Help improve our service',
-      onPress: () => Alert.alert('Feature', 'Rating system coming soon!'),
+      subtitle: 'Rate your completed deliveries',
+      onPress: () => router.push('/(tabs)/bookings'),
     },
   ];
 
-  const handleImageUpload = () => {
-    Alert.alert(
-      'Update Profile Picture',
-      'Choose an option',
-      [
-        { text: 'Camera', onPress: () => console.log('Camera selected') },
-        { text: 'Gallery', onPress: () => console.log('Gallery selected') },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+  const handleImageUpload = async () => {
+    const choice = await new Promise<'camera' | 'gallery' | 'remove' | null>((resolve) => {
+      showAlert(
+        'Update Profile Picture',
+        'Choose an option',
+        [
+          { text: 'Camera', onPress: () => resolve('camera') },
+          { text: 'Gallery', onPress: () => resolve('gallery') },
+          { text: 'Remove Photo', onPress: () => resolve('remove'), style: 'destructive' },
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve(null) },
+        ]
+      );
+    });
+    if (choice === 'remove') {
+      try {
+        await updateProfile({ avatar_url: null });
+        setProfile((prev) => ({ ...prev, avatar: null }));
+      } catch (e) {
+        showAlert('Error', e instanceof Error ? e.message : 'Could not remove photo.');
+      }
+      return;
+    }
+    if (!choice || !user?.id) return;
+    setUploadingAvatar(true);
+    try {
+      const picked = await pickProfileImage(choice);
+      if (!picked) return;
+      const avatarUrl = await uploadAvatar(user.id, picked);
+      await updateProfile({ avatar_url: avatarUrl });
+      setProfile((prev) => ({ ...prev, avatar: avatarUrl }));
+    } catch (e) {
+      showAlert(
+        'Error',
+        e instanceof Error ? e.message : 'Could not update profile picture.'
+      );
+    } finally {
+      setUploadingAvatar(false);
+    }
   };
 
   const styles = StyleSheet.create({
@@ -143,6 +177,18 @@ export default function ProfileScreen() {
       width: 80,
       height: 80,
       borderRadius: 40,
+    },
+    avatarOverlay: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     avatarPlaceholder: {
       width: 80,
@@ -297,17 +343,22 @@ export default function ProfileScreen() {
   });
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: 20 + insets.top }]}>
           <Text style={styles.title}>Profile</Text>
         </View>
 
         {/* Profile Card */}
         <View style={styles.profileCard}>
           <View style={styles.profileHeader}>
-            <TouchableOpacity style={styles.avatarContainer} onPress={handleImageUpload}>
+            <TouchableOpacity
+              style={styles.avatarContainer}
+              onPress={handleImageUpload}
+              disabled={uploadingAvatar}
+            >
               {profile.avatar ? (
                 <Image source={{ uri: profile.avatar }} style={styles.avatar} />
               ) : (
@@ -315,6 +366,11 @@ export default function ProfileScreen() {
                   <Text style={styles.avatarText}>
                     {profile.name.split(' ').map(n => n[0]).join('')}
                   </Text>
+                </View>
+              )}
+              {uploadingAvatar && (
+                <View style={[styles.avatarOverlay, { backgroundColor: 'rgba(0,0,0,0.4)' }]}>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
                 </View>
               )}
               <View style={styles.cameraIcon}>

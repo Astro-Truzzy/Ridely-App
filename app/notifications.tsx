@@ -6,11 +6,13 @@ import {
   TouchableOpacity,
   ScrollView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, Bell, Package, DollarSign, CircleAlert as AlertCircle, CircleCheck as CheckCircle, Clock } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useNotifications } from '@/contexts/NotificationsContext';
 import { supabase } from '@/lib/supabase';
 
 interface Notification {
@@ -24,8 +26,10 @@ interface Notification {
 }
 
 export default function NotificationsScreen() {
-  const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
   const { user, userProfile } = useAuth();
+  const { refetchUnreadCount, decrementUnreadCount, clearUnreadCount } = useNotifications();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -45,7 +49,7 @@ export default function NotificationsScreen() {
             filter: `user_id=eq.${user.id}`,
           },
           (payload) => {
-            if (payload.new) {
+            if (payload.new && payload.new.rider_id == null) {
               const newNotification: Notification = {
                 id: payload.new.id,
                 type: payload.new.type,
@@ -55,8 +59,25 @@ export default function NotificationsScreen() {
                 read: payload.new.read,
                 actionable: payload.new.actionable,
               };
-              
               setNotifications(prev => [newNotification, ...prev]);
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            if (payload.new && payload.new.rider_id == null) {
+              setNotifications((prev) =>
+                prev.map((notif) =>
+                  notif.id === payload.new.id ? { ...notif, read: payload.new.read } : notif
+                )
+              );
             }
           }
         )
@@ -72,22 +93,23 @@ export default function NotificationsScreen() {
     if (!user) return;
 
     try {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('notifications')
         .select('*')
         .eq('user_id', user.id)
+        .is('rider_id', null)
         .order('created_at', { ascending: false });
       
       if (error) throw error;
       
-      const formattedNotifications: Notification[] = data.map(item => ({
+      const formattedNotifications: Notification[] = (data ?? []).map((item: { id: string; type: string; title: string; message: string; created_at: string; read: boolean; actionable?: boolean }) => ({
         id: item.id,
         type: item.type,
         title: item.title,
         message: item.message,
         timestamp: new Date(item.created_at),
         read: item.read,
-        actionable: item.actionable || false,
+        actionable: item.actionable ?? false,
       }));
       
       setNotifications(formattedNotifications);
@@ -141,39 +163,73 @@ export default function NotificationsScreen() {
     }
   };
 
-  const markAsRead = (id: string) => {
+  const markAsRead = async (id: string) => {
+    const target = notifications.find((n) => n.id === id);
+    if (!target || target.read) return;
+
     setNotifications(prev =>
       prev.map(notif =>
         notif.id === id ? { ...notif, read: true } : notif
       )
     );
-    
-    // Update in Supabase
-    supabase
+    decrementUnreadCount(1);
+
+    const { error } = await (supabase as any)
       .from('notifications')
       .update({ read: true })
       .eq('id', id);
+
+    if (error) {
+      console.error('Error marking notification as read:', error);
+      setNotifications(prev =>
+        prev.map(notif =>
+          notif.id === id ? { ...notif, read: false } : notif
+        )
+      );
+      await refetchUnreadCount();
+      return;
+    }
+
+    await refetchUnreadCount();
   };
 
-  const markAllAsRead = () => {
+  const markAllAsRead = async () => {
+    if (notifications.every((n) => n.read)) return;
+
     setNotifications(prev =>
       prev.map(notif => ({ ...notif, read: true }))
     );
-    
-    // Update all in Supabase
-    supabase
-      .from('notifications')
-      .update({ read: true })
-      .eq('user_id', user?.id)
-      .eq('read', false);
+    clearUnreadCount();
+
+    if (user?.id) {
+      const { error } = await (supabase as any)
+        .from('notifications')
+        .update({ read: true })
+        .eq('user_id', user.id)
+        .is('rider_id', null)
+        .eq('read', false);
+
+      if (error) {
+        console.error('Error marking all notifications as read:', error);
+        await fetchNotifications();
+        await refetchUnreadCount();
+        return;
+      }
+    }
+
+    await refetchUnreadCount();
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
+    >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
@@ -226,13 +282,24 @@ export default function NotificationsScreen() {
               )}
             </View>
 
-            {notification.actionable && !notification.read && (
+            {notification.actionable && (
               <View style={styles.actionContainer}>
-                <TouchableOpacity
-                  style={[styles.actionButton, { backgroundColor: theme.colors.primary }]}
-                  onPress={() => router.push('/(tabs)/bookings')}>
-                  <Text style={styles.actionText}>View Bookings</Text>
-                </TouchableOpacity>
+                {notification.type === 'delivery_update' ? (
+                  <TouchableOpacity
+                    style={[styles.actionButton, { backgroundColor: theme.colors.primary }]}
+                    onPress={() => {
+                      markAsRead(notification.id);
+                      router.push('/tracking');
+                    }}>
+                    <Text style={styles.actionText}>Open map</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.actionButton, { backgroundColor: theme.colors.primary }]}
+                    onPress={() => router.push('/(tabs)/bookings')}>
+                    <Text style={styles.actionText}>View Bookings</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
           </TouchableOpacity>

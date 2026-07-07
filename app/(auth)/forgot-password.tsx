@@ -5,15 +5,16 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
-  Alert,
   Pressable,
   KeyboardAvoidingView,
   Platform
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, Mail, Package, Send } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAlert } from '@/contexts/AlertContext';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -21,18 +22,20 @@ import Animated, {
 } from 'react-native-reanimated';
 
 export default function ForgotPasswordScreen() {
-  const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
+  const { showAlert } = useAlert();
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleResetPassword = async () => {
     if (!email) {
-      Alert.alert('Error', 'Please enter your email address');
+      showAlert('Error', 'Please enter your email address');
       return;
     }
 
     if (!email.includes('@')) {
-      Alert.alert('Error', 'Please enter a valid email address');
+      showAlert('Error', 'Please enter a valid email address');
       return;
     }
 
@@ -43,7 +46,7 @@ export default function ForgotPasswordScreen() {
 
     setIsLoading(false);
 
-    Alert.alert(
+    showAlert(
       'Reset Link Sent',
       "We've sent a password reset link to your email address. Please check your inbox and follow the instructions.",
       [
@@ -103,10 +106,10 @@ export default function ForgotPasswordScreen() {
       marginBottom: 48,
     },
     logoImage: {
-      width: 80,
-      height: 80,
+      width: 120,
+      height: 120,
       resizeMode: 'contain',
-      marginBottom: 12,
+      marginBottom: 16,
     },
     title: {
       fontSize: 28,
@@ -183,13 +186,14 @@ export default function ForgotPasswordScreen() {
   });
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => router.back()}

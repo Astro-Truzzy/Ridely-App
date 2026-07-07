@@ -15,6 +15,9 @@ export interface Database {
           rating: number;
           total_deliveries: number;
           is_available: boolean;
+          is_online: boolean;
+          location: unknown | null;
+          account_verification_status: 'not_submitted' | 'pending' | 'verified' | 'rejected';
           created_at: string;
           updated_at: string;
           avatar_url: string | null;
@@ -32,6 +35,9 @@ export interface Database {
           rating?: number;
           total_deliveries?: number;
           is_available?: boolean;
+          is_online?: boolean;
+          location?: unknown | null;
+          account_verification_status?: 'not_submitted' | 'pending' | 'verified' | 'rejected';
           created_at?: string;
           updated_at?: string;
           avatar_url?: string | null;
@@ -49,9 +55,47 @@ export interface Database {
           rating?: number;
           total_deliveries?: number;
           is_available?: boolean;
+          is_online?: boolean;
+          location?: unknown | null;
+          account_verification_status?: 'not_submitted' | 'pending' | 'verified' | 'rejected';
           created_at?: string;
           updated_at?: string;
           avatar_url?: string | null;
+        };
+      };
+      rider_verification_documents: {
+        Row: {
+          id: string;
+          rider_id: string;
+          document_type: 'nin' | 'guarantor_letter' | 'drivers_license' | 'vehicle_registration' | 'other';
+          file_path: string;
+          file_name: string | null;
+          review_status: 'pending' | 'approved' | 'rejected';
+          admin_notes: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          rider_id: string;
+          document_type: 'nin' | 'guarantor_letter' | 'drivers_license' | 'vehicle_registration' | 'other';
+          file_path: string;
+          file_name?: string | null;
+          review_status?: 'pending' | 'approved' | 'rejected';
+          admin_notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          rider_id?: string;
+          document_type?: 'nin' | 'guarantor_letter' | 'drivers_license' | 'vehicle_registration' | 'other';
+          file_path?: string;
+          file_name?: string | null;
+          review_status?: 'pending' | 'approved' | 'rejected';
+          admin_notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
         };
       };
       users: {
@@ -91,7 +135,7 @@ export interface Database {
           pickup_address: string;
           dropoff_address: string;
           parcel_size: 'small' | 'medium' | 'large';
-          status: 'pending' | 'rider_assigned' | 'picked_up' | 'in_transit' | 'delivered' | 'cancelled';
+          status: 'pending' | 'rider_assigned' | 'accepted' | 'picked_up' | 'in_transit' | 'nearby' | 'delivered' | 'completed' | 'cancelled' | 'cancelled_no_rider';
           total_cost: number;
           distance: number;
           estimated_time: string;
@@ -108,7 +152,7 @@ export interface Database {
           pickup_address: string;
           dropoff_address: string;
           parcel_size: 'small' | 'medium' | 'large';
-          status?: 'pending' | 'rider_assigned' | 'picked_up' | 'in_transit' | 'delivered' | 'cancelled';
+          status?: 'pending' | 'rider_assigned' | 'accepted' | 'picked_up' | 'in_transit' | 'delivered' | 'completed' | 'cancelled' | 'cancelled_no_rider';
           total_cost: number;
           distance: number;
           estimated_time: string;
@@ -125,7 +169,7 @@ export interface Database {
           pickup_address?: string;
           dropoff_address?: string;
           parcel_size?: 'small' | 'medium' | 'large';
-          status?: 'pending' | 'rider_assigned' | 'picked_up' | 'in_transit' | 'delivered' | 'cancelled';
+          status?: 'pending' | 'rider_assigned' | 'accepted' | 'picked_up' | 'in_transit' | 'delivered' | 'completed' | 'cancelled' | 'cancelled_no_rider';
           total_cost?: number;
           distance?: number;
           estimated_time?: string;
@@ -211,7 +255,14 @@ export interface Database {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      find_nearby_riders: {
+        Args: { pickup_lat: number; pickup_lng: number; radius?: number };
+        Returns: { id: string; distance: number }[];
+      };
+      update_rider_location: {
+        Args: { lat: number; lng: number };
+        Returns: void;
+      };
     };
     Enums: {
       [_ in never]: never;

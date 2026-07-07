@@ -1,0 +1,25 @@
+# Projects using ES256/RS256 JWT signing keys cannot use the legacy platform
+# verify_jwt check (HS256 only). Disable it; validate auth inside each function.
+[functions.paystack-initialize]
+verify_jwt = false
+
+[functions.paystack-verify]
+verify_jwt = false
+
+[functions.paystack-callback]
+verify_jwt = false
+
+[functions.paystack-webhook]
+verify_jwt = false
+
+[functions.paystack-charge]
+verify_jwt = false
+
+[functions.paystack-inline-form]
+verify_jwt = false
+
+[functions.send-push]
+verify_jwt = false
+
+[functions.auto-cancel-pending-deliveries]
+verify_jwt = false

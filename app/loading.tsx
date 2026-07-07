@@ -4,13 +4,15 @@ import {
   Text,
   StyleSheet,
   Image,
-  SafeAreaView,
   Animated,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 
 export default function LoadingScreen() {
+  const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
   const fadeAnim = new Animated.Value(0);
   const scaleAnim = new Animated.Value(0.8);
@@ -40,8 +42,12 @@ export default function LoadingScreen() {
   }, []);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <View style={styles.content}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
+    >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <View style={[styles.content, { paddingTop: insets.top }]}>
         <Animated.View
           style={[
             styles.logoContainer,
@@ -94,8 +100,8 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   logo: {
-    width: 120,
-    height: 120,
+    width: 160,
+    height: 160,
   },
   textContainer: {
     alignItems: 'center',

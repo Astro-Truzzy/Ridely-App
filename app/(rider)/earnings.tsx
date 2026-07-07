@@ -5,12 +5,19 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import Animated from 'react-native-reanimated';
 import { ArrowLeft, DollarSign, TrendingUp, Calendar, Download, CreditCard, Clock, CircleCheck as CheckCircle } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAppSettings } from '@/contexts/AppSettingsContext';
+import { useAlert } from '@/contexts/AlertContext';
+import { staggeredCardEnter, cardEnterSpring } from '@/lib/riderAnimations';
+import { AnimatedPressable } from '@/components/rider/AnimatedPressable';
 
 interface EarningsData {
   totalBalance: number;
@@ -35,9 +42,14 @@ interface DeliveryEarning {
 }
 
 export default function EarningsScreen() {
-  const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
+  const { showAlert } = useAlert();
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month'>('today');
-  
+  const { animations: animationsEnabled } = useAppSettings();
+  const enterCard = (i: number) => (animationsEnabled ? staggeredCardEnter(i) : undefined);
+  const enterHero = animationsEnabled ? cardEnterSpring() : undefined;
+
   const [earningsData] = useState<EarningsData>({
     totalBalance: 1247.85,
     todayEarnings: 156.75,
@@ -126,7 +138,7 @@ export default function EarningsScreen() {
   };
 
   const handleRequestPayout = () => {
-    Alert.alert(
+    showAlert(
       'Request Payout',
       `Request payout of $${earningsData.pendingPayouts}?\n\nFunds will be transferred to your registered bank account within 1-2 business days.`,
       [
@@ -134,31 +146,95 @@ export default function EarningsScreen() {
         {
           text: 'Request Payout',
           onPress: () => {
-            Alert.alert('Success', 'Payout request submitted successfully!');
+            showAlert('Success', 'Payout request submitted successfully!');
           },
         },
       ]
     );
   };
 
+  const buildCsv = () => {
+    const header = [
+      'Delivery ID',
+      'Date',
+      'Time',
+      'Pickup Address',
+      'Dropoff Address',
+      'Gross Amount',
+      'Ridely Fee',
+      'Net Amount',
+      'Status',
+    ];
+    const rows = deliveryEarnings.map((item) => [
+      item.deliveryId,
+      item.date,
+      item.time,
+      item.pickupAddress,
+      item.dropoffAddress,
+      item.grossAmount.toFixed(2),
+      item.ridelyFee.toFixed(2),
+      item.netAmount.toFixed(2),
+      item.status,
+    ]);
+    const allRows = [header, ...rows];
+    return allRows
+      .map((row) =>
+        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+      )
+      .join('\n');
+  };
+
+  const handleExportReport = async () => {
+    try {
+      const csv = buildCsv();
+      const dir = FileSystem.cacheDirectory;
+      if (!dir) {
+        showAlert('Export failed', 'Storage is unavailable on this device.');
+        return;
+      }
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const fileUri = `${dir}ridely-earnings-${timestamp}.csv`;
+      await FileSystem.writeAsStringAsync(fileUri, csv, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'text/csv',
+          dialogTitle: 'Share earnings report',
+          UTI: 'public.comma-separated-values-text',
+        });
+      } else {
+        showAlert('Export complete', `Report saved to:\n${fileUri}`);
+      }
+    } catch (e) {
+      showAlert('Export failed', e instanceof Error ? e.message : 'Unable to export report.');
+    }
+  };
+
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
+    >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+      <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
+        <AnimatedPressable style={styles.backButton} onPress={() => router.back()}>
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
-        </TouchableOpacity>
+        </AnimatedPressable>
         <Text style={[styles.title, { color: theme.colors.text }]}>Earnings</Text>
-        <TouchableOpacity
+        <AnimatedPressable
           style={[styles.downloadButton, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}
-          onPress={() => Alert.alert('Export', 'Earnings report export coming soon!')}>
+          onPress={handleExportReport}
+        >
           <Download size={20} color={theme.colors.primary} strokeWidth={2} />
-        </TouchableOpacity>
+        </AnimatedPressable>
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Balance Card */}
-        <View style={[styles.balanceCard, { backgroundColor: theme.colors.primary }, theme.shadows.large]}>
+        <Animated.View entering={enterHero} style={[styles.balanceCard, { backgroundColor: theme.colors.primary }, theme.shadows.large]}>
           <View style={styles.balanceHeader}>
             <DollarSign size={32} color="#FFFFFF" strokeWidth={2} />
             <Text style={styles.balanceLabel}>Total Balance</Text>
@@ -168,28 +244,30 @@ export default function EarningsScreen() {
             {earningsData.completedDeliveries} deliveries completed
           </Text>
           
-          <TouchableOpacity
+          <AnimatedPressable
             style={styles.payoutButton}
-            onPress={handleRequestPayout}>
+            onPress={handleRequestPayout}
+          >
             <CreditCard size={20} color={theme.colors.primary} strokeWidth={2} />
             <Text style={[styles.payoutText, { color: theme.colors.primary }]}>
               Request Payout (₦{earningsData.pendingPayouts})
             </Text>
-          </TouchableOpacity>
-        </View>
+          </AnimatedPressable>
+        </Animated.View>
 
         {/* Period Selector */}
-        <View style={styles.periodContainer}>
+        <Animated.View entering={enterCard(0)} style={styles.periodContainer}>
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Earnings Overview</Text>
           <View style={[styles.periodSelector, { backgroundColor: theme.colors.surface }]}>
             {(['today', 'week', 'month'] as const).map((period) => (
-              <TouchableOpacity
+              <AnimatedPressable
                 key={period}
                 style={[
                   styles.periodButton,
                   selectedPeriod === period && { backgroundColor: theme.colors.primary },
                 ]}
-                onPress={() => setSelectedPeriod(period)}>
+                onPress={() => setSelectedPeriod(period)}
+              >
                 <Text
                   style={[
                     styles.periodText,
@@ -197,14 +275,14 @@ export default function EarningsScreen() {
                   ]}>
                   {period.charAt(0).toUpperCase() + period.slice(1)}
                 </Text>
-              </TouchableOpacity>
+              </AnimatedPressable>
             ))}
           </View>
-        </View>
+        </Animated.View>
 
         {/* Earnings Stats */}
-        <View style={styles.statsContainer}>
-          <View style={[styles.statCard, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
+        <Animated.View entering={enterCard(1)} style={styles.statsContainer}>
+          <Animated.View entering={enterCard(2)} style={[styles.statCard, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
             <TrendingUp size={24} color={theme.colors.success} strokeWidth={2} />
             <Text style={[styles.statValue, { color: theme.colors.text }]}>
               ${getCurrentEarnings()}
@@ -212,23 +290,23 @@ export default function EarningsScreen() {
             <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>
               {selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'This Week' : 'This Month'}
             </Text>
-          </View>
+          </Animated.View>
           
-          <View style={[styles.statCard, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
+          <Animated.View entering={enterCard(3)} style={[styles.statCard, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
             <Calendar size={24} color={theme.colors.primary} strokeWidth={2} />
             <Text style={[styles.statValue, { color: theme.colors.text }]}>
               {selectedPeriod === 'today' ? '8' : selectedPeriod === 'week' ? '42' : '156'}
             </Text>
             <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Deliveries</Text>
-          </View>
-        </View>
+          </Animated.View>
+        </Animated.View>
 
         {/* Recent Earnings */}
-        <View style={styles.section}>
+        <Animated.View entering={enterCard(4)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Recent Deliveries</Text>
           
-          {deliveryEarnings.map((earning) => (
-            <View key={earning.id} style={[styles.earningCard, { backgroundColor: theme.colors.surface }, theme.shadows.small]}>
+          {deliveryEarnings.map((earning, index) => (
+            <Animated.View key={earning.id} entering={enterCard(5 + index)} style={[styles.earningCard, { backgroundColor: theme.colors.surface }, theme.shadows.small]}>
               <View style={styles.earningHeader}>
                 <View style={styles.earningInfo}>
                   <Text style={[styles.deliveryId, { color: theme.colors.text }]}>#{earning.deliveryId}</Text>
@@ -264,12 +342,12 @@ export default function EarningsScreen() {
                   <Text style={[styles.breakdownTotalValue, { color: theme.colors.success }]}>₦{earning.netAmount}</Text>
                 </View>
               </View>
-            </View>
+            </Animated.View>
           ))}
-        </View>
+        </Animated.View>
 
         {/* Payout Info */}
-        <View style={[styles.payoutInfo, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
+        <Animated.View entering={enterCard(10)} style={[styles.payoutInfo, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
           <Text style={[styles.payoutTitle, { color: theme.colors.text }]}>💡 Payout Information</Text>
           <Text style={[styles.payoutInfoText, { color: theme.colors.textSecondary }]}>
             • Ridely automatically deducts 15% from each completed delivery{'\n'}
@@ -277,7 +355,7 @@ export default function EarningsScreen() {
             • Minimum payout amount is ₦50{'\n'}
             • All earnings are tracked and reported for tax purposes
           </Text>
-        </View>
+        </Animated.View>
       </ScrollView>
     </SafeAreaView>
   );

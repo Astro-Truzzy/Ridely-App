@@ -4,11 +4,17 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   ScrollView,
   TextInput,
-  Alert,
+  Linking,
+  ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { useTheme } from '@/contexts/ThemeContext';
+import { useAlert } from '@/contexts/AlertContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 import {
   ArrowLeft,
   MessageCircle,
@@ -30,8 +36,36 @@ interface FAQ {
 }
 
 export default function SupportScreen() {
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
+  const { showAlert } = useAlert();
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedFAQ, setExpandedFAQ] = useState<string | null>(null);
+  const [contactMessage, setContactMessage] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const SUPPORT_PHONE = '+15551234357';
+  const SUPPORT_EMAIL = 'ridelyi.nc@gmail.com';
+
+  const openLiveChat = async () => {
+    try {
+      const text = encodeURIComponent('Hello Ridely support, I need help with my account.');
+      const whatsappUrl = `https://wa.me/${SUPPORT_PHONE.replace(/\D/g, '')}?text=${text}`;
+      await Linking.openURL(whatsappUrl);
+    } catch {
+      const subject = encodeURIComponent('Ridely support request');
+      const body = encodeURIComponent('Hello support team, I need help with:');
+      await Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`);
+    }
+  };
+
+  const openCallSupport = async () => {
+    try {
+      await Linking.openURL(`tel:${SUPPORT_PHONE}`);
+    } catch {
+      showAlert('Call Support', `Unable to launch the dialer. Please call ${SUPPORT_PHONE}.`);
+    }
+  };
 
   const faqs: FAQ[] = [
     {
@@ -71,21 +105,21 @@ export default function SupportScreen() {
       icon: MessageCircle,
       title: 'Live Chat',
       subtitle: 'Chat with our support team',
-      action: () => Alert.alert('Live Chat', 'Connecting to support...'),
+      action: openLiveChat,
       color: '#5A47FF',
     },
     {
       icon: Phone,
       title: 'Call Support',
       subtitle: 'Speak with a representative',
-      action: () => Alert.alert('Call Support', 'Calling +1 (555) 123-HELP...'),
+      action: openCallSupport,
       color: '#10B981',
     },
     {
       icon: Mail,
       title: 'Email Support',
       subtitle: 'Send us an email',
-      action: () => Alert.alert('Email Support', 'Opening email client...'),
+      action: () => Linking.openURL('mailto:ridelyi.nc@gmail.com'),
       color: '#3B82F6',
     },
   ];
@@ -99,35 +133,67 @@ export default function SupportScreen() {
     setExpandedFAQ(expandedFAQ === id ? null : id);
   };
 
+  const handleSubmitSupport = async () => {
+    const trimmed = contactMessage.trim();
+    if (!trimmed) {
+      showAlert('Error', 'Please enter a message before submitting.');
+      return;
+    }
+    if (!user?.id) {
+      showAlert('Error', 'You must be signed in to send a support request.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const { error } = await (supabase as any).from('support_requests').insert({
+        user_id: user.id,
+        user_type: 'user',
+        message: trimmed,
+        category: 'general',
+      });
+      if (error) throw error;
+      showAlert('Message Sent', 'Thanks for contacting support. We will get back to you shortly.');
+      setContactMessage('');
+    } catch (e) {
+      showAlert('Error', e instanceof Error ? e.message : 'Failed to send support message.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
+    >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <ArrowLeft size={24} color="#1F2937" strokeWidth={2} />
+      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border, paddingTop: 16 + insets.top }]}>
+        <TouchableOpacity style={[styles.backButton, { backgroundColor: isDark ? theme.colors.card : '#F3F4F6' }]} onPress={() => router.back()}>
+          <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
-        <Text style={styles.title}>Help & Support</Text>
+        <Text style={[styles.title, { color: theme.colors.text }]}>Help & Support</Text>
         <View style={styles.placeholder} />
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Quick Actions */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Need Immediate Help?</Text>
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Need Immediate Help?</Text>
           <View style={styles.supportOptions}>
             {supportOptions.map((option, index) => (
               <TouchableOpacity
                 key={index}
-                style={styles.supportOption}
+                style={[styles.supportOption, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}
                 onPress={option.action}>
                 <View style={[styles.supportIcon, { backgroundColor: option.color }]}>
                   <option.icon size={24} color="#FFFFFF" strokeWidth={2} />
                 </View>
                 <View style={styles.supportInfo}>
-                  <Text style={styles.supportTitle}>{option.title}</Text>
-                  <Text style={styles.supportSubtitle}>{option.subtitle}</Text>
+                  <Text style={[styles.supportTitle, { color: theme.colors.text }]}>{option.title}</Text>
+                  <Text style={[styles.supportSubtitle, { color: theme.colors.textSecondary }]}>{option.subtitle}</Text>
                 </View>
-                <ChevronRight size={20} color="#D1D5DB" strokeWidth={2} />
+                <ChevronRight size={20} color={theme.colors.textTertiary} strokeWidth={2} />
               </TouchableOpacity>
             ))}
           </View>
@@ -135,28 +201,29 @@ export default function SupportScreen() {
 
         {/* Business Hours */}
         <View style={styles.section}>
-          <View style={styles.hoursCard}>
-            <Clock size={24} color="#5A47FF" strokeWidth={2} />
+          <View style={[styles.hoursCard, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
+            <Clock size={24} color={theme.colors.primary} strokeWidth={2} />
             <View style={styles.hoursInfo}>
-              <Text style={styles.hoursTitle}>Support Hours</Text>
-              <Text style={styles.hoursText}>Monday - Friday: 8 AM - 8 PM</Text>
-              <Text style={styles.hoursText}>Weekend: 9 AM - 6 PM</Text>
+              <Text style={[styles.hoursTitle, { color: theme.colors.text }]}>Support Hours</Text>
+              <Text style={[styles.hoursText, { color: theme.colors.textSecondary }]}>Monday - Friday: 8 AM - 8 PM</Text>
+              <Text style={[styles.hoursText, { color: theme.colors.textSecondary }]}>Weekend: 9 AM - 6 PM</Text>
             </View>
-            <View style={styles.statusBadge}>
+            <View style={[styles.statusBadge, { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5' }]}>
               <CheckCircle size={16} color="#10B981" strokeWidth={2} />
-              <Text style={styles.statusText}>Open</Text>
+              <Text style={[styles.statusText, { color: '#10B981' }]}>Open</Text>
             </View>
           </View>
         </View>
 
         {/* Search FAQ */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Frequently Asked Questions</Text>
-          <View style={styles.searchContainer}>
-            <Search size={20} color="#6B7280" strokeWidth={2} />
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Frequently Asked Questions</Text>
+          <View style={[styles.searchContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <Search size={20} color={theme.colors.textTertiary} strokeWidth={2} />
             <TextInput
-              style={styles.searchInput}
+              style={[styles.searchInput, { color: theme.colors.text }]}
               placeholder="Search for help..."
+              placeholderTextColor={theme.colors.textTertiary}
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
@@ -168,21 +235,21 @@ export default function SupportScreen() {
           {filteredFAQs.map((faq) => (
             <TouchableOpacity
               key={faq.id}
-              style={styles.faqItem}
+              style={[styles.faqItem, { backgroundColor: theme.colors.surface }, theme.shadows.small]}
               onPress={() => toggleFAQ(faq.id)}>
               <View style={styles.faqHeader}>
-                <HelpCircle size={20} color="#5A47FF" strokeWidth={2} />
-                <Text style={styles.faqQuestion}>{faq.question}</Text>
+                <HelpCircle size={20} color={theme.colors.primary} strokeWidth={2} />
+                <Text style={[styles.faqQuestion, { color: theme.colors.text }]}>{faq.question}</Text>
                 <View style={[
                   styles.expandIcon,
                   expandedFAQ === faq.id && styles.expandIconRotated,
                 ]}>
-                  <ChevronRight size={16} color="#6B7280" strokeWidth={2} />
+                  <ChevronRight size={16} color={theme.colors.textTertiary} strokeWidth={2} />
                 </View>
               </View>
               {expandedFAQ === faq.id && (
                 <View style={styles.faqAnswer}>
-                  <Text style={styles.answerText}>{faq.answer}</Text>
+                  <Text style={[styles.answerText, { color: theme.colors.textSecondary }]}>{faq.answer}</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -191,9 +258,9 @@ export default function SupportScreen() {
 
         {filteredFAQs.length === 0 && searchQuery && (
           <View style={styles.noResults}>
-            <HelpCircle size={48} color="#D1D5DB" strokeWidth={2} />
-            <Text style={styles.noResultsTitle}>No results found</Text>
-            <Text style={styles.noResultsText}>
+            <HelpCircle size={48} color={theme.colors.textTertiary} strokeWidth={2} />
+            <Text style={[styles.noResultsTitle, { color: theme.colors.text }]}>No results found</Text>
+            <Text style={[styles.noResultsText, { color: theme.colors.textSecondary }]}>
               Try different keywords or contact our support team for help.
             </Text>
           </View>
@@ -201,17 +268,33 @@ export default function SupportScreen() {
 
         {/* Contact Form */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Still Need Help?</Text>
-          <View style={styles.contactCard}>
-            <Text style={styles.contactTitle}>Send us a message</Text>
-            <Text style={styles.contactSubtitle}>
-              Describe your issue and we'll get back to you as soon as possible.
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Still Need Help?</Text>
+          <View style={[styles.contactCard, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
+            <Text style={[styles.contactTitle, { color: theme.colors.text }]}>Send us a message</Text>
+            <Text style={[styles.contactSubtitle, { color: theme.colors.textSecondary }]}>
+              Describe your issue and we&apos;ll get back to you as soon as possible.
             </Text>
+            <TextInput
+              style={[styles.contactInput, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: isDark ? theme.colors.card : '#F3F4F6' }]}
+              placeholder="Tell us what went wrong..."
+              placeholderTextColor={theme.colors.textTertiary}
+              multiline
+              numberOfLines={4}
+              value={contactMessage}
+              onChangeText={setContactMessage}
+            />
             <TouchableOpacity 
-              style={styles.contactButton}
-              onPress={() => Alert.alert('Contact Form', 'Contact form coming soon!')}>
-              <MessageCircle size={20} color="#FFFFFF" strokeWidth={2} />
-              <Text style={styles.contactButtonText}>Contact Support</Text>
+              style={[styles.contactButton, { backgroundColor: theme.colors.primary }]}
+              onPress={handleSubmitSupport}
+              disabled={submitting}>
+              {submitting ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <>
+                  <MessageCircle size={20} color="#FFFFFF" strokeWidth={2} />
+                  <Text style={styles.contactButtonText}>Contact Support</Text>
+                </>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -264,6 +347,7 @@ const styles = StyleSheet.create({
     color: '#1F2937',
     paddingHorizontal: 20,
     marginBottom: 16,
+    marginTop: 20,
   },
   supportOptions: {
     paddingHorizontal: 20,
@@ -442,6 +526,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 20,
     lineHeight: 20,
+  },
+  contactInput: {
+    width: '100%',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 16,
+    textAlignVertical: 'top',
+    minHeight: 100,
+    fontSize: 15,
   },
   contactButton: {
     flexDirection: 'row',

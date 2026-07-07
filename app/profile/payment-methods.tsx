@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   ScrollView,
-  Alert,
+  ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import {
   ArrowLeft,
   CreditCard,
@@ -18,72 +19,38 @@ import {
   Check,
 } from 'lucide-react-native';
 import { router } from 'expo-router';
-import { useTheme } from '../../contexts/ThemeContext';
-
-interface PaymentMethod {
-  id: string;
-  type: 'card' | 'cash' | 'wallet';
-  label: string;
-  details: string;
-  lastFour?: string;
-  isDefault: boolean;
-  expiry?: string;
-  brand?: string;
-}
+import { useTheme } from '@/contexts/ThemeContext';
+import { useAlert } from '@/contexts/AlertContext';
+import { usePaymentMethods, type PaymentMethodDisplay } from '@/hooks/usePaymentMethods';
+import { useWallet } from '@/hooks/useWallet';
 
 export default function PaymentMethodsScreen() {
+  const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
-  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([
-    {
-      id: '1',
-      type: 'card',
-      label: 'Visa Card',
-      details: 'Personal',
-      lastFour: '4242',
-      expiry: '12/26',
-      brand: 'Visa',
-      isDefault: true,
-    },
-    {
-      id: '2',
-      type: 'card',
-      label: 'Mastercard',
-      details: 'Business',
-      lastFour: '8888',
-      expiry: '09/25',
-      brand: 'Mastercard',
-      isDefault: false,
-    },
-    {
-      id: '3',
-      type: 'wallet',
-      label: 'Ridely Wallet',
-      details: 'Balance: $45.20',
-      isDefault: false,
-    },
-    {
-      id: '4',
-      type: 'cash',
-      label: 'Cash on Delivery',
-      details: 'Pay the rider directly',
-      isDefault: false,
-    },
-  ]);
+  const { showAlert } = useAlert();
+  const {
+    methods: paymentMethods,
+    loading,
+    error,
+    setDefault,
+    remove,
+    addPlaceholderMethodsIfEmpty,
+  } = usePaymentMethods();
+  const { balance: walletBalance } = useWallet();
+
+  useEffect(() => {
+    addPlaceholderMethodsIfEmpty();
+  }, [addPlaceholderMethodsIfEmpty]);
 
   const setDefaultPayment = (id: string) => {
-    setPaymentMethods(prev =>
-      prev.map(method => ({
-        ...method,
-        isDefault: method.id === id,
-      }))
-    );
-    Alert.alert('Success', 'Default payment method updated');
+    setDefault(id);
+    showAlert('Success', 'Default payment method updated');
   };
 
   const removePaymentMethod = (id: string) => {
     const method = paymentMethods.find(m => m.id === id);
-    
-    Alert.alert(
+
+    showAlert(
       'Remove Payment Method',
       `Are you sure you want to remove ${method?.label}?`,
       [
@@ -91,20 +58,18 @@ export default function PaymentMethodsScreen() {
         {
           text: 'Remove',
           style: 'destructive',
-          onPress: () => {
-            setPaymentMethods(prev => prev.filter(m => m.id !== id));
-          },
+          onPress: () => remove(id),
         },
       ]
     );
   };
 
-  const handlePaymentAction = (method: PaymentMethod) => {
+  const handlePaymentAction = (method: PaymentMethodDisplay) => {
     if (method.type === 'cash' || method.type === 'wallet') {
       return; // No actions for these types
     }
 
-    Alert.alert(
+    showAlert(
       method.label,
       'Choose an action',
       [
@@ -149,11 +114,16 @@ export default function PaymentMethodsScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
+    >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       {/* Header */}
-      <View style={[styles.header, { 
+      <View style={[styles.header, {
         backgroundColor: theme.colors.surface,
-        borderBottomColor: theme.colors.border
+        borderBottomColor: theme.colors.border,
+        paddingTop: 16 + insets.top,
       }]}>
         <TouchableOpacity style={[styles.backButton, { backgroundColor: isDark ? theme.colors.card : '#F3F4F6' }]} onPress={() => router.back()}>
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
@@ -161,110 +131,123 @@ export default function PaymentMethodsScreen() {
         <Text style={[styles.title, { color: theme.colors.text }]}>Payment Methods</Text>
         <TouchableOpacity
           style={[styles.addButton, { backgroundColor: isDark ? theme.colors.card : '#F0F2FF' }]}
-          onPress={() => Alert.alert('Add Payment', 'Add payment method coming soon!')}>
+          onPress={() => router.push('/profile/add-payment')}>
           <Plus size={20} color={isDark ? theme.colors.primary : '#5A47FF'} strokeWidth={2} />
         </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Current Methods */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.text, paddingHorizontal: 20, marginBottom: 16 }]}>Your Payment Methods</Text>
-          
-          {paymentMethods.map((method) => {
-            const IconComponent = getPaymentIcon(method.type);
-            
-            return (
-              <View key={method.id} style={[styles.paymentCard, { 
-                backgroundColor: theme.colors.surface,
-                shadowColor: isDark ? '#000' : '#000',
-                borderBottomColor: theme.colors.border
-              }]}>
-                {method.isDefault && (
-                  <View style={styles.defaultBadge}>
-                    <Check size={12} color="#FFFFFF" strokeWidth={2} />
-                    <Text style={styles.defaultText}>Default</Text>
-                  </View>
-                )}
-                
-                <View style={styles.paymentHeader}>
-                  <View style={[
-                    styles.paymentIcon,
-                    method.type === 'card' 
-                      ? { backgroundColor: getCardBrandColor(method.brand) }
-                      : method.type === 'wallet'
-                      ? { backgroundColor: '#5A47FF' }
-                      : { backgroundColor: '#10B981' }
-                  ]}>
-                    <IconComponent size={24} color="#FFFFFF" strokeWidth={2} />
-                  </View>
-                  
-                  <View style={styles.paymentInfo}>
-                    <Text style={styles.paymentLabel}>{method.label}</Text>
-                    {method.type === 'card' ? (
-                      <Text style={[styles.paymentDetails, { color: theme.colors.textSecondary }]}>
-                        •••• •••• •••• {method.lastFour}
-                      </Text>
-                    ) : (
-                      <Text style={[styles.paymentDetails, { color: theme.colors.textSecondary }]}>{method.details}</Text>
+        {error ? (
+          <View style={styles.section}>
+            <Text style={[styles.errorText, { color: theme.colors.error }]}>{error}</Text>
+          </View>
+        ) : null}
+
+        {loading ? (
+          <View style={[styles.section, styles.loadingContainer]}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>Loading payment methods...</Text>
+          </View>
+        ) : (
+          <>
+            {/* Current Methods */}
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: theme.colors.text, paddingHorizontal: 20, marginTop: 24, marginBottom: 16 }]}>Your Payment Methods</Text>
+
+              {paymentMethods.map((method) => {
+                const IconComponent = getPaymentIcon(method.type);
+
+                return (
+                  <View key={method.id} style={[styles.paymentCard, {
+                    backgroundColor: theme.colors.surface,
+                    shadowColor: isDark ? '#000' : '#000',
+                    borderBottomColor: theme.colors.border
+                  }]}>
+                    {method.isDefault && (
+                      <View style={styles.defaultBadge}>
+                        <Check size={12} color="#FFFFFF" strokeWidth={2} />
+                        <Text style={styles.defaultText}>Default</Text>
+                      </View>
                     )}
-                    {method.expiry && (
-                      <Text style={[styles.expiryText, { color: theme.colors.textTertiary }]}>{method.expiry}</Text>
-                    )}
+
+                    <View style={styles.paymentHeader}>
+                      <View style={[
+                        styles.paymentIcon,
+                        method.type === 'card'
+                          ? { backgroundColor: getCardBrandColor(method.brand) }
+                          : method.type === 'wallet'
+                            ? { backgroundColor: '#5A47FF' }
+                            : { backgroundColor: '#10B981' }
+                      ]}>
+                        <IconComponent size={24} color="#FFFFFF" strokeWidth={2} />
+                      </View>
+
+                      <View style={styles.paymentInfo}>
+                        <Text style={styles.paymentLabel}>{method.label}</Text>
+                        <Text style={[styles.paymentDetails, { color: theme.colors.textSecondary }]}>
+                          {method.type === 'wallet' && walletBalance !== null
+                            ? `Balance: ₦${Number(walletBalance).toFixed(2)}`
+                            : method.details}
+                        </Text>
+                        {method.expiry ? (
+                          <Text style={[styles.expiryText, { color: theme.colors.textTertiary }]}>{method.expiry}</Text>
+                        ) : null}
+                      </View>
+
+                      {(method.type === 'card' || method.type === 'bank') && (
+                        <TouchableOpacity
+                          style={[styles.actionButton, { backgroundColor: isDark ? theme.colors.card : '#F3F4F6' }]}
+                          onPress={() => handlePaymentAction(method)}>
+                          <MoreVertical size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   </View>
-                  
-                  {method.type === 'card' && (
-                    <TouchableOpacity
-                      style={[styles.actionButton, { backgroundColor: isDark ? theme.colors.card : '#F3F4F6' }]}
-                      onPress={() => handlePaymentAction(method)}>
-                      <MoreVertical size={20} color={theme.colors.textSecondary} strokeWidth={2} />
-                    </TouchableOpacity>
-                  )}
+                );
+              })}
+            </View>
+
+            {/* Add New Payment */}
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: theme.colors.text, paddingHorizontal: 20, marginBottom: 16 }]}>Add New Payment Method</Text>
+
+              <TouchableOpacity
+                style={[styles.addPaymentCard, { borderColor: theme.colors.border }]}
+                onPress={() => router.push('/profile/add-payment')}>
+                <View style={[styles.addPaymentIcon, { backgroundColor: isDark ? theme.colors.card : '#F3F4F6' }]}>
+                  <CreditCard size={24} color="#5A47FF" strokeWidth={2} />
                 </View>
-              </View>
-            );
-          })}
-        </View>
+                <View style={styles.addPaymentInfo}>
+                  <Text style={[styles.addPaymentTitle, { color: theme.colors.text }]}>Add Credit/Debit Card</Text>
+                  <Text style={[styles.addPaymentSubtitle, { color: theme.colors.textSecondary }]}>Visa, Mastercard, American Express</Text>
+                </View>
+                <Plus size={20} color={isDark ? theme.colors.primary : '#5A47FF'} strokeWidth={2} />
+              </TouchableOpacity>
 
-        {/* Add New Payment */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.text, paddingHorizontal: 20, marginBottom: 16 }]}>Add New Payment Method</Text>
-          
-          <TouchableOpacity
-            style={styles.addPaymentCard}
-            onPress={() => Alert.alert('Add Card', 'Add credit/debit card coming soon!')}>
-            <View style={[styles.addPaymentIcon, { backgroundColor: isDark ? theme.colors.card : '#F3F4F6' }]}>
-              <CreditCard size={24} color="#5A47FF" strokeWidth={2} />
+              <TouchableOpacity
+                style={[styles.addPaymentCard, { borderColor: theme.colors.border }]}
+                onPress={() => router.push('/profile/fund-wallet')}>
+                <View style={[styles.addPaymentIcon, { backgroundColor: isDark ? theme.colors.card : '#F3F4F6' }]}>
+                  <Wallet size={24} color="#10B981" strokeWidth={2} />
+                </View>
+                <View style={styles.addPaymentInfo}>
+                  <Text style={[styles.addPaymentTitle, { color: theme.colors.text }]}>Fund Wallet</Text>
+                  <Text style={[styles.addPaymentSubtitle, { color: theme.colors.textSecondary }]}>Add money to your Ridely wallet</Text>
+                </View>
+                <Plus size={20} color={isDark ? theme.colors.success : '#10B981'} strokeWidth={2} />
+              </TouchableOpacity>
             </View>
-            <View style={styles.addPaymentInfo}>
-              <Text style={[styles.addPaymentTitle, { color: theme.colors.text }]}>Add Credit/Debit Card</Text>
-              <Text style={[styles.addPaymentSubtitle, { color: theme.colors.textSecondary }]}>Visa, Mastercard, American Express</Text>
-            </View>
-            <Plus size={20} color={isDark ? theme.colors.primary : '#5A47FF'} strokeWidth={2} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.addPaymentCard}
-            onPress={() => Alert.alert('Top Up', 'Wallet top-up coming soon!')}>
-            <View style={[styles.addPaymentIcon, { backgroundColor: isDark ? theme.colors.card : '#F3F4F6' }]}>
-              <Wallet size={24} color="#10B981" strokeWidth={2} />
-            </View>
-            <View style={styles.addPaymentInfo}>
-              <Text style={[styles.addPaymentTitle, { color: theme.colors.text }]}>Top Up Wallet</Text>
-              <Text style={[styles.addPaymentSubtitle, { color: theme.colors.textSecondary }]}>Add money to your Ridely wallet</Text>
-            </View>
-            <Plus size={20} color={isDark ? theme.colors.success : '#10B981'} strokeWidth={2} />
-          </TouchableOpacity>
-        </View>
+          </>
+        )}
 
         {/* Payment Security */}
         <View style={styles.section}>
           <View style={[styles.securityCard, { 
-            backgroundColor: isDark ? '#0C2E4E' : '#F0F9FF',
-            borderLeftColor: isDark ? theme.colors.info : '#0EA5E9'
+            backgroundColor: isDark ? theme.colors.info + '18' : '#F0F9FF',
+            borderLeftColor: theme.colors.info
           }]}>
-            <Text style={[styles.securityTitle, { color: isDark ? '#60A5FA' : '#0C4A6E' }]}>🔒 Payment Security</Text>
-            <Text style={[styles.securityText, { color: isDark ? '#BFDBFE' : '#0C4A6E' }]}>
+            <Text style={[styles.securityTitle, { color: isDark ? theme.colors.info : '#0C4A6E' }]}>🔒 Payment Security</Text>
+            <Text style={[styles.securityText, { color: isDark ? theme.colors.textSecondary : '#0C4A6E' }]}>
               All payment information is encrypted and secure. We never store your full card
               details on our servers. Payments are processed through industry-standard secure
               payment gateways.
@@ -422,5 +405,18 @@ const styles = StyleSheet.create({
   securityText: {
     fontSize: 14,
     lineHeight: 20,
+  },
+  errorText: {
+    fontSize: 14,
+    paddingHorizontal: 20,
+    marginBottom: 8,
+  },
+  loadingContainer: {
+    paddingVertical: 48,
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
   },
 });

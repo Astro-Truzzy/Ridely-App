@@ -4,10 +4,12 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { useTheme } from '@/contexts/ThemeContext';
 import {
   ArrowLeft,
   DollarSign,
@@ -18,6 +20,7 @@ import {
   Truck,
 } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { fetchGoogleDirections } from '@/lib/googleDirections';
 
 interface PricingBreakdown {
   basePrice: number;
@@ -28,6 +31,8 @@ interface PricingBreakdown {
 }
 
 export default function PricingScreen() {
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
   const {
     size,
     pickupAddress,
@@ -54,55 +59,25 @@ export default function PricingScreen() {
   const [pricing, setPricing] = useState<PricingBreakdown | null>(null);
   const [estimatedTime, setEstimatedTime] = useState('25-35 mins');
 
-  // Calculate road distance using Mapbox Directions API (very accurate, as accurate as Google Maps)
+  // Calculate road distance using Google Directions API
   const calculateRoadDistance = async (
     lat1: number,
     lon1: number,
     lat2: number,
     lon2: number
   ): Promise<{ distance: number; duration: number }> => {
-    const mapboxToken = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN;
-
-    // Use Mapbox Directions API for accurate road distance calculation
-    if (mapboxToken) {
-      try {
-        const response = await fetch(
-          `https://api.mapbox.com/directions/v5/mapbox/driving/${lon1},${lat1};${lon2},${lat2}?geometries=geojson&access_token=${mapboxToken}`,
-          {
-            method: 'GET',
-            headers: {
-              'Accept': 'application/json',
-            },
-          }
-        );
-
-        if (response.ok) {
-          const data = await response.json();
-          
-          if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
-            const route = data.routes[0];
-            const distanceMeters = route.distance;
-            const durationSeconds = route.duration;
-            
-            const distanceKm = distanceMeters / 1000;
-            const minutes = Math.round(durationSeconds / 60);
-            setEstimatedTime(`${minutes}-${minutes + 10} mins`);
-            
-            return {
-              distance: distanceKm,
-              duration: durationSeconds,
-            };
-          }
-        }
-      } catch (error) {
-        console.error('Mapbox API error:', error);
-      }
-    } else {
-      console.warn('Mapbox access token not found. Please add EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN to your .env file');
+    const result = await fetchGoogleDirections(lat1, lon1, lat2, lon2);
+    if (result) {
+      const minutes = Math.round(result.durationSeconds / 60);
+      setEstimatedTime(`${minutes}-${minutes + 10} mins`);
+      return {
+        distance: result.distanceKm,
+        duration: result.durationSeconds,
+      };
     }
 
-    // Fallback: Haversine formula with buffer if Mapbox fails or token is missing
-    console.warn('Using estimated distance (Mapbox API unavailable). Please configure EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN for accurate calculations.');
+    // Fallback: Haversine formula with buffer if Google Directions fails or API key is missing
+    console.warn('Using estimated distance (Google Directions API unavailable). Set EXPO_PUBLIC_GOOGLE_MAPS_API_KEY for accurate calculations.');
     const R = 6371; // Earth's radius in kilometers
     const dLat = (lat2 - lat1) * (Math.PI / 180);
     const dLon = (lon2 - lon1) * (Math.PI / 180);
@@ -220,13 +195,23 @@ export default function PricingScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
+    >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <ArrowLeft size={24} color="#1F2937" strokeWidth={2} />
+      <View style={[styles.header, {
+        backgroundColor: theme.colors.card,
+        borderBottomColor: theme.colors.border,
+        paddingTop: 16 + insets.top,
+      }]}>
+        <TouchableOpacity
+          style={[styles.backButton, { backgroundColor: theme.colors.surface }]}
+          onPress={() => router.back()}>
+          <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
-        <Text style={styles.title}>Price Estimate</Text>
+        <Text style={[styles.title, { color: theme.colors.text }]}>Price Estimate</Text>
         <View style={styles.placeholder} />
       </View>
 
@@ -234,74 +219,87 @@ export default function PricingScreen() {
         {/* Progress Indicator */}
         <View style={styles.progressContainer}>
           <View style={styles.progressBar}>
-            <View style={[styles.progressStep, styles.completedStep]} />
-            <View style={[styles.progressStep, styles.completedStep]} />
-            <View style={[styles.progressStep, styles.activeStep]} />
-            <View style={styles.progressStep} />
+            <View style={[styles.progressStep, { backgroundColor: theme.colors.success }]} />
+            <View style={[styles.progressStep, { backgroundColor: theme.colors.success }]} />
+            <View style={[styles.progressStep, { backgroundColor: theme.colors.primary }]} />
+            <View style={[styles.progressStep, { backgroundColor: theme.colors.border }]} />
           </View>
-          <Text style={styles.progressText}>Step 3 of 4</Text>
+          <Text style={[styles.progressText, { color: theme.colors.textSecondary }]}>Step 3 of 4</Text>
         </View>
 
         {/* Content */}
         <View style={styles.content}>
           {loading ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#5A47FF" />
-              <Text style={styles.loadingText}>Calculating best price...</Text>
-              <Text style={styles.loadingSubtext}>
+              <ActivityIndicator size="large" color={theme.colors.primary} />
+              <Text style={[styles.loadingText, { color: theme.colors.text }]}>Calculating best price...</Text>
+              <Text style={[styles.loadingSubtext, { color: theme.colors.textSecondary }]}>
                 Calculating route distance using road network
               </Text>
             </View>
           ) : (
             <>
               {/* Price Card */}
-              <View style={styles.priceCard}>
+              <View style={[
+                styles.priceCard,
+                {
+                  backgroundColor: theme.colors.card,
+                  borderColor: theme.colors.primary,
+                },
+                theme.shadows.large,
+              ]}>
                 <View style={styles.priceHeader}>
-                  <DollarSign size={32} color="#5A47FF" strokeWidth={2} />
+                  <DollarSign size={32} color={theme.colors.primary} strokeWidth={2} />
                   <View style={styles.priceInfo}>
-                    <Text style={styles.totalPrice}>₦{pricing?.total ? pricing.total.toLocaleString('en-NG') : '0'}</Text>
-                    <Text style={styles.priceLabel}>Total Cost</Text>
+                    <Text style={[styles.totalPrice, { color: theme.colors.primary }]}>
+                      ₦{pricing?.total ? pricing.total.toLocaleString('en-NG') : '0'}
+                    </Text>
+                    <Text style={[styles.priceLabel, { color: theme.colors.textSecondary }]}>Total Cost</Text>
                   </View>
                   <View style={styles.estimatedTime}>
-                    <Clock size={20} color="#10B981" strokeWidth={2} />
-                    <Text style={styles.timeText}>{estimatedTime}</Text>
+                    <Clock size={20} color={theme.colors.success} strokeWidth={2} />
+                    <Text style={[styles.timeText, { color: theme.colors.success }]}>{estimatedTime}</Text>
                   </View>
                 </View>
               </View>
 
               {/* Delivery Details */}
-              <View style={styles.detailsCard}>
-                <Text style={styles.cardTitle}>Delivery Details</Text>
+              <View style={[
+                styles.detailsCard,
+                { backgroundColor: theme.colors.card },
+                theme.shadows.medium,
+              ]}>
+                <Text style={[styles.cardTitle, { color: theme.colors.text }]}>Delivery Details</Text>
                 
                 <View style={styles.detailItem}>
-                  <Package size={20} color="#5A47FF" strokeWidth={2} />
-                  <Text style={styles.detailText}>{getSizeLabel(size)}</Text>
+                  <Package size={20} color={theme.colors.primary} strokeWidth={2} />
+                  <Text style={[styles.detailText, { color: theme.colors.text }]}>{getSizeLabel(size)}</Text>
                 </View>
                 
                 <View style={styles.detailItem}>
-                  <MapPin size={20} color="#10B981" strokeWidth={2} />
-                  <Text style={styles.detailText} numberOfLines={2}>
+                  <MapPin size={20} color={theme.colors.success} strokeWidth={2} />
+                  <Text style={[styles.detailText, { color: theme.colors.text }]} numberOfLines={2}>
                     From: {pickupAddress}
                   </Text>
                 </View>
                 
                 <View style={styles.detailItem}>
-                  <MapPin size={20} color="#EF4444" strokeWidth={2} />
-                  <Text style={styles.detailText} numberOfLines={2}>
+                  <MapPin size={20} color={theme.colors.error} strokeWidth={2} />
+                  <Text style={[styles.detailText, { color: theme.colors.text }]} numberOfLines={2}>
                     To: {dropoffAddress}
                   </Text>
                 </View>
                 
                 <View style={styles.detailItem}>
-                  <Truck size={20} color="#6B7280" strokeWidth={2} />
-                  <Text style={styles.detailText}>
+                  <Truck size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+                  <Text style={[styles.detailText, { color: theme.colors.text }]}>
                     Distance: {pricing?.distance ? pricing.distance.toFixed(2) : '0.00'} km
                   </Text>
                 </View>
                 
                 <View style={styles.detailItem}>
-                  <Clock size={20} color="#FFC947" strokeWidth={2} />
-                  <Text style={styles.detailText}>
+                  <Clock size={20} color={theme.colors.warning} strokeWidth={2} />
+                  <Text style={[styles.detailText, { color: theme.colors.text }]}>
                     {deliveryTime === 'now' 
                       ? 'Immediate Pickup' 
                       : `Scheduled: ${scheduledTime || 'Later'}`}
@@ -310,19 +308,29 @@ export default function PricingScreen() {
               </View>
 
               {/* Price Breakdown */}
-              <View style={styles.breakdownCard}>
-                <Text style={styles.cardTitle}>Price Breakdown</Text>
+              <View style={[
+                styles.breakdownCard,
+                { backgroundColor: theme.colors.card },
+                theme.shadows.medium,
+              ]}>
+                <Text style={[styles.cardTitle, { color: theme.colors.text }]}>Price Breakdown</Text>
                 
                 <View style={styles.breakdownItem}>
-                  <Text style={styles.breakdownLabel}>Delivery fee ({pricing?.distance ? pricing.distance.toFixed(2) : '0.00'} km × ₦250)</Text>
-                  <Text style={styles.breakdownValue}>₦{pricing?.basePrice ? pricing.basePrice.toLocaleString('en-NG') : '0'}</Text>
+                  <Text style={[styles.breakdownLabel, { color: theme.colors.textSecondary }]}>
+                    Delivery fee ({pricing?.distance ? pricing.distance.toFixed(2) : '0.00'} km × ₦250)
+                  </Text>
+                  <Text style={[styles.breakdownValue, { color: theme.colors.text }]}>
+                    ₦{pricing?.basePrice ? pricing.basePrice.toLocaleString('en-NG') : '0'}
+                  </Text>
                 </View>
                 
-                <View style={styles.breakdownDivider} />
+                <View style={[styles.breakdownDivider, { backgroundColor: theme.colors.border }]} />
                 
                 <View style={styles.breakdownItem}>
-                  <Text style={styles.breakdownTotal}>Total</Text>
-                  <Text style={styles.breakdownTotalValue}>₦{pricing?.total ? pricing.total.toLocaleString('en-NG') : '0'}</Text>
+                  <Text style={[styles.breakdownTotal, { color: theme.colors.text }]}>Total</Text>
+                  <Text style={[styles.breakdownTotalValue, { color: theme.colors.primary }]}>
+                    ₦{pricing?.total ? pricing.total.toLocaleString('en-NG') : '0'}
+                  </Text>
                 </View>
               </View>
             </>
@@ -332,9 +340,12 @@ export default function PricingScreen() {
 
       {/* Bottom Button */}
       {!loading && (
-        <View style={styles.bottomContainer}>
+        <View style={[styles.bottomContainer, {
+          backgroundColor: theme.colors.card,
+          borderTopColor: theme.colors.border,
+        }]}>
           <TouchableOpacity
-            style={styles.confirmButton}
+            style={[styles.confirmButton, { backgroundColor: theme.colors.primary }]}
             onPress={handleConfirmBooking}>
             <Text style={styles.confirmText}>Confirm Booking</Text>
             <ChevronRight size={20} color="#FFFFFF" strokeWidth={2} />
@@ -348,7 +359,6 @@ export default function PricingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F7F8FA',
   },
   header: {
     flexDirection: 'row',
@@ -357,22 +367,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 20,
-    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#1F2937',
   },
   placeholder: {
     width: 40,
@@ -392,19 +398,11 @@ const styles = StyleSheet.create({
   progressStep: {
     width: 60,
     height: 4,
-    backgroundColor: '#E5E7EB',
     marginHorizontal: 4,
     borderRadius: 2,
   },
-  activeStep: {
-    backgroundColor: '#5A47FF',
-  },
-  completedStep: {
-    backgroundColor: '#10B981',
-  },
   progressText: {
     fontSize: 14,
-    color: '#6B7280',
     fontWeight: '500',
   },
   content: {
@@ -417,27 +415,18 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#1F2937',
     marginTop: 16,
     marginBottom: 8,
   },
   loadingSubtext: {
     fontSize: 14,
-    color: '#6B7280',
     textAlign: 'center',
   },
   priceCard: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 20,
     padding: 24,
     marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 6,
     borderWidth: 2,
-    borderColor: '#5A47FF',
   },
   priceHeader: {
     flexDirection: 'row',
@@ -451,12 +440,10 @@ const styles = StyleSheet.create({
   totalPrice: {
     fontSize: 36,
     fontWeight: '700',
-    color: '#5A47FF',
     marginBottom: 4,
   },
   priceLabel: {
     fontSize: 14,
-    color: '#6B7280',
     fontWeight: '500',
   },
   estimatedTime: {
@@ -464,25 +451,17 @@ const styles = StyleSheet.create({
   },
   timeText: {
     fontSize: 12,
-    color: '#10B981',
     fontWeight: '600',
     marginTop: 4,
   },
   detailsCard: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
     marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
   },
   cardTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1F2937',
     marginBottom: 16,
   },
   detailItem: {
@@ -492,20 +471,13 @@ const styles = StyleSheet.create({
   },
   detailText: {
     fontSize: 14,
-    color: '#374151',
     marginLeft: 12,
     flex: 1,
   },
   breakdownCard: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
     marginBottom: 32,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
   },
   breakdownItem: {
     flexDirection: 'row',
@@ -515,37 +487,31 @@ const styles = StyleSheet.create({
   },
   breakdownLabel: {
     fontSize: 14,
-    color: '#6B7280',
+    flex: 1,
+    marginRight: 12,
   },
   breakdownValue: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1F2937',
   },
   breakdownDivider: {
     height: 1,
-    backgroundColor: '#E5E7EB',
     marginVertical: 12,
   },
   breakdownTotal: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#1F2937',
   },
   breakdownTotalValue: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#5A47FF',
   },
   bottomContainer: {
     padding: 20,
-    backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
   },
   confirmButton: {
     flexDirection: 'row',
-    backgroundColor: '#5A47FF',
     paddingVertical: 16,
     borderRadius: 16,
     alignItems: 'center',

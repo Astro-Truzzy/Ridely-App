@@ -5,17 +5,24 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  ActivityIndicator,
+  Modal,
+  TextInput,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Package, Clock, CheckCircle, XCircle, MapPin } from 'lucide-react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { Package, Clock, CheckCircle, XCircle, MapPin, X, Star } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAlert } from '@/contexts/AlertContext';
 import { GestureHandlerRootView, PanGestureHandler, State } from 'react-native-gesture-handler';
 import { useDeliveries } from '@/hooks/useDeliveries';
-import { useEffect } from 'react';
+import { useDeliveryRatings } from '@/hooks/useDeliveryRatings';
 
 interface Booking {
   id: string;
+  deliveryId: string;
+  riderId: string | null;
   date: string;
   time: string;
   from: string;
@@ -27,9 +34,17 @@ interface Booking {
 }
 
 export default function BookingsScreen() {
-  const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
+  const { showAlert } = useAlert();
   const [activeTab, setActiveTab] = useState<'all' | 'active' | 'completed' | 'cancelled'>('all');
-  const { deliveries, loading } = useDeliveries();
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [rateModalBooking, setRateModalBooking] = useState<Booking | null>(null);
+  const [rateStars, setRateStars] = useState(0);
+  const [rateReviewText, setRateReviewText] = useState('');
+  const [submittingRating, setSubmittingRating] = useState(false);
+  const { deliveries, loading, updateDeliveryStatus, refetch } = useDeliveries();
+  const { hasRated, getRatingForDelivery, submitRating, refetch: refetchRatings } = useDeliveryRatings();
 
   // Helper function to format date
   const formatDate = (dateString: string) => {
@@ -57,14 +72,17 @@ export default function BookingsScreen() {
   const mapDeliveryStatus = (status: string): 'delivered' | 'in_transit' | 'pending' | 'cancelled' => {
     switch (status) {
       case 'delivered':
+      case 'completed':
         return 'delivered';
       case 'in_transit':
       case 'picked_up':
       case 'rider_assigned':
+      case 'accepted':
         return 'in_transit';
       case 'pending':
         return 'pending';
       case 'cancelled':
+      case 'cancelled_no_rider':
         return 'cancelled';
       default:
         return 'pending';
@@ -74,15 +92,42 @@ export default function BookingsScreen() {
   // Convert deliveries to bookings format
   const bookings: Booking[] = deliveries.map((delivery) => ({
     id: delivery.id.substring(0, 8).toUpperCase(),
+    deliveryId: delivery.id,
+    riderId: delivery.rider_id ?? null,
     date: formatDate(delivery.created_at),
     time: formatTime(delivery.created_at),
     from: delivery.pickup_address,
     to: delivery.dropoff_address,
     status: mapDeliveryStatus(delivery.status),
     price: `₦${delivery.total_cost.toLocaleString('en-NG')}`,
-    riderName: delivery.rider_id ? undefined : undefined, // TODO: Fetch rider name if needed
+    riderName: delivery.rider_id ? undefined : undefined,
     parcelSize: delivery.parcel_size,
   }));
+
+  const handleCancelDelivery = (booking: Booking) => {
+    showAlert(
+      'Cancel delivery',
+      'Are you sure you want to cancel this delivery? This cannot be undone.',
+      [
+        { text: 'Keep it', style: 'cancel' },
+        {
+          text: 'Cancel delivery',
+          style: 'destructive',
+          onPress: async () => {
+            setCancellingId(booking.deliveryId);
+            try {
+              await updateDeliveryStatus(booking.deliveryId, 'cancelled');
+              await refetch();
+            } catch (e) {
+              showAlert('Error', 'Could not cancel delivery. Please try again.');
+            } finally {
+              setCancellingId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -142,8 +187,9 @@ export default function BookingsScreen() {
   // Show loading state (using inline styles since styles is defined later)
   if (loading) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['left', 'right', 'bottom']}>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: insets.top }}>
           <Text style={{ color: theme.colors.text }}>Loading bookings...</Text>
         </View>
       </SafeAreaView>
@@ -322,6 +368,20 @@ export default function BookingsScreen() {
       fontWeight: '600',
       textAlign: 'center',
     },
+    cancelButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderRadius: 12,
+      borderWidth: 1.5,
+      gap: 8,
+    },
+    cancelButtonText: {
+      fontSize: 14,
+      fontWeight: '600',
+    },
     emptyState: {
       alignItems: 'center',
       justifyContent: 'center',
@@ -352,14 +412,105 @@ export default function BookingsScreen() {
       fontSize: 16,
       fontWeight: '600',
     },
+    rateButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderRadius: 12,
+      gap: 8,
+    },
+    rateButtonText: {
+      color: '#FFFFFF',
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    ratedRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 8,
+      gap: 6,
+    },
+    ratedText: {
+      fontSize: 14,
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 24,
+    },
+    rateModalCard: {
+      width: '100%',
+      maxWidth: 360,
+      borderRadius: 20,
+      padding: 24,
+    },
+    rateModalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    rateModalTitle: {
+      fontSize: 20,
+      fontWeight: '700',
+    },
+    rateModalClose: {
+      padding: 4,
+    },
+    rateModalSubtitle: {
+      fontSize: 14,
+      marginBottom: 20,
+    },
+    starsRow: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      gap: 8,
+      marginBottom: 20,
+    },
+    starButton: {
+      padding: 4,
+    },
+    reviewInput: {
+      borderWidth: 1,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      fontSize: 14,
+      minHeight: 80,
+      textAlignVertical: 'top',
+      marginBottom: 20,
+    },
+    rateSubmitButton: {
+      paddingVertical: 14,
+      borderRadius: 12,
+      alignItems: 'center',
+    },
+    rateSubmitButtonDisabled: {
+      opacity: 0.6,
+    },
+    rateSubmitButtonText: {
+      color: '#FFFFFF',
+      fontSize: 16,
+      fontWeight: '600',
+    },
   });
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <PanGestureHandler onHandlerStateChange={onGestureEvent}>
-        <SafeAreaView style={styles.container}>
+      <PanGestureHandler
+        onHandlerStateChange={onGestureEvent}
+        activeOffsetX={[-20, 20]}
+        failOffsetY={[-15, 15]}
+      >
+        <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+          <StatusBar style={isDark ? 'light' : 'dark'} />
           {/* Header */}
-          <View style={[styles.header, { backgroundColor: theme.colors.card }]}>
+          <View style={[styles.header, { backgroundColor: theme.colors.card, paddingTop: 20 + insets.top }]}>
             <Text style={[styles.title, { color: theme.colors.text }]}>My Bookings</Text>
             <TouchableOpacity
               style={[styles.newBookingButton, { backgroundColor: theme.colors.primary }]}
@@ -494,6 +645,50 @@ export default function BookingsScreen() {
                     <Text style={styles.trackText}>Tap to track delivery →</Text>
                   </View>
                 )}
+
+                {booking.status === 'pending' && (
+                  <View style={styles.actionContainer}>
+                    <TouchableOpacity
+                      style={[styles.cancelButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.error }]}
+                      onPress={() => handleCancelDelivery(booking)}
+                      disabled={cancellingId === booking.deliveryId}
+                    >
+                      {cancellingId === booking.deliveryId ? (
+                        <ActivityIndicator size="small" color={theme.colors.error} />
+                      ) : (
+                        <>
+                          <X size={18} color={theme.colors.error} strokeWidth={2} />
+                          <Text style={[styles.cancelButtonText, { color: theme.colors.error }]}>Cancel delivery</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {booking.status === 'delivered' && booking.riderId && (
+                  <View style={styles.actionContainer}>
+                    {hasRated(booking.deliveryId) ? (
+                      <View style={styles.ratedRow}>
+                        <Star size={16} color="#F59E0B" fill="#F59E0B" strokeWidth={2} />
+                        <Text style={[styles.ratedText, { color: theme.colors.textSecondary }]}>
+                          Rated {getRatingForDelivery(booking.deliveryId)?.rating} ★
+                        </Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={[styles.rateButton, { backgroundColor: theme.colors.primary }]}
+                        onPress={() => {
+                          setRateModalBooking(booking);
+                          setRateStars(0);
+                          setRateReviewText('');
+                        }}
+                      >
+                        <Star size={18} color="#FFFFFF" strokeWidth={2} />
+                        <Text style={styles.rateButtonText}>Rate & Review</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
               </TouchableOpacity>
             ))}
 
@@ -516,6 +711,96 @@ export default function BookingsScreen() {
               </View>
             )}
           </ScrollView>
+
+          {/* Rate & Review Modal */}
+          <Modal
+            visible={!!rateModalBooking}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setRateModalBooking(null)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={[styles.rateModalCard, { backgroundColor: theme.colors.card }]}>
+                <View style={styles.rateModalHeader}>
+                  <Text style={[styles.rateModalTitle, { color: theme.colors.text }]}>Rate your delivery</Text>
+                  <TouchableOpacity onPress={() => setRateModalBooking(null)} style={styles.rateModalClose}>
+                    <X size={24} color={theme.colors.text} strokeWidth={2} />
+                  </TouchableOpacity>
+                </View>
+                <Text style={[styles.rateModalSubtitle, { color: theme.colors.textSecondary }]}>
+                  How was your experience?
+                </Text>
+                <View style={styles.starsRow}>
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <TouchableOpacity
+                      key={n}
+                      onPress={() => setRateStars(n)}
+                      style={styles.starButton}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Star
+                        size={36}
+                        color="#F59E0B"
+                        fill={rateStars >= n ? '#F59E0B' : 'transparent'}
+                        strokeWidth={2}
+                      />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <TextInput
+                  style={[
+                    styles.reviewInput,
+                    {
+                      backgroundColor: theme.colors.surface,
+                      borderColor: theme.colors.border,
+                      color: theme.colors.text,
+                    },
+                  ]}
+                  placeholder="Add a review (optional)"
+                  placeholderTextColor={theme.colors.textTertiary}
+                  value={rateReviewText}
+                  onChangeText={setRateReviewText}
+                  multiline
+                  numberOfLines={3}
+                  maxLength={500}
+                />
+                <TouchableOpacity
+                  style={[
+                    styles.rateSubmitButton,
+                    { backgroundColor: theme.colors.primary },
+                    (rateStars < 1 || submittingRating) && styles.rateSubmitButtonDisabled,
+                  ]}
+                  onPress={async () => {
+                    if (!rateModalBooking?.riderId || rateStars < 1 || submittingRating) return;
+                    setSubmittingRating(true);
+                    try {
+                      await submitRating(
+                        rateModalBooking.deliveryId,
+                        rateModalBooking.riderId,
+                        rateStars,
+                        rateReviewText.trim() || undefined
+                      );
+                      setRateModalBooking(null);
+                      setRateStars(0);
+                      setRateReviewText('');
+                      refetchRatings();
+                    } catch (e) {
+                      showAlert('Error', e instanceof Error ? e.message : 'Could not submit rating.');
+                    } finally {
+                      setSubmittingRating(false);
+                    }
+                  }}
+                  disabled={rateStars < 1 || submittingRating}
+                >
+                  {submittingRating ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.rateSubmitButtonText}>Submit rating</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
         </SafeAreaView>
       </PanGestureHandler>
     </GestureHandlerRootView>

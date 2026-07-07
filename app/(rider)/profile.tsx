@@ -1,17 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
   Switch,
+  ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import Animated from 'react-native-reanimated';
 import { ArrowLeft, User, Phone, Mail, Car, Shield, FileText, Settings, LogOut, CreditCard as Edit3, CircleCheck as CheckCircle, Clock, ChevronRight } from 'lucide-react-native';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { useAppSettings } from '@/contexts/AppSettingsContext';
+import { useAlert } from '@/contexts/AlertContext';
+import { staggeredCardEnter } from '@/lib/riderAnimations';
+import { AnimatedPressable } from '@/components/rider/AnimatedPressable';
+import { supabase } from '@/lib/supabase';
 
 interface RiderProfile {
   name: string;
@@ -27,42 +35,69 @@ interface RiderProfile {
   backgroundCheck: 'verified' | 'pending' | 'failed';
 }
 
+function riderRowToProfile(row: any, authEmail?: string | null): RiderProfile {
+  const createdAt = row?.created_at ? new Date(row.created_at) : new Date();
+  const memberSince = createdAt.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  return {
+    name: row?.full_name ?? 'Rider',
+    email: authEmail ?? row?.email ?? '—',
+    phone: row?.phone ?? '—',
+    rating: typeof row?.rating === 'number' ? row.rating : 0,
+    totalDeliveries: typeof row?.total_deliveries === 'number' ? row.total_deliveries : 0,
+    memberSince,
+    vehicleType: row?.vehicle_type ?? '—',
+    plateNumber: row?.plate_number ?? '—',
+    licenseStatus: (row?.license_status === 'verified' || row?.license_status === 'pending' || row?.license_status === 'expired') ? row.license_status : 'pending',
+    insuranceStatus: (row?.insurance_status === 'verified' || row?.insurance_status === 'pending' || row?.insurance_status === 'expired') ? row.insurance_status : 'pending',
+    backgroundCheck: (row?.background_check === 'verified' || row?.background_check === 'pending' || row?.background_check === 'failed') ? row.background_check : 'pending',
+  };
+}
+
 export default function RiderProfileScreen() {
-  const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
+  const { user, userProfile, loading: authLoading, signOut, refreshProfile } = useAuth();
   const [isAvailable, setIsAvailable] = useState(true);
-  
-  const [profile] = useState<RiderProfile>({
-    name: 'Mike Johnson',
-    email: 'mike.johnson@email.com',
-    phone: '+1 (555) 987-6543',
-    rating: 4.9,
-    totalDeliveries: 342,
-    memberSince: 'March 2024',
-    vehicleType: 'Honda CBR 150R',
-    plateNumber: 'ABC-1234',
-    licenseStatus: 'verified',
-    insuranceStatus: 'verified',
-    backgroundCheck: 'verified',
-  });
+
+  const profile = userProfile ? riderRowToProfile(userProfile, user?.email) : null;
+  const { showAlert } = useAlert();
+  const { animations: animationsEnabled } = useAppSettings();
+  const enterCard = (i: number) => (animationsEnabled ? staggeredCardEnter(i) : undefined);
+
+  useEffect(() => {
+    const avail = (userProfile as { is_available?: boolean } | null)?.is_available;
+    if (typeof avail === 'boolean') setIsAvailable(avail);
+  }, [userProfile]);
+
+  const handleAvailabilityToggle = async (value: boolean) => {
+    if (!user?.id) return;
+    setIsAvailable(value);
+    try {
+      await (supabase as any).from('riders').update({ is_available: value }).eq('id', user.id);
+      await refreshProfile();
+    } catch (e) {
+      setIsAvailable(!value);
+    }
+  };
 
   const profileActions = [
     {
       icon: Edit3,
       title: 'Edit Profile',
       subtitle: 'Update personal information',
-      onPress: () => Alert.alert('Feature', 'Edit profile coming soon!'),
+      onPress: () => router.push('/(rider)/edit-profile' as Href),
     },
     {
       icon: Car,
       title: 'Vehicle Information',
       subtitle: 'Update vehicle details',
-      onPress: () => Alert.alert('Feature', 'Vehicle info coming soon!'),
+      onPress: () => router.push('/(rider)/vehicle-information' as Href),
     },
     {
       icon: FileText,
       title: 'Documents',
-      subtitle: 'Manage verification documents',
-      onPress: () => Alert.alert('Feature', 'Documents management coming soon!'),
+      subtitle: 'Apply for verification & manage documents',
+      onPress: () => router.push('/(rider)/apply-verification' as Href),
     },
     {
       icon: Settings,
@@ -101,7 +136,7 @@ export default function RiderProfileScreen() {
   };
 
   const handleLogout = () => {
-    Alert.alert(
+    showAlert(
       'Logout',
       'Are you sure you want to logout?',
       [
@@ -109,8 +144,8 @@ export default function RiderProfileScreen() {
         {
           text: 'Logout',
           style: 'destructive',
-          onPress: () => {
-            Alert.alert('Success', 'You have been logged out');
+          onPress: async () => {
+            await signOut();
             router.replace('/(auth)/welcome');
           },
         },
@@ -118,22 +153,46 @@ export default function RiderProfileScreen() {
     );
   };
 
+  if (authLoading || !profile) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['left', 'right', 'bottom']}>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+            <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
+          </TouchableOpacity>
+          <Text style={[styles.title, { color: theme.colors.text }]}>Rider Profile</Text>
+          <View style={styles.placeholder} />
+        </View>
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>Loading profile…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView 
+    <SafeAreaView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
-      edges={['top', 'left', 'right']}>
+      edges={['left', 'right', 'bottom']}
+    >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+      <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
+        <AnimatedPressable style={styles.backButton} onPress={() => router.back()}>
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
-        </TouchableOpacity>
+        </AnimatedPressable>
         <Text style={[styles.title, { color: theme.colors.text }]}>Rider Profile</Text>
         <View style={styles.placeholder} />
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {/* Profile Card */}
-        <View style={[styles.profileCard, { backgroundColor: theme.colors.surface }, theme.shadows.large]}>
+        <Animated.View
+          entering={enterCard(0)}
+          style={[styles.profileCard, { backgroundColor: theme.colors.surface }, theme.shadows.large]}
+        >
           <View style={styles.profileHeader}>
             <View style={[styles.avatar, { backgroundColor: theme.colors.primary }]}>
               <Text style={styles.avatarText}>
@@ -149,7 +208,7 @@ export default function RiderProfileScreen() {
               <Text style={[styles.availabilityLabel, { color: theme.colors.textSecondary }]}>Available</Text>
               <Switch
                 value={isAvailable}
-                onValueChange={setIsAvailable}
+                onValueChange={handleAvailabilityToggle}
                 trackColor={{ false: theme.colors.border, true: `${theme.colors.success}50` }}
                 thumbColor={isAvailable ? theme.colors.success : theme.colors.textTertiary}
               />
@@ -173,10 +232,13 @@ export default function RiderProfileScreen() {
               <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>{profile.memberSince}</Text>
             </View>
           </View>
-        </View>
+        </Animated.View>
 
         {/* Vehicle Info */}
-        <View style={[styles.vehicleCard, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
+        <Animated.View
+          entering={enterCard(1)}
+          style={[styles.vehicleCard, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}
+        >
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Vehicle Information</Text>
           
           <View style={styles.vehicleInfo}>
@@ -196,10 +258,13 @@ export default function RiderProfileScreen() {
               </View>
             </View>
           </View>
-        </View>
+        </Animated.View>
 
         {/* Verification Status */}
-        <View style={[styles.verificationCard, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
+        <Animated.View
+          entering={enterCard(2)}
+          style={[styles.verificationCard, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}
+        >
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Verification Status</Text>
           
           <View style={styles.verificationList}>
@@ -233,18 +298,22 @@ export default function RiderProfileScreen() {
               </Text>
             </View>
           </View>
-        </View>
+        </Animated.View>
 
         {/* Profile Actions */}
-        <View style={[styles.actionsCard, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
+        <Animated.View
+          entering={enterCard(3)}
+          style={[styles.actionsCard, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}
+        >
           {profileActions.map((action, index) => (
-            <TouchableOpacity
+            <AnimatedPressable
               key={index}
               style={[
                 styles.actionItem,
                 index < profileActions.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.colors.border }
               ]}
-              onPress={action.onPress}>
+              onPress={action.onPress}
+            >
               <View style={[styles.actionIcon, { backgroundColor: `${theme.colors.primary}20` }]}>
                 <action.icon size={20} color={theme.colors.primary} strokeWidth={2} />
               </View>
@@ -253,18 +322,19 @@ export default function RiderProfileScreen() {
                 <Text style={[styles.actionSubtitle, { color: theme.colors.textSecondary }]}>{action.subtitle}</Text>
               </View>
               <ChevronRight size={20} color={theme.colors.textTertiary} strokeWidth={2} />
-            </TouchableOpacity>
+            </AnimatedPressable>
           ))}
-        </View>
+        </Animated.View>
 
         {/* Logout Button */}
         <View style={styles.logoutContainer}>
-          <TouchableOpacity
+          <AnimatedPressable
             style={[styles.logoutButton, { backgroundColor: theme.colors.surface, borderColor: `${theme.colors.error}30` }, theme.shadows.medium]}
-            onPress={handleLogout}>
+            onPress={handleLogout}
+          >
             <LogOut size={20} color={theme.colors.error} strokeWidth={2} />
             <Text style={[styles.logoutText, { color: theme.colors.error }]}>Logout</Text>
-          </TouchableOpacity>
+          </AnimatedPressable>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -296,6 +366,15 @@ const styles = StyleSheet.create({
   },
   placeholder: {
     width: 40,
+  },
+  loadingWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 16,
   },
   scrollView: {
     flex: 1,

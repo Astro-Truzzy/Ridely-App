@@ -1,14 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
-  Pressable,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import {
   Package,
   Clock,
@@ -19,9 +18,12 @@ import {
   Star,
 } from 'lucide-react-native';
 import { router } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useNotifications } from '@/contexts/NotificationsContext';
 import { useDeliveries } from '@/hooks/useDeliveries';
+import { useAutoCancelPendingDelivery } from '@/hooks/useAutoCancelPendingDelivery';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 
 interface ActiveDelivery {
@@ -34,34 +36,53 @@ interface ActiveDelivery {
 }
 
 export default function HomeScreen() {
-  const { theme } = useTheme();
-  const { userProfile } = useAuth(); // Get user profile from AuthContext
-  const [userName, setUserName] = useState(''); // Initialize as empty
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
+  const { userProfile, user } = useAuth();
+  const [userName, setUserName] = useState('');
   const { deliveries } = useDeliveries();
-  
-  // Get active delivery (in transit or picked up)
-  const activeDeliveryData = deliveries.find(
-    d => d.status === 'in_transit' || d.status === 'picked_up' || d.status === 'rider_assigned'
+  const { unreadCount, refetchUnreadCount } = useNotifications();
+
+  useFocusEffect(
+    useCallback(() => {
+      refetchUnreadCount();
+    }, [refetchUnreadCount])
   );
-  
+
+  // Get active delivery: pending (searching), in transit, or picked up
+  const activeDeliveryData = deliveries.find(
+    d =>
+      d.status === 'pending' ||
+      d.status === 'in_transit' ||
+      d.status === 'picked_up' ||
+      d.status === 'rider_assigned' ||
+      d.status === 'accepted'
+  );
+  const isSearchingForRider = activeDeliveryData?.status === 'pending' && !activeDeliveryData?.rider_id;
+
+  // Trigger auto-cancel after 2 min when app is open and still "searching for rider"
+  useAutoCancelPendingDelivery(
+    activeDeliveryData?.status === 'pending' && !activeDeliveryData?.rider_id ? activeDeliveryData : null
+  );
+
   const activeDelivery: ActiveDelivery | null = activeDeliveryData ? {
     id: activeDeliveryData.id,
-    status: activeDeliveryData.status === 'picked_up' ? 'picked_up' : 
-            activeDeliveryData.status === 'rider_assigned' ? 'in_transit' : 'in_transit',
-    riderName: 'Rider', // TODO: Fetch rider name from riders table
+    status: activeDeliveryData.status === 'picked_up' ? 'picked_up' :
+            activeDeliveryData.status === 'rider_assigned' || activeDeliveryData.status === 'accepted' ? 'in_transit' : 'in_transit',
+    riderName: isSearchingForRider ? 'Searching for rider…' : 'Rider',
     estimatedArrival: activeDeliveryData.estimated_time || '15 mins',
     fromAddress: activeDeliveryData.pickup_address,
     toAddress: activeDeliveryData.dropoff_address,
   } : null;
 
-  // Set the user's name when userProfile is available
+  // Display name: profile first, then sign-up metadata, then email, then fallback
   useEffect(() => {
-    if (userProfile) {
-      setUserName(userProfile.full_name || userProfile.email || 'User');
-    } else {
-      setUserName('User');
-    }
-  }, [userProfile]);
+    const fromProfile = userProfile?.full_name;
+    const fromMetadata = user?.user_metadata?.fullName ?? user?.user_metadata?.full_name;
+    const fromEmail = userProfile?.email ?? user?.email;
+    const name = fromProfile || fromMetadata || fromEmail || 'User';
+    setUserName(typeof name === 'string' ? name : 'User');
+  }, [userProfile, user]);
 
   const quickActions = [
     {
@@ -76,14 +97,14 @@ export default function HomeScreen() {
       title: 'Schedule',
       subtitle: 'Plan ahead',
       color: '#FFC947',
-      onPress: () => router.push('/booking'),
+      onPress: () => router.push('/booking?scheduleLater=1'),
     },
     {
       icon: Star,
       title: 'Favorites',
       subtitle: 'Quick locations',
       color: '#10B981',
-      onPress: () => Alert.alert('Feature', 'Favorites coming soon!'),
+      onPress: () => router.push('/favorites'),
     },
     {
       icon: MessageCircle,
@@ -98,25 +119,31 @@ export default function HomeScreen() {
   const recentDeliveries = deliveries
     .filter(d => d.status === 'delivered')
     .slice(0, 2)
-    .map(d => ({
-      id: d.id.substring(0, 8),
-      date: `${new Date(d.created_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}, ${new Date(d.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`,
-      from: d.pickup_address.split(',')[0], // Get first part of address
-      to: d.dropoff_address.split(',')[0],
-      status: 'Delivered',
-      price: `₦${d.total_cost.toLocaleString('en-NG')}`,
-    }));
+    .map(d => {
+      const fromPart = (d.pickup_address || '').trim().split(',')[0] || 'Pickup';
+      const toPart = (d.dropoff_address || '').trim().split(',')[0] || 'Dropoff';
+      return {
+        id: d.id.substring(0, 8),
+        date: `${new Date(d.created_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}, ${new Date(d.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`,
+        from: fromPart,
+        to: toPart,
+        status: 'Delivered',
+        price: `₦${d.total_cost.toLocaleString('en-NG')}`,
+      };
+    });
 
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
     >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: 20 + insets.top }]}>
           <View>
             <Text style={[styles.greeting, { color: theme.colors.text }]}>
               Hello, {userName} 👋
@@ -135,7 +162,16 @@ export default function HomeScreen() {
             ]}
             onPress={() => router.push('/notifications')}
           >
-            <Bell size={24} color={theme.colors.primary} strokeWidth={2} />
+            <View>
+              <Bell size={24} color={theme.colors.primary} strokeWidth={2} />
+              {unreadCount > 0 && (
+                <View style={[styles.notificationBadge, { backgroundColor: theme.colors.error }]}>
+                  <Text style={styles.notificationBadgeText}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </View>
           </TouchableOpacity>
         </View>
 
@@ -156,10 +192,10 @@ export default function HomeScreen() {
               <View
                 style={[
                   styles.statusBadge,
-                  { backgroundColor: theme.colors.success },
+                  { backgroundColor: isSearchingForRider ? theme.colors.textSecondary : theme.colors.success },
                 ]}
               >
-                <Text style={styles.statusText}>In Transit</Text>
+                <Text style={styles.statusText}>{isSearchingForRider ? 'Searching for rider…' : 'In Transit'}</Text>
               </View>
               <Text
                 style={[styles.estimatedTime, { color: theme.colors.primary }]}
@@ -208,9 +244,7 @@ export default function HomeScreen() {
                 ]}
                 onPress={action.onPress}
               >
-                <Animated.View
-                  entering={FadeInUp.duration(600)}
-                >
+                <Animated.View entering={FadeInUp.duration(320).delay(index * 55)}>
                   <View
                     style={[
                       styles.quickActionIcon,
@@ -260,14 +294,16 @@ export default function HomeScreen() {
               key={delivery.id}
               style={[
                 styles.deliveryCard,
-                { backgroundColor: theme.colors.surface },
+                {
+                  backgroundColor: theme.colors.surface,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                },
                 theme.shadows.small,
               ]}
               onPress={() => router.push('/tracking')}
             >
-              <Animated.View
-                entering={FadeInUp.duration(600)}
-              >
+              <Animated.View entering={FadeInUp.duration(300)}>
                 <View style={styles.deliveryInfo}>
                   <Text
                     style={[
@@ -277,7 +313,7 @@ export default function HomeScreen() {
                   >
                     {delivery.date}
                   </Text>
-                  <Text style={styles.deliveryRoute}>
+                  <Text style={[styles.deliveryRoute, { color: theme.colors.text }]}>
                     {delivery.from} → {delivery.to}
                   </Text>
                   <Text
@@ -334,17 +370,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  notificationBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  notificationBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
   activeDeliveryCard: {
     marginHorizontal: 20,
     borderRadius: 20,
     padding: 24,
     marginBottom: 28,
     borderWidth: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 3,
   },
   deliveryHeader: {
     flexDirection: 'row',
@@ -419,11 +466,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 3,
   },
 
   quickActionIcon: {
@@ -454,11 +496,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
   },
   deliveryInfo: {
     flex: 1,
@@ -471,7 +508,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 4,
-    color: '#FFFFFF',
   },
   deliveryStatus: {
     fontSize: 12,

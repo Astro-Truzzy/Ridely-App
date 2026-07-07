@@ -6,16 +6,19 @@ import {
   TouchableOpacity,
   ScrollView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import {
   ArrowLeft,
   Shield,
 } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { LEGAL_LAST_UPDATED } from '@/lib/legal';
 
 export default function PrivacyPolicyScreen() {
-  const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
 
   const privacySections = [
     {
@@ -68,8 +71,12 @@ export default function PrivacyPolicyScreen() {
   ];
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
+    >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border, paddingTop: 16 + insets.top }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
@@ -85,7 +92,7 @@ export default function PrivacyPolicyScreen() {
             </View>
             <Text style={[styles.policyTitle, { color: theme.colors.text }]}>Privacy Policy</Text>
             <Text style={[styles.policySubtitle, { color: theme.colors.textSecondary }]}>
-              Last updated: November 18, 2025
+              Last updated: {LEGAL_LAST_UPDATED}
             </Text>
           </View>
 

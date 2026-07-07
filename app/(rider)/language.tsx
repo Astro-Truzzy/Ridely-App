@@ -1,100 +1,42 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import {
-  ArrowLeft,
-  Check,
-} from 'lucide-react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { ArrowLeft, Check } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
-
-interface LanguageOption {
-  id: string;
-  code: string;
-  name: string;
-  nativeName: string;
-}
+import { useLanguage, LANGUAGE_OPTIONS } from '@/contexts/LanguageContext';
+import { useAlert } from '@/contexts/AlertContext';
 
 export default function LanguageScreen() {
-  const { theme } = useTheme();
-  const [selectedLanguage, setSelectedLanguage] = useState('en');
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
+  const { languageCode, setLanguage } = useLanguage();
+  const { showAlert } = useAlert();
 
-  const languages: LanguageOption[] = [
-    {
-      id: 'en',
-      code: 'en',
-      name: 'English',
-      nativeName: 'English',
-    },
-    {
-      id: 'es',
-      code: 'es',
-      name: 'Spanish',
-      nativeName: 'Español',
-    },
-    {
-      id: 'fr',
-      code: 'fr',
-      name: 'French',
-      nativeName: 'Français',
-    },
-    {
-      id: 'de',
-      code: 'de',
-      name: 'German',
-      nativeName: 'Deutsch',
-    },
-    {
-      id: 'it',
-      code: 'it',
-      name: 'Italian',
-      nativeName: 'Italiano',
-    },
-    {
-      id: 'pt',
-      code: 'pt',
-      name: 'Portuguese',
-      nativeName: 'Português',
-    },
-    {
-      id: 'ru',
-      code: 'ru',
-      name: 'Russian',
-      nativeName: 'Русский',
-    },
-    {
-      id: 'zh',
-      code: 'zh',
-      name: 'Chinese',
-      nativeName: '中文',
-    },
-    {
-      id: 'ja',
-      code: 'ja',
-      name: 'Japanese',
-      nativeName: '日本語',
-    },
-  ];
-
-  const handleLanguageSelect = (languageCode: string) => {
-    setSelectedLanguage(languageCode);
-    Alert.alert(
+  const handleLanguageSelect = async (code: string) => {
+    await setLanguage(code);
+    const name = LANGUAGE_OPTIONS.find((o) => o.code === code)?.name ?? code;
+    showAlert(
       'Language Updated',
-      `App language changed to ${languages.find(lang => lang.code === languageCode)?.name}. This will take effect after you restart the app.`,
+      `App language changed to ${name}. This will take effect after you restart the app.`,
       [{ text: 'OK' }]
     );
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
+    >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border, paddingTop: 16 + insets.top }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
@@ -110,7 +52,7 @@ export default function LanguageScreen() {
           </Text>
           
           <View style={[styles.languageContainer, { backgroundColor: theme.colors.surface }]}>
-            {languages.map((language) => (
+            {LANGUAGE_OPTIONS.map((language) => (
               <TouchableOpacity
                 key={language.code}
                 style={[
@@ -122,7 +64,7 @@ export default function LanguageScreen() {
                   <Text style={[styles.languageName, { color: theme.colors.text }]}>{language.name}</Text>
                   <Text style={[styles.languageNative, { color: theme.colors.textSecondary }]}>{language.nativeName}</Text>
                 </View>
-                {selectedLanguage === language.code && (
+                {languageCode === language.code && (
                   <View style={[styles.checkContainer, { backgroundColor: theme.colors.primary }]}>
                     <Check size={16} color="#FFFFFF" strokeWidth={3} />
                   </View>

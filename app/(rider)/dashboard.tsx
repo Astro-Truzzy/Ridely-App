@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
   Switch,
   Pressable,
+  ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import {
   Package,
   MapPin,
@@ -17,90 +18,172 @@ import {
   Clock,
   User,
   Bell,
-  Settings,
   Navigation,
   CircleCheck as CheckCircle,
   X,
 } from 'lucide-react-native';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '@/contexts/ThemeContext';
-import Animated, { FadeInUp } from 'react-native-reanimated';
-
-interface DeliveryRequest {
-  id: string;
-  parcelSize: 'small' | 'medium' | 'large';
-  pickupAddress: string;
-  dropoffAddress: string;
-  distance: number;
-  estimatedTime: string;
-  reward: number;
-  senderName: string;
-  urgency: 'normal' | 'urgent';
-  createdAt: Date;
-}
+import { useAuth } from '@/contexts/AuthContext';
+import { useAlert } from '@/contexts/AlertContext';
+import { supabase } from '@/lib/supabase';
+import * as Location from 'expo-location';
+import Animated from 'react-native-reanimated';
+import { staggeredCardEnter, heroEnter } from '@/lib/riderAnimations';
+import { AnimatedPressable } from '@/components/rider/AnimatedPressable';
+import { useAvailableJobs } from '@/hooks/useAvailableJobs';
+import { useDeliveries } from '@/hooks/useDeliveries';
+import { useEarnings } from '@/hooks/useEarnings';
+import { useNotifications } from '@/contexts/NotificationsContext';
+import { useAppSettings } from '@/contexts/AppSettingsContext';
+import type { AvailableJob } from '@/hooks/useAvailableJobs';
 
 export default function RiderDashboard() {
-  const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
+  const { user, userProfile } = useAuth();
+  const { showAlert } = useAlert();
+  const { unreadCount, refetchUnreadCount } = useNotifications();
+  const { animations: animationsEnabled } = useAppSettings();
+
+  useFocusEffect(
+    useCallback(() => {
+      refetchUnreadCount();
+    }, [refetchUnreadCount])
+  );
+  const statEnter = (i: number) => (animationsEnabled ? staggeredCardEnter(i) : undefined);
+  const jobEnter = (i: number) => (animationsEnabled ? staggeredCardEnter(i) : undefined);
+  const headerEnter = animationsEnabled ? heroEnter() : undefined;
   const [isOnline, setIsOnline] = useState(true);
-  const [riderStats] = useState({
-    activeJobs: 1,
-    completedToday: 8,
-    todayEarnings: 1056.75,
-    rating: 4.9,
-  });
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
 
-  const [availableJobs, setAvailableJobs] = useState<DeliveryRequest[]>([
-    {
-      id: 'REQ001',
-      parcelSize: 'medium',
-      pickupAddress: '123 Main St, Downtown',
-      dropoffAddress: '456 Oak Ave, Uptown',
-      distance: 3.2,
-      estimatedTime: '25 mins',
-      reward: 1558.5,
-      senderName: 'John Okafor',
-      urgency: 'normal',
-      createdAt: new Date(Date.now() - 300000),
-    },
-    {
-      id: 'REQ002',
-      parcelSize: 'small',
-      pickupAddress: 'City Mall, Level 2',
-      dropoffAddress: '19 Hilltop close, Farm Rd',
-      distance: 1.8,
-      estimatedTime: '15 mins',
-      reward: 1200.25,
-      senderName: 'Sarah Wilson',
-      urgency: 'urgent',
-      createdAt: new Date(Date.now() - 180000),
-    },
-    {
-      id: 'REQ003',
-      parcelSize: 'large',
-      pickupAddress: 'Office Complex A, Floor 5',
-      dropoffAddress: 'Residential Area, Block C',
-      distance: 5.7,
-      estimatedTime: '35 mins',
-      reward: 2460.75,
-      senderName: 'Zuby Johnson',
-      urgency: 'normal',
-      createdAt: new Date(Date.now() - 120000),
-    },
-  ]);
+  useEffect(() => {
+    const online = (userProfile as { is_online?: boolean } | null)?.is_online;
+    if (typeof online === 'boolean') setIsOnline(online);
+  }, [userProfile]);
 
-  const handleAcceptJob = (job: DeliveryRequest) => {
-    Alert.alert(
-      'Accept Delivery',
-      `Accept delivery for ₦${job.reward}?\n\nPickup: ${job.pickupAddress}\nDropoff: ${job.dropoffAddress}`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Accept', onPress: () => handleAcceptJob(job) },
-      ]
-    );
+  const handleOnlineToggle = async (value: boolean) => {
+    if (!user) return;
+    setIsOnline(value);
+    try {
+      if (value) {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          setIsOnline(false);
+          return;
+        }
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const { latitude, longitude } = loc.coords;
+        // RPC not inferred from Database type; cast to bypass strict RPC typings
+        await (supabase as any).rpc('update_rider_location', { lat: latitude, lng: longitude });
+      }
+      await (supabase as any).from('riders').update({ is_online: value }).eq('id', user.id);
+    } catch (e) {
+      console.warn('Failed to update rider online status:', e);
+      setIsOnline(!value);
+    }
   };
 
-  const handleRejectJob = (jobId: string) => {
-    setAvailableJobs((prev) => prev.filter((j) => j.id !== jobId));
+  const { jobs: availableJobs, loading: jobsLoading } = useAvailableJobs();
+  const { deliveries, acceptDelivery } = useDeliveries();
+  const { todayEarnings } = useEarnings();
+
+  const accountVerificationStatus = (userProfile as { account_verification_status?: string } | null)?.account_verification_status ?? 'not_submitted';
+  const isVerified = accountVerificationStatus === 'verified';
+
+  const riderStats = useMemo(() => {
+    const active = deliveries.filter(
+      (d) =>
+        d.status !== 'delivered' &&
+        d.status !== 'cancelled' &&
+        d.status !== 'completed' &&
+        d.status !== 'cancelled_no_rider'
+    ).length;
+    const today = new Date().toISOString().split('T')[0];
+    const completedToday = deliveries.filter(
+      (d) => d.status === 'delivered' && d.completed_at?.startsWith(today)
+    ).length;
+    const rating =
+      (userProfile as { rating?: number } | null)?.rating ?? 0;
+    return {
+      activeJobs: active,
+      completedToday,
+      todayEarnings,
+      rating: rating > 0 ? rating : 4.9,
+    };
+  }, [deliveries, todayEarnings, userProfile]);
+
+  const handleAcceptJob = async (job: AvailableJob) => {
+    setAcceptingId(job.id);
+    try {
+      await acceptDelivery(job.id);
+      const jobData = {
+        id: job.id,
+        reward: job.total_cost,
+        parcelSize: job.parcel_size,
+        pickupAddress: job.pickup_address,
+        dropoffAddress: job.dropoff_address,
+        distance: job.distance,
+        estimatedTime: job.estimated_time,
+        senderName:
+          (job.users as { full_name?: string } | null)?.full_name ?? 'Customer',
+        pickupCoords: null,
+        dropoffCoords: null,
+      };
+      router.replace({
+        pathname: '/(rider)/active-delivery',
+        params: {
+          jobId: job.id,
+          jobData: JSON.stringify(jobData),
+        },
+      });
+    } catch (err) {
+      console.error('Accept job error:', err);
+      showAlert(
+        'Error',
+        err instanceof Error ? err.message : 'Failed to accept. Job may have been taken.'
+      );
+    } finally {
+      setAcceptingId(null);
+    }
+  };
+
+  const handleRejectJob = (_jobId: string) => {
+    // No backend reject; user can ignore the job
+  };
+
+  const handleNavigate = () => {
+    const activeDelivery = deliveries.find(
+      (d) =>
+        d.status !== 'delivered' &&
+        d.status !== 'cancelled' &&
+        d.status !== 'completed' &&
+        d.status !== 'cancelled_no_rider'
+    );
+    if (!activeDelivery) {
+      showAlert(
+        'No active delivery',
+        'Accept a delivery from the list below to open the in-app map and navigate to pickup or dropoff.'
+      );
+      return;
+    }
+    const jobData = {
+      id: activeDelivery.id,
+      reward: activeDelivery.total_cost,
+      parcelSize: activeDelivery.parcel_size,
+      pickupAddress: activeDelivery.pickup_address,
+      dropoffAddress: activeDelivery.dropoff_address,
+      distance: activeDelivery.distance,
+      estimatedTime: activeDelivery.estimated_time,
+      senderName: 'Customer',
+      pickupCoords: null,
+      dropoffCoords: null,
+    };
+    router.push({
+      pathname: '/(rider)/active-delivery',
+      params: { jobId: activeDelivery.id, jobData: JSON.stringify(jobData) },
+    });
   };
 
   const getSizeColor = (size: string) => {
@@ -116,21 +199,28 @@ export default function RiderDashboard() {
     }
   };
 
-  const getTimeAgo = (date: Date) => {
-    const minutes = Math.floor((Date.now() - date.getTime()) / 60000);
+  const getTimeAgo = (createdAt: string) => {
+    const date = new Date(createdAt).getTime();
+    const minutes = Math.floor((Date.now() - date) / 60000);
+    if (minutes < 1) return 'Just now';
     return `${minutes}m ago`;
   };
 
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
     >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
-        <View style={styles.header}>
+        {/* Header - extends under status bar */}
+        <Animated.View
+          entering={headerEnter}
+          style={[styles.header, { paddingTop: 20 + insets.top }]}
+        >
           <View style={styles.headerLeft}>
             <Text style={[styles.greeting, { color: theme.colors.text }]}>
               Good morning, Rider! 🏍️
@@ -152,7 +242,7 @@ export default function RiderDashboard() {
               </Text>
               <Switch
                 value={isOnline}
-                onValueChange={setIsOnline}
+                onValueChange={handleOnlineToggle}
                 trackColor={{
                   false: theme.colors.border,
                   true: `${theme.colors.success}50`,
@@ -165,7 +255,7 @@ export default function RiderDashboard() {
             </View>
           </View>
           <View style={styles.headerActions}>
-            <TouchableOpacity
+            <AnimatedPressable
               style={[
                 styles.headerButton,
                 { backgroundColor: theme.colors.surface },
@@ -173,9 +263,18 @@ export default function RiderDashboard() {
               ]}
               onPress={() => router.push('/(rider)/notifications')}
             >
-              <Bell size={24} color={theme.colors.primary} strokeWidth={2} />
-            </TouchableOpacity>
-            <TouchableOpacity
+              <View>
+                <Bell size={24} color={theme.colors.primary} strokeWidth={2} />
+                {unreadCount > 0 && (
+                  <View style={[styles.notificationBadge, { backgroundColor: theme.colors.error }]}>
+                    <Text style={styles.notificationBadgeText}>
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </AnimatedPressable>
+            <AnimatedPressable
               style={[
                 styles.headerButton,
                 { backgroundColor: theme.colors.surface },
@@ -184,14 +283,14 @@ export default function RiderDashboard() {
               onPress={() => router.push('/(rider)/profile')}
             >
               <User size={24} color={theme.colors.primary} strokeWidth={2} />
-            </TouchableOpacity>
+            </AnimatedPressable>
           </View>
-        </View>
+        </Animated.View>
 
         {/* Stats Cards */}
         <View style={styles.statsContainer}>
           <Animated.View
-            entering={FadeInUp.duration(600)}
+            entering={statEnter(0)}
             style={[
               styles.statCard,
               { backgroundColor: theme.colors.surface },
@@ -210,7 +309,7 @@ export default function RiderDashboard() {
           </Animated.View>
 
           <Animated.View
-            entering={FadeInUp.duration(600)}
+            entering={statEnter(1)}
             style={[
               styles.statCard,
               { backgroundColor: theme.colors.surface },
@@ -233,7 +332,7 @@ export default function RiderDashboard() {
           </Animated.View>
 
           <Animated.View
-            entering={FadeInUp.duration(600)}
+            entering={statEnter(2)}
             style={[
               styles.statCard,
               { backgroundColor: theme.colors.surface },
@@ -246,7 +345,7 @@ export default function RiderDashboard() {
               strokeWidth={2}
             />
             <Text style={[styles.statValue, { color: theme.colors.text }]}>
-              ₦{riderStats.todayEarnings}
+              ₦{Number(riderStats.todayEarnings).toFixed(2)}
             </Text>
             <Text
               style={[styles.statLabel, { color: theme.colors.textSecondary }]}
@@ -258,7 +357,7 @@ export default function RiderDashboard() {
 
         {/* Quick Actions */}
         <View style={styles.quickActions}>
-          <TouchableOpacity
+          <AnimatedPressable
             style={[
               styles.actionButton,
               { backgroundColor: theme.colors.primary },
@@ -267,24 +366,51 @@ export default function RiderDashboard() {
             onPress={() => router.push('/(rider)/earnings')}
           >
             <DollarSign size={20} color="#FFFFFF" strokeWidth={2} />
-            
             <Text style={styles.actionText}>View Earnings</Text>
-          </TouchableOpacity>
+          </AnimatedPressable>
 
-          <TouchableOpacity
+          <AnimatedPressable
             style={[
               styles.actionButton,
               { backgroundColor: theme.colors.success },
               theme.shadows.medium,
             ]}
-            onPress={() =>
-              Alert.alert('Navigation', 'Opening navigation app...')
-            }
+            onPress={handleNavigate}
           >
             <Navigation size={20} color="#FFFFFF" strokeWidth={2} />
             <Text style={styles.actionText}>Navigate</Text>
-          </TouchableOpacity>
+          </AnimatedPressable>
         </View>
+
+        {/* Verification required banner */}
+        {!isVerified && (
+          <AnimatedPressable
+            style={[
+              styles.verificationBanner,
+              {
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.warning,
+              },
+              theme.shadows.medium,
+            ]}
+            onPress={() => router.push('/(rider)/apply-verification' as Href)}
+          >
+            <View style={[styles.verificationBannerDot, { backgroundColor: theme.colors.warning }]} />
+            <View style={styles.verificationBannerContent}>
+              <Text style={[styles.verificationBannerTitle, { color: theme.colors.text }]}>
+                Verification required
+              </Text>
+              <Text style={[styles.verificationBannerText, { color: theme.colors.textSecondary }]}>
+                {accountVerificationStatus === 'pending'
+                  ? 'Your documents are under review. You can\'t accept deliveries until verified.'
+                  : 'Upload your documents to get verified and start accepting delivery requests.'}
+              </Text>
+            </View>
+            <Text style={[styles.verificationBannerCta, { color: theme.colors.primary }]}>
+              {accountVerificationStatus === 'pending' ? 'View status' : 'Apply now'}
+            </Text>
+          </AnimatedPressable>
+        )}
 
         {/* Available Jobs */}
         <View style={styles.section}>
@@ -317,7 +443,28 @@ export default function RiderDashboard() {
             </View>
           )}
 
-          {isOnline && availableJobs.length === 0 && (
+          {isOnline && jobsLoading && availableJobs.length === 0 && (
+            <View
+              style={[
+                styles.emptyState,
+                { backgroundColor: theme.colors.surface },
+                theme.shadows.medium,
+              ]}
+            >
+              <ActivityIndicator size="large" color={theme.colors.primary} />
+              <Text
+                style={[
+                  styles.emptyText,
+                  { color: theme.colors.textSecondary },
+                  { marginTop: 16 },
+                ]}
+              >
+                Loading jobs...
+              </Text>
+            </View>
+          )}
+
+          {isOnline && !jobsLoading && availableJobs.length === 0 && (
             <View
               style={[
                 styles.emptyState,
@@ -345,196 +492,251 @@ export default function RiderDashboard() {
           )}
 
           {isOnline &&
-            availableJobs.map((job) => (
-              <Animated.View
-                key={job.id}
-                entering={FadeInUp.duration(600)}
-                style={[
-                  styles.jobCard,
-                  { backgroundColor: theme.colors.surface },
-                  theme.shadows.large,
-                ]}
-              >
-                {job.urgency === 'urgent' && (
-                  <View style={styles.urgentBadge}>
-                    <Text style={styles.urgentText}>URGENT</Text>
-                  </View>
-                )}
+            availableJobs.map((job, index) => {
+              const senderName =
+                (job.users as { full_name?: string } | null)?.full_name ??
+                'Customer';
+              const urgency =
+                job.delivery_time === 'now' ? 'urgent' : 'normal';
+              const isAccepting = acceptingId === job.id;
+              return (
+                <Animated.View
+                  key={job.id}
+                  entering={jobEnter(index)}
+                  style={[
+                    styles.jobCard,
+                    { backgroundColor: theme.colors.surface },
+                    theme.shadows.large,
+                  ]}
+                >
+                  {urgency === 'urgent' && (
+                    <View style={styles.urgentBadge}>
+                      <Text style={styles.urgentText}>URGENT</Text>
+                    </View>
+                  )}
 
-                <View style={styles.jobHeader}>
-                  <View style={styles.jobInfo}>
-                    <Text style={[styles.jobId, { color: theme.colors.text }]}>
-                      #{job.id}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.timeAgo,
-                        { color: theme.colors.textSecondary },
-                      ]}
-                    >
-                      {getTimeAgo(job.createdAt)}
-                    </Text>
-                  </View>
-                  <View style={styles.rewardContainer}>
-                    <Text
-                      style={[
-                        styles.rewardAmount,
-                        { color: theme.colors.success },
-                      ]}
-                    >
-                      ₦{job.reward}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.rewardLabel,
-                        { color: theme.colors.textSecondary },
-                      ]}
-                    >
-                      Reward
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.jobDetails}>
-                  <View style={styles.sizeContainer}>
-                    <View
-                      style={[
-                        styles.sizeIndicator,
-                        { backgroundColor: getSizeColor(job.parcelSize) },
-                      ]}
-                    />
-                    <Text
-                      style={[styles.sizeText, { color: theme.colors.text }]}
-                    >
-                      {job.parcelSize.charAt(0).toUpperCase() +
-                        job.parcelSize.slice(1)}{' '}
-                      Package
-                    </Text>
-                  </View>
-
-                  <Text
-                    style={[
-                      styles.senderName,
-                      { color: theme.colors.textSecondary },
-                    ]}
-                  >
-                    From: {job.senderName}
-                  </Text>
-                </View>
-
-                <View style={styles.addressContainer}>
-                  <View style={styles.addressRow}>
-                    <MapPin
-                      size={16}
-                      color={theme.colors.success}
-                      strokeWidth={2}
-                    />
-                    <Text
-                      style={[styles.addressText, { color: theme.colors.text }]}
-                      numberOfLines={1}
-                    >
-                      {job.pickupAddress}
-                    </Text>
-                  </View>
-                  <View style={styles.addressDivider} />
-                  <View style={styles.addressRow}>
-                    <MapPin
-                      size={16}
-                      color={theme.colors.error}
-                      strokeWidth={2}
-                    />
-                    <Text
-                      style={[styles.addressText, { color: theme.colors.text }]}
-                      numberOfLines={1}
-                    >
-                      {job.dropoffAddress}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.jobMeta}>
-                  <View style={styles.metaItem}>
-                    <Navigation
-                      size={16}
-                      color={theme.colors.textSecondary}
-                      strokeWidth={2}
-                    />
-                    <Text
-                      style={[
-                        styles.metaText,
-                        { color: theme.colors.textSecondary },
-                      ]}
-                    >
-                      {job.distance} km
-                    </Text>
-                  </View>
-                  <View style={styles.metaItem}>
-                    <Clock
-                      size={16}
-                      color={theme.colors.textSecondary}
-                      strokeWidth={2}
-                    />
-                    <Text
-                      style={[
-                        styles.metaText,
-                        { color: theme.colors.textSecondary },
-                      ]}
-                    >
-                      ~{job.estimatedTime}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.jobActions}>
-                  <Pressable
-                    onPressIn={() => {}}
-                    onPressOut={() => {}}
-                    android_ripple={{
-                      color: `${theme.colors.error}30`,
-                      borderless: true,
-                    }}
+                  <AnimatedPressable
                     style={{ flex: 1 }}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/(rider)/job-details',
+                        params: { id: job.id },
+                      })
+                    }
                   >
-                    <Animated.View
-                      style={[
-                        styles.rejectButton,
-                        {
-                          backgroundColor: `${theme.colors.error}20`,
-                          borderColor: theme.colors.error,
-                        },
-                      ]}
-                    >
-                      <X size={20} color={theme.colors.error} strokeWidth={2} />
-                      <Text
-                        style={[styles.rejectText, { color: theme.colors.error }]}
-                      >
-                        Reject
-                      </Text>
-                    </Animated.View>
-                  </Pressable>
+                    <View style={styles.jobHeader}>
+                      <View style={styles.jobInfo}>
+                        <Text style={[styles.jobId, { color: theme.colors.text }]}>
+                          #{job.id.slice(0, 8)}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.timeAgo,
+                            { color: theme.colors.textSecondary },
+                          ]}
+                        >
+                          {getTimeAgo(job.created_at)}
+                        </Text>
+                      </View>
+                      <View style={styles.rewardContainer}>
+                        <Text
+                          style={[
+                            styles.rewardAmount,
+                            { color: theme.colors.success },
+                          ]}
+                        >
+                          ₦{job.total_cost.toLocaleString('en-NG')}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.rewardLabel,
+                            { color: theme.colors.textSecondary },
+                          ]}
+                        >
+                          Reward
+                        </Text>
+                      </View>
+                    </View>
 
-                  <Pressable
-                    onPressIn={() => {}}
-                    onPressOut={() => {}}
-                    android_ripple={{
-                      color: `${theme.colors.primary}30`,
-                      borderless: true,
-                    }}
-                    style={{ flex: 2 }}
-                  >
-                    <Animated.View
-                      style={[
-                        styles.acceptButton,
-                        { backgroundColor: theme.colors.primary },
-                      ]}
+                    <View style={styles.jobDetails}>
+                      <View style={styles.sizeContainer}>
+                        <View
+                          style={[
+                            styles.sizeIndicator,
+                            {
+                              backgroundColor: getSizeColor(job.parcel_size),
+                            },
+                          ]}
+                        />
+                        <Text
+                          style={[styles.sizeText, { color: theme.colors.text }]}
+                        >
+                          {job.parcel_size.charAt(0).toUpperCase() +
+                            job.parcel_size.slice(1)}{' '}
+                          Package
+                        </Text>
+                      </View>
+
+                      <Text
+                        style={[
+                          styles.senderName,
+                          { color: theme.colors.textSecondary },
+                        ]}
+                      >
+                        From: {senderName}
+                      </Text>
+                    </View>
+
+                    <View style={styles.addressContainer}>
+                      <View style={styles.addressRow}>
+                        <MapPin
+                          size={16}
+                          color={theme.colors.success}
+                          strokeWidth={2}
+                        />
+                        <Text
+                          style={[
+                            styles.addressText,
+                            { color: theme.colors.text },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {job.pickup_address}
+                        </Text>
+                      </View>
+                      <View style={styles.addressDivider} />
+                      <View style={styles.addressRow}>
+                        <MapPin
+                          size={16}
+                          color={theme.colors.error}
+                          strokeWidth={2}
+                        />
+                        <Text
+                          style={[
+                            styles.addressText,
+                            { color: theme.colors.text },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {job.dropoff_address}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.jobMeta}>
+                      <View style={styles.metaItem}>
+                        <Navigation
+                          size={16}
+                          color={theme.colors.textSecondary}
+                          strokeWidth={2}
+                        />
+                        <Text
+                          style={[
+                            styles.metaText,
+                            { color: theme.colors.textSecondary },
+                          ]}
+                        >
+                          {job.distance} km
+                        </Text>
+                      </View>
+                      <View style={styles.metaItem}>
+                        <Clock
+                          size={16}
+                          color={theme.colors.textSecondary}
+                          strokeWidth={2}
+                        />
+                        <Text
+                          style={[
+                            styles.metaText,
+                            { color: theme.colors.textSecondary },
+                          ]}
+                        >
+                          ~{job.estimated_time}
+                        </Text>
+                      </View>
+                    </View>
+                  </AnimatedPressable>
+
+                  <View style={styles.jobActions}>
+                    <Pressable
+                      onPress={() => handleRejectJob(job.id)}
+                      android_ripple={{
+                        color: `${theme.colors.error}30`,
+                        borderless: true,
+                      }}
+                      style={{ flex: 1 }}
                     >
-                      <CheckCircle size={20} color="#FFFFFF" strokeWidth={2} />
-                      <Text style={styles.acceptText}>Accept Job</Text>
-                    </Animated.View>
-                  </Pressable>
-                </View>
-              </Animated.View>
-            ))}
+                      <View
+                        style={[
+                          styles.rejectButton,
+                          {
+                            backgroundColor: `${theme.colors.error}20`,
+                            borderColor: theme.colors.error,
+                          },
+                        ]}
+                      >
+                        <X
+                          size={20}
+                          color={theme.colors.error}
+                          strokeWidth={2}
+                        />
+                        <Text
+                          style={[
+                            styles.rejectText,
+                            { color: theme.colors.error },
+                          ]}
+                        >
+                          Reject
+                        </Text>
+                      </View>
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() =>
+                        !isVerified
+                          ? showAlert(
+                              'Verification required',
+                              'You must be verified to accept deliveries. Go to Apply for verification and submit your documents.',
+                              [{ text: 'OK' }, { text: 'Apply now', onPress: () => router.push('/(rider)/apply-verification' as Href) }]
+                            )
+                          : handleAcceptJob(job)
+                      }
+                      disabled={isAccepting}
+                      android_ripple={{
+                        color: `${theme.colors.primary}30`,
+                        borderless: true,
+                      }}
+                      style={{ flex: 2 }}
+                    >
+                      <View
+                        style={[
+                          styles.acceptButton,
+                          { backgroundColor: isVerified ? theme.colors.primary : theme.colors.textTertiary },
+                        ]}
+                      >
+                        {isAccepting ? (
+                          <ActivityIndicator
+                            size="small"
+                            color="#FFFFFF"
+                          />
+                        ) : (
+                          <>
+                            <CheckCircle
+                              size={20}
+                              color="#FFFFFF"
+                              strokeWidth={2}
+                            />
+                            <Text style={styles.acceptText}>
+                              {isVerified ? 'Accept Job' : 'Verify to accept'}
+                            </Text>
+                          </>
+                        )}
+                      </View>
+                    </Pressable>
+                  </View>
+                </Animated.View>
+              );
+            })}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -593,6 +795,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  notificationBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  notificationBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
   statsContainer: {
     flexDirection: 'row',
     paddingHorizontal: 20,
@@ -604,12 +821,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 20,
     alignItems: 'center',
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 3,
   },
   statValue: {
     fontSize: 20,
@@ -634,17 +845,41 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#5A47FF',
-    shadowColor: '#5A47FF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 2,
   },
   actionText: {
     fontSize: 14,
     fontWeight: '600',
     color: '#FFFFFF',
+    marginLeft: 8,
+  },
+  verificationBanner: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 2,
+  },
+  verificationBannerDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 12,
+  },
+  verificationBannerContent: { flex: 1 },
+  verificationBannerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  verificationBannerText: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  verificationBannerCta: {
+    fontSize: 14,
+    fontWeight: '600',
     marginLeft: 8,
   },
   section: {
@@ -695,12 +930,6 @@ const styles = StyleSheet.create({
     padding: 22,
     marginBottom: 18,
     position: 'relative',
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 2,
   },
   urgentBadge: {
     position: 'absolute',
@@ -812,11 +1041,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#EF4444',
     backgroundColor: '#fff',
-    shadowColor: '#EF4444',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 1,
   },
   rejectText: {
     fontSize: 14,
@@ -831,11 +1055,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#10B981',
-    shadowColor: '#10B981',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    elevation: 2,
   },
   acceptText: {
     fontSize: 14,

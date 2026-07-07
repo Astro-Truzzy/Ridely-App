@@ -9,10 +9,12 @@ import {
   Image,
   Animated,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronRight, SkipBack as Skip } from 'lucide-react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { ChevronRight } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useOnboarding } from '@/hooks/useOnboarding';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -27,7 +29,9 @@ interface OnboardingSlide {
 }
 
 export default function OnboardingScreen() {
-  const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
+  const { completeOnboarding } = useOnboarding();
   const [currentIndex, setCurrentIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   const scrollX = new Animated.Value(0);
@@ -59,17 +63,19 @@ export default function OnboardingScreen() {
     },
   ];
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentIndex < slides.length - 1) {
       const nextIndex = currentIndex + 1;
       setCurrentIndex(nextIndex);
       flatListRef.current?.scrollToIndex({ index: nextIndex, animated: true });
     } else {
+      await completeOnboarding();
       router.replace('/(auth)/welcome');
     }
   };
 
-  const handleSkip = () => {
+  const handleSkip = async () => {
+    await completeOnboarding();
     router.replace('/(auth)/welcome');
   };
 
@@ -217,10 +223,11 @@ export default function OnboardingScreen() {
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
-      edges={['top', 'left', 'right']}
+      edges={['left', 'right', 'bottom']}
     >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       {/* Skip Button */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
         <TouchableOpacity style={styles.skipButton} onPress={handleSkip}>
           <Text
             style={[styles.skipText, { color: theme.colors.textSecondary }]}

@@ -9,7 +9,7 @@ export interface Delivery {
   pickup_address: string;
   dropoff_address: string;
   parcel_size: 'small' | 'medium' | 'large';
-  status: 'pending' | 'rider_assigned' | 'picked_up' | 'in_transit' | 'delivered' | 'cancelled';
+  status: 'pending' | 'rider_assigned' | 'accepted' | 'picked_up' | 'in_transit' | 'nearby' | 'delivered' | 'completed' | 'cancelled' | 'cancelled_no_rider';
   total_cost: number;
   distance: number;
   estimated_time: string;
@@ -110,15 +110,41 @@ export function useDeliveries() {
   const acceptDelivery = async (deliveryId: string) => {
     if (!user || userType !== 'rider') throw new Error('Only riders can accept deliveries');
 
-    const { error } = await supabase
+    const { data: riderRow, error: riderErr } = await supabase
+      .from('riders')
+      .select('account_verification_status')
+      .eq('id', user.id)
+      .single();
+    if (riderErr || !riderRow) throw new Error('Could not verify rider status.');
+    if ((riderRow as { account_verification_status?: string }).account_verification_status !== 'verified') {
+      throw new Error(
+        'You must be verified to accept deliveries. Go to Profile → Apply for verification and submit your documents.'
+      );
+    }
+
+    const { data, error } = await supabase
       .from('deliveries')
       .update({
         rider_id: user.id,
-        status: 'rider_assigned',
+        status: 'accepted',
       })
-      .eq('id', deliveryId);
+      .eq('id', deliveryId)
+      .eq('status', 'pending')
+      .select();
 
     if (error) throw error;
+    if (!data?.length) {
+      throw new Error('Delivery already accepted.');
+    }
+
+    const { error: riderError } = await supabase
+      .from('riders')
+      .update({ is_available: false })
+      .eq('id', user.id);
+
+    if (riderError) {
+      console.error('Failed to set rider unavailable:', riderError);
+    }
   };
 
   return {

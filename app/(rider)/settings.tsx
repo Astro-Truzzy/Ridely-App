@@ -6,13 +6,19 @@ import {
   TouchableOpacity,
   ScrollView,
   Switch,
-  Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import Animated from 'react-native-reanimated';
 import { Bell, Moon, Globe, Zap, CircleHelp as HelpCircle, FileText, Shield, LogOut, ChevronRight, Smartphone, Mail, MessageSquare, Sun, Monitor } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme, ThemeMode } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { useAppSettings } from '@/contexts/AppSettingsContext';
+import { useAlert } from '@/contexts/AlertContext';
+import { staggeredCardEnter } from '@/lib/riderAnimations';
+import { AnimatedPressable } from '@/components/rider/AnimatedPressable';
 
 interface SettingsState {
   pushNotifications: boolean;
@@ -23,9 +29,23 @@ interface SettingsState {
 }
 
 export default function SettingsScreen() {
-  const { theme, themeMode, setThemeMode } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { theme, themeMode, setThemeMode, isDark } = useTheme();
   const { signOut, loading } = useAuth();
-  
+  const { showAlert } = useAlert();
+  const { languageName } = useLanguage();
+  const {
+    animations,
+    setAnimations,
+    pushNotifications,
+    setPushNotifications,
+    emailNotifications,
+    setEmailNotifications,
+    smsNotifications,
+    setSmsNotifications,
+  } = useAppSettings();
+
+  const enterSection = (i: number) => (animations ? staggeredCardEnter(i) : undefined);
   const [settings, setSettings] = useState<SettingsState>({
     pushNotifications: true,
     emailNotifications: true,
@@ -34,13 +54,17 @@ export default function SettingsScreen() {
     language: 'English',
   });
 
-  const toggleSetting = (key: keyof SettingsState) => {
-    if (typeof settings[key] === 'boolean') {
-      setSettings(prev => ({
-        ...prev,
-        [key]: !prev[key],
-      }));
-    }
+  const getNotificationValue = (key: keyof SettingsState) => {
+    if (key === 'pushNotifications') return pushNotifications;
+    if (key === 'emailNotifications') return emailNotifications;
+    if (key === 'smsNotifications') return smsNotifications;
+    return settings[key] as boolean;
+  };
+
+  const setNotificationValue = (key: keyof SettingsState, value: boolean) => {
+    if (key === 'pushNotifications') setPushNotifications(value);
+    else if (key === 'emailNotifications') setEmailNotifications(value);
+    else if (key === 'smsNotifications') setSmsNotifications(value);
   };
 
   const notificationSettings = [
@@ -97,7 +121,7 @@ export default function SettingsScreen() {
   const generalSettings = [
     {
       title: 'Language',
-      subtitle: settings.language,
+      subtitle: languageName,
       icon: Globe,
       onPress: () => router.push('/(rider)/language'),
       showArrow: true,
@@ -133,7 +157,7 @@ export default function SettingsScreen() {
   ];
 
   const handleLogout = async () => {
-    Alert.alert(
+    showAlert(
       'Logout',
       'Are you sure you want to logout?',
       [
@@ -146,7 +170,7 @@ export default function SettingsScreen() {
               await signOut();
               // Navigation is handled by signOut function in AuthContext
             } catch (error: any) {
-              Alert.alert(
+              showAlert(
                 'Logout Failed',
                 error.message || 'An error occurred while logging out. Please try again.'
               );
@@ -158,49 +182,56 @@ export default function SettingsScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
+    >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-       
-        <View style={styles.header}>
+        <Animated.View entering={enterSection(0)} style={[styles.header, { paddingTop: 20 + insets.top }]}>
           <Text style={[styles.title, { color: theme.colors.text }]}>Settings</Text>
-        </View>
+        </Animated.View>
 
         {/* Notifications Section */}
-        <View style={styles.section}>
+        <Animated.View entering={enterSection(1)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Notifications</Text>
           <View style={[styles.settingsContainer, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
-            {notificationSettings.map((setting, index) => (
-              <View key={setting.key} style={styles.settingItem}>
-                <View style={[styles.settingIcon, { backgroundColor: `${theme.colors.primary}20` }]}>
-                  <setting.icon size={20} color={theme.colors.primary} strokeWidth={2} />
+            {notificationSettings.map((setting, index) => {
+              const value = getNotificationValue(setting.key);
+              return (
+                <View key={setting.key} style={styles.settingItem}>
+                  <View style={[styles.settingIcon, { backgroundColor: `${theme.colors.primary}20` }]}>
+                    <setting.icon size={20} color={theme.colors.primary} strokeWidth={2} />
+                  </View>
+                  <View style={styles.settingInfo}>
+                    <Text style={[styles.settingTitle, { color: theme.colors.text }]}>{setting.title}</Text>
+                    <Text style={[styles.settingSubtitle, { color: theme.colors.textSecondary }]}>{setting.subtitle}</Text>
+                  </View>
+                  <Switch
+                    value={value}
+                    onValueChange={(v) => setNotificationValue(setting.key, v)}
+                    trackColor={{ false: theme.colors.border, true: `${theme.colors.primary}50` }}
+                    thumbColor={value ? theme.colors.primary : theme.colors.textTertiary}
+                  />
                 </View>
-                <View style={styles.settingInfo}>
-                  <Text style={[styles.settingTitle, { color: theme.colors.text }]}>{setting.title}</Text>
-                  <Text style={[styles.settingSubtitle, { color: theme.colors.textSecondary }]}>{setting.subtitle}</Text>
-                </View>
-                <Switch
-                  value={settings[setting.key] as boolean}
-                  onValueChange={() => toggleSetting(setting.key)}
-                  trackColor={{ false: theme.colors.border, true: `${theme.colors.primary}50` }}
-                  thumbColor={settings[setting.key] ? theme.colors.primary : theme.colors.textTertiary}
-                />
-              </View>
-            ))}
+              );
+            })}
           </View>
-        </View>
+        </Animated.View>
 
         {/* Theme Section */}
-        <View style={styles.section}>
+        <Animated.View entering={enterSection(2)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Theme</Text>
           <View style={[styles.settingsContainer, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
             {themeOptions.map((option, index) => (
-              <TouchableOpacity
+              <AnimatedPressable
                 key={option.mode}
                 style={[
                   styles.settingItem,
                   index < themeOptions.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.colors.border }
                 ]}
-                onPress={() => setThemeMode(option.mode)}>
+                onPress={() => setThemeMode(option.mode)}
+              >
                 <View style={[styles.settingIcon, { backgroundColor: `${theme.colors.primary}20` }]}>
                   <option.icon size={20} color={theme.colors.primary} strokeWidth={2} />
                 </View>
@@ -213,46 +244,51 @@ export default function SettingsScreen() {
                     <Text style={styles.checkmarkText}>✓</Text>
                   </View>
                 )}
-              </TouchableOpacity>
+              </AnimatedPressable>
             ))}
           </View>
-        </View>
+        </Animated.View>
         {/* App Settings Section */}
-        <View style={styles.section}>
+        <Animated.View entering={enterSection(3)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>App Settings</Text>
           <View style={[styles.settingsContainer, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
-            {appSettings.map((setting, index) => (
-              <View key={setting.key} style={styles.settingItem}>
-                <View style={[styles.settingIcon, { backgroundColor: `${theme.colors.primary}20` }]}>
-                  <setting.icon size={20} color={theme.colors.primary} strokeWidth={2} />
+            {appSettings.map((setting) => {
+              const value = setting.key === 'animations' ? animations : (settings[setting.key] as boolean);
+              const onToggle = setting.key === 'animations' ? () => setAnimations(!animations) : () => {};
+              return (
+                <View key={setting.key} style={styles.settingItem}>
+                  <View style={[styles.settingIcon, { backgroundColor: `${theme.colors.primary}20` }]}>
+                    <setting.icon size={20} color={theme.colors.primary} strokeWidth={2} />
+                  </View>
+                  <View style={styles.settingInfo}>
+                    <Text style={[styles.settingTitle, { color: theme.colors.text }]}>{setting.title}</Text>
+                    <Text style={[styles.settingSubtitle, { color: theme.colors.textSecondary }]}>{setting.subtitle}</Text>
+                  </View>
+                  <Switch
+                    value={value}
+                    onValueChange={onToggle}
+                    trackColor={{ false: theme.colors.border, true: `${theme.colors.primary}50` }}
+                    thumbColor={value ? theme.colors.primary : theme.colors.textTertiary}
+                  />
                 </View>
-                <View style={styles.settingInfo}>
-                  <Text style={[styles.settingTitle, { color: theme.colors.text }]}>{setting.title}</Text>
-                  <Text style={[styles.settingSubtitle, { color: theme.colors.textSecondary }]}>{setting.subtitle}</Text>
-                </View>
-                <Switch
-                  value={settings[setting.key] as boolean}
-                  onValueChange={() => toggleSetting(setting.key)}
-                  trackColor={{ false: theme.colors.border, true: `${theme.colors.primary}50` }}
-                  thumbColor={settings[setting.key] ? theme.colors.primary : theme.colors.textTertiary}
-                />
-              </View>
-            ))}
+              );
+            })}
           </View>
-        </View>
+        </Animated.View>
 
         {/* General Section */}
-        <View style={styles.section}>
+        <Animated.View entering={enterSection(4)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>General</Text>
           <View style={[styles.settingsContainer, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
             {generalSettings.map((setting, index) => (
-              <TouchableOpacity
+              <AnimatedPressable
                 key={index}
                 style={[
                   styles.settingItem,
                   index < generalSettings.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.colors.border }
                 ]}
-                onPress={setting.onPress}>
+                onPress={setting.onPress}
+              >
                 <View style={[styles.settingIcon, { backgroundColor: `${theme.colors.primary}20` }]}>
                   <setting.icon size={20} color={theme.colors.primary} strokeWidth={2} />
                 </View>
@@ -263,27 +299,30 @@ export default function SettingsScreen() {
                 {setting.showArrow && (
                   <ChevronRight size={20} color={theme.colors.textTertiary} strokeWidth={2} />
                 )}
-              </TouchableOpacity>
+              </AnimatedPressable>
             ))}
           </View>
-        </View>
+        </Animated.View>
 
         {/* App Info */}
-        <View style={styles.section}>
+        <Animated.View entering={enterSection(5)} style={styles.section}>
           <View style={styles.appInfo}>
             <Text style={[styles.appName, { color: theme.colors.primary }]}>Ridely</Text>
             <Text style={[styles.appVersion, { color: theme.colors.textSecondary }]}>Version 1.0.0</Text>
             <Text style={[styles.appCopyright, { color: theme.colors.textTertiary }]}>© 2024 Ridely. All rights reserved.</Text>
           </View>
-        </View>
+        </Animated.View>
 
         {/* Logout Button */}
-        <View style={styles.section}>
-          <TouchableOpacity style={[styles.logoutButton, { backgroundColor: theme.colors.surface, borderColor: `${theme.colors.error}30` }, theme.shadows.medium]} onPress={handleLogout}>
+        <Animated.View entering={enterSection(6)} style={styles.section}>
+          <AnimatedPressable
+            style={[styles.logoutButton, { backgroundColor: theme.colors.surface, borderColor: `${theme.colors.error}30` }, theme.shadows.medium]}
+            onPress={handleLogout}
+          >
             <LogOut size={20} color={theme.colors.error} strokeWidth={2} />
             <Text style={[styles.logoutText, { color: theme.colors.error }]}>Logout</Text>
-          </TouchableOpacity>
-        </View>
+          </AnimatedPressable>
+        </Animated.View>
       </ScrollView>
     </SafeAreaView>
   );

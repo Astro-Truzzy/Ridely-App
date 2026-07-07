@@ -31,5 +31,9 @@ yarn-error.*
 .env*.local
 .env
 
+# Firebase service account key (FCM) - do not commit; use with eas credentials
+*firebase*service*account*.json
+*-firebase-adminsdk-*.json
+
 # typescript
 *.tsbuildinfo

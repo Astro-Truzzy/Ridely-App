@@ -7,12 +7,15 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   ScrollView,
   Pressable,
   Image,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import {
   ArrowLeft,
   User,
@@ -22,22 +25,41 @@ import {
   Eye,
   EyeOff,
   Package,
+  ShoppingBag,
+  Bike,
+  CheckCircle,
+  AlertCircle,
 } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { useAlert } from '@/contexts/AlertContext';
 import { useLogo } from '@/hooks/useLogo';
+import {
+  validateEmail,
+  validatePhone,
+  formatPhoneNumber,
+  getPasswordStrength,
+} from '@/utils/validation';
+import { GoogleLogo, FacebookLogo, AppleLogo } from '@/lib/SocialIcons';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
+  FadeInDown,
 } from 'react-native-reanimated';
+import {
+  getEnabledOAuthProviders,
+  OAuthProvider,
+  startOAuth,
+} from '@/lib/socialAuth';
 
 export default function SignupScreen() {
-  const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { theme, isDark } = useTheme();
   const { logo } = useLogo();
   const { signUp } = useAuth();
+  const { showAlert } = useAlert();
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -50,36 +72,77 @@ export default function SignupScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [userType, setUserType] = useState<'user' | 'rider'>('user');
+  const [validationErrors, setValidationErrors] = useState<
+    Record<string, string>
+  >({});
+  const [touchedFields, setTouchedFields] = useState<Set<string>>(new Set());
 
-  const handleSignup = async () => {
-    // Validation
-    if (
-      !formData.fullName ||
-      !formData.email ||
-      !formData.phone ||
-      !formData.password
-    ) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
+  const passwordStrength = getPasswordStrength(formData.password);
+  const enabledProviders = getEnabledOAuthProviders();
+
+  const handleSocialSignup = async (provider: OAuthProvider) => {
+    setIsLoading(true);
+    try {
+      const result = await startOAuth(provider, { userType });
+      if (result === 'cancel') {
+        showAlert('Social Signup', 'Sign-up was cancelled.');
+        return;
+      }
+      router.replace('/');
+    } catch (e) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : 'Social signup could not be started. Check provider setup in Supabase.';
+      showAlert('Social Signup', msg);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+
+    if (!formData.fullName.trim()) {
+      errors.fullName = 'Full name is required';
     }
 
-    if (!formData.email.includes('@')) {
-      Alert.alert('Error', 'Please enter a valid email address');
-      return;
+    if (!formData.email.trim()) {
+      errors.email = 'Email is required';
+    } else if (!validateEmail(formData.email)) {
+      errors.email = 'Please enter a valid email address';
     }
 
-    if (formData.password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
-      return;
+    if (!formData.phone.trim()) {
+      errors.phone = 'Phone number is required';
+    } else if (!validatePhone(formData.phone)) {
+      errors.phone = 'Please enter a valid phone number';
     }
 
-    if (formData.password !== formData.confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
-      return;
+    if (!formData.password) {
+      errors.password = 'Password is required';
+    } else if (formData.password.length < 6) {
+      errors.password = 'Password must be at least 6 characters';
+    } else if (passwordStrength.strength === 'weak') {
+      errors.password = 'Password is too weak';
+    }
+
+    if (!formData.confirmPassword) {
+      errors.confirmPassword = 'Please confirm your password';
+    } else if (formData.password !== formData.confirmPassword) {
+      errors.confirmPassword = 'Passwords do not match';
     }
 
     if (!acceptTerms) {
-      Alert.alert('Error', 'Please accept the terms and conditions');
+      errors.terms = 'Please accept the terms and conditions';
+    }
+
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSignup = async () => {
+    if (!validateForm()) {
       return;
     }
 
@@ -93,64 +156,68 @@ export default function SignupScreen() {
           fullName: formData.fullName,
           phone: formData.phone,
         },
-        userType
+        userType,
       );
-      
+
       // If we get here without error, check if email confirmation is needed
       // (signUp returns successfully when email confirmation is required)
       // Show success message for email confirmation
-      Alert.alert(
+      showAlert(
         'Check Your Email 📧',
-        'We\'ve sent you a confirmation email. Please check your inbox and click the confirmation link to activate your account. Once confirmed, you can sign in.',
+        "We've sent you a confirmation email. Please check your inbox and click the confirmation link to activate your account. Once confirmed, you can sign in.",
         [
           {
             text: 'OK',
-            onPress: () => router.replace('/(auth)/login')
-          }
-        ]
+            onPress: () => router.replace('/(auth)/login'),
+          },
+        ],
       );
     } catch (error: any) {
       console.error('Signup error:', error);
-      
+
       // Handle specific error messages
       if (error.message) {
         if (error.message.includes('ACCOUNT_EXISTS')) {
           // User already has an account - show friendly message
-          Alert.alert(
+          showAlert(
             'Account Already Exists',
             'An account with this email already exists. Please sign in instead.',
             [
               {
                 text: 'Cancel',
-                style: 'cancel'
+                style: 'cancel',
               },
               {
                 text: 'Go to Sign In',
-                onPress: () => router.replace('/(auth)/login')
-              }
-            ]
+                onPress: () => router.replace('/(auth)/login'),
+              },
+            ],
           );
         } else if (error.message.includes('EMAIL_CONFIRMATION_REQUIRED')) {
           // This shouldn't happen anymore, but handle it just in case
-          Alert.alert(
+          showAlert(
             'Check Your Email 📧',
-            'We\'ve sent you a confirmation email. Please check your inbox and click the confirmation link to activate your account. Then you can sign in.',
+            "We've sent you a confirmation email. Please check your inbox and click the confirmation link to activate your account. Then you can sign in.",
             [
               {
                 text: 'OK',
-                onPress: () => router.replace('/(auth)/login')
-              }
-            ]
+                onPress: () => router.replace('/(auth)/login'),
+              },
+            ],
           );
         } else {
           // Generic error - show user-friendly message
-          const errorMsg = error.message || 'An unexpected error occurred. Please try again.';
-          Alert.alert('Signup Failed', errorMsg);
+          const errorMsg =
+            error.message || 'An unexpected error occurred. Please try again.';
+          showAlert('Signup Failed', errorMsg);
         }
       } else {
-        Alert.alert('Signup Failed', 'An unexpected error occurred. Please try again.');
+        showAlert(
+          'Signup Failed',
+          'An unexpected error occurred. Please try again.',
+        );
       }
-      
+
       setIsLoading(false);
     } finally {
       setIsLoading(false);
@@ -158,7 +225,28 @@ export default function SignupScreen() {
   };
 
   const updateFormData = (key: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [key]: value }));
+    setFormData((prev) => {
+      const updated = { ...prev, [key]: value };
+      if (key === 'phone') {
+        updated[key] = formatPhoneNumber(value);
+      }
+      return updated;
+    });
+
+    setTouchedFields((prev) => new Set(prev).add(key));
+
+    if (validationErrors[key]) {
+      setValidationErrors((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  };
+
+  const getFieldError = (field: string): string | null => {
+    if (!touchedFields.has(field)) return null;
+    return validationErrors[field] || null;
   };
 
   // Animated scale for button
@@ -173,423 +261,772 @@ export default function SignupScreen() {
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: theme.colors.background }}
+      edges={['left', 'right', 'bottom']}
     >
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <View style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
+          {/* Header */}
+          <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => router.back()}
+            >
+              <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={styles.scrollView}
+            showsVerticalScrollIndicator={false}
           >
-            <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView
-          style={styles.scrollView}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.content}>
-            {/* Logo */}
-            <View style={styles.logoSection}>
-              <Image source={logo} style={styles.logoImage} />
-              <Text style={[styles.title, { color: theme.colors.text }]}>
-                Create Account
-              </Text>
-              <Text
-                style={[styles.subtitle, { color: theme.colors.textSecondary }]}
-              >
-                Sign up to get started with Ridely
-              </Text>
-            </View>
-
-            {/* Form */}
-            <View style={styles.form}>
-              {/* User Type Selection */}
-              <View style={styles.inputGroup}>
-                <Text style={[styles.inputLabel, { color: theme.colors.text }]}>
-                  Account Type
+            <View style={styles.content}>
+              {/* Logo */}
+              <View style={styles.logoSection}>
+                <Image source={logo} style={styles.logoImage} />
+                <Text style={[styles.title, { color: theme.colors.text }]}>
+                  Create Account
                 </Text>
-                <View style={styles.userTypeContainer}>
-                  <TouchableOpacity
-                    style={[
-                      styles.userTypeButton,
-                      {
-                        backgroundColor: theme.colors.surface,
-                        borderColor: theme.colors.border,
-                      },
-                      userType === 'user' && {
-                        backgroundColor: theme.colors.primary,
-                        borderColor: theme.colors.primary,
-                      },
-                    ]}
-                    onPress={() => setUserType('user')}
-                  >
-                    <Text
-                      style={[
-                        styles.userTypeText,
-                        {
-                          color:
-                            userType === 'user' ? '#FFFFFF' : theme.colors.text,
-                        },
-                      ]}
-                    >
-                      Customer
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.userTypeButton,
-                      {
-                        backgroundColor: theme.colors.surface,
-                        borderColor: theme.colors.border,
-                      },
-                      userType === 'rider' && {
-                        backgroundColor: theme.colors.primary,
-                        borderColor: theme.colors.primary,
-                      },
-                    ]}
-                    onPress={() => setUserType('rider')}
-                  >
-                    <Text
-                      style={[
-                        styles.userTypeText,
-                        {
-                          color:
-                            userType === 'rider'
-                              ? '#FFFFFF'
-                              : theme.colors.text,
-                        },
-                      ]}
-                    >
-                      Rider
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={[styles.inputLabel, { color: theme.colors.text }]}>
-                  Full Name
-                </Text>
-                <View
-                  style={[
-                    styles.inputContainer,
-                    {
-                      backgroundColor: theme.colors.surface,
-                      borderColor: theme.colors.border,
-                    },
-                  ]}
-                >
-                  <User
-                    size={20}
-                    color={theme.colors.textSecondary}
-                    strokeWidth={2}
-                  />
-                  <TextInput
-                    style={[styles.input, { color: theme.colors.text }]}
-                    placeholder="Enter your full name"
-                    placeholderTextColor={theme.colors.textTertiary}
-                    value={formData.fullName}
-                    onChangeText={(text) => updateFormData('fullName', text)}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={[styles.inputLabel, { color: theme.colors.text }]}>
-                  Email Address
-                </Text>
-                <View
-                  style={[
-                    styles.inputContainer,
-                    {
-                      backgroundColor: theme.colors.surface,
-                      borderColor: theme.colors.border,
-                    },
-                  ]}
-                >
-                  <Mail
-                    size={20}
-                    color={theme.colors.textSecondary}
-                    strokeWidth={2}
-                  />
-                  <TextInput
-                    style={[styles.input, { color: theme.colors.text }]}
-                    placeholder="Enter your email"
-                    placeholderTextColor={theme.colors.textTertiary}
-                    value={formData.email}
-                    onChangeText={(text) => updateFormData('email', text)}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={[styles.inputLabel, { color: theme.colors.text }]}>
-                  Phone Number
-                </Text>
-                <View
-                  style={[
-                    styles.inputContainer,
-                    {
-                      backgroundColor: theme.colors.surface,
-                      borderColor: theme.colors.border,
-                    },
-                  ]}
-                >
-                  <Phone
-                    size={20}
-                    color={theme.colors.textSecondary}
-                    strokeWidth={2}
-                  />
-                  <TextInput
-                    style={[styles.input, { color: theme.colors.text }]}
-                    placeholder="Enter your phone number"
-                    placeholderTextColor={theme.colors.textTertiary}
-                    value={formData.phone}
-                    onChangeText={(text) => updateFormData('phone', text)}
-                    keyboardType="phone-pad"
-                  />
-                </View>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={[styles.inputLabel, { color: theme.colors.text }]}>
-                  Password
-                </Text>
-                <View
-                  style={[
-                    styles.inputContainer,
-                    {
-                      backgroundColor: theme.colors.surface,
-                      borderColor: theme.colors.border,
-                    },
-                  ]}
-                >
-                  <Lock
-                    size={20}
-                    color={theme.colors.textSecondary}
-                    strokeWidth={2}
-                  />
-                  <TextInput
-                    style={[styles.passwordInput, { color: theme.colors.text }]}
-                    placeholder="Create a password"
-                    placeholderTextColor={theme.colors.textTertiary}
-                    value={formData.password}
-                    onChangeText={(text) => updateFormData('password', text)}
-                    secureTextEntry={!showPassword}
-                  />
-                  <TouchableOpacity
-                    style={styles.eyeButton}
-                    onPress={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? (
-                      <EyeOff
-                        size={20}
-                        color={theme.colors.textSecondary}
-                        strokeWidth={2}
-                      />
-                    ) : (
-                      <Eye
-                        size={20}
-                        color={theme.colors.textSecondary}
-                        strokeWidth={2}
-                      />
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={[styles.inputLabel, { color: theme.colors.text }]}>
-                  Confirm Password
-                </Text>
-                <View
-                  style={[
-                    styles.inputContainer,
-                    {
-                      backgroundColor: theme.colors.surface,
-                      borderColor: theme.colors.border,
-                    },
-                  ]}
-                >
-                  <Lock
-                    size={20}
-                    color={theme.colors.textSecondary}
-                    strokeWidth={2}
-                  />
-                  <TextInput
-                    style={[styles.passwordInput, { color: theme.colors.text }]}
-                    placeholder="Confirm your password"
-                    placeholderTextColor={theme.colors.textTertiary}
-                    value={formData.confirmPassword}
-                    onChangeText={(text) =>
-                      updateFormData('confirmPassword', text)
-                    }
-                    secureTextEntry={!showConfirmPassword}
-                  />
-                  <TouchableOpacity
-                    style={styles.eyeButton}
-                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                  >
-                    {showConfirmPassword ? (
-                      <EyeOff
-                        size={20}
-                        color={theme.colors.textSecondary}
-                        strokeWidth={2}
-                      />
-                    ) : (
-                      <Eye
-                        size={20}
-                        color={theme.colors.textSecondary}
-                        strokeWidth={2}
-                      />
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* Terms and Conditions */}
-              <TouchableOpacity
-                style={styles.termsContainer}
-                onPress={() => setAcceptTerms(!acceptTerms)}
-              >
-                <View
-                  style={[
-                    styles.checkbox,
-                    { borderColor: theme.colors.border },
-                    acceptTerms && {
-                      backgroundColor: theme.colors.primary,
-                      borderColor: theme.colors.primary,
-                    },
-                  ]}
-                >
-                  {acceptTerms && <Text style={styles.checkmark}>✓</Text>}
-                </View>
                 <Text
                   style={[
-                    styles.termsText,
+                    styles.subtitle,
                     { color: theme.colors.textSecondary },
                   ]}
                 >
-                  I agree to the{' '}
-                  <Text
-                    style={[styles.termsLink, { color: theme.colors.primary }]}
-                  >
-                    Terms of Service
-                  </Text>{' '}
-                  and{' '}
-                  <Text
-                    style={[styles.termsLink, { color: theme.colors.primary }]}
-                  >
-                    Privacy Policy
-                  </Text>
+                  Sign up to get started with Ridely
                 </Text>
-              </TouchableOpacity>
+              </View>
 
-              <Pressable
-                onPressIn={() => (scale.value = 0.95)}
-                onPressOut={() => (scale.value = 1)}
-                onPress={handleSignup}
-                disabled={isLoading}
-              >
-                <Animated.View
+              {/* Form */}
+              <View style={styles.form}>
+                {/* User Type Selection */}
+                <View style={styles.inputGroup}>
+                  <Text
+                    style={[styles.inputLabel, { color: theme.colors.text }]}
+                  >
+                    I want to
+                  </Text>
+                  <View style={styles.userTypeContainer}>
+                    <TouchableOpacity
+                      style={[
+                        styles.userTypeCard,
+                        {
+                          backgroundColor: theme.colors.surface,
+                          borderColor: theme.colors.border,
+                        },
+                        userType === 'user' && {
+                          backgroundColor: `${theme.colors.primary}15`,
+                          borderColor: theme.colors.primary,
+                          borderWidth: 2,
+                        },
+                      ]}
+                      onPress={() => setUserType('user')}
+                    >
+                      <View
+                        style={[
+                          styles.userTypeIcon,
+                          {
+                            backgroundColor:
+                              userType === 'user'
+                                ? theme.colors.primary
+                                : theme.colors.border,
+                          },
+                        ]}
+                      >
+                        <ShoppingBag
+                          size={24}
+                          color={
+                            userType === 'user'
+                              ? '#FFFFFF'
+                              : theme.colors.textSecondary
+                          }
+                          strokeWidth={2}
+                        />
+                      </View>
+                      <Text
+                        style={[
+                          styles.userTypeTitle,
+                          {
+                            color:
+                              userType === 'user'
+                                ? theme.colors.primary
+                                : theme.colors.text,
+                          },
+                        ]}
+                      >
+                        Send Packages
+                      </Text>
+                      <Text
+                        style={[
+                          styles.userTypeDescription,
+                          { color: theme.colors.textSecondary },
+                        ]}
+                      >
+                        Book deliveries
+                      </Text>
+                      {userType === 'user' && (
+                        <View style={styles.selectedBadge}>
+                          <CheckCircle size={16} color={theme.colors.primary} />
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.userTypeCard,
+                        {
+                          backgroundColor: theme.colors.surface,
+                          borderColor: theme.colors.border,
+                        },
+                        userType === 'rider' && {
+                          backgroundColor: `${theme.colors.primary}15`,
+                          borderColor: theme.colors.primary,
+                          borderWidth: 2,
+                        },
+                      ]}
+                      onPress={() => setUserType('rider')}
+                    >
+                      <View
+                        style={[
+                          styles.userTypeIcon,
+                          {
+                            backgroundColor:
+                              userType === 'rider'
+                                ? theme.colors.primary
+                                : theme.colors.border,
+                          },
+                        ]}
+                      >
+                        <Bike
+                          size={24}
+                          color={
+                            userType === 'rider'
+                              ? '#FFFFFF'
+                              : theme.colors.textSecondary
+                          }
+                          strokeWidth={2}
+                        />
+                      </View>
+                      <Text
+                        style={[
+                          styles.userTypeTitle,
+                          {
+                            color:
+                              userType === 'rider'
+                                ? theme.colors.primary
+                                : theme.colors.text,
+                          },
+                        ]}
+                      >
+                        Deliver Packages
+                      </Text>
+                      <Text
+                        style={[
+                          styles.userTypeDescription,
+                          { color: theme.colors.textSecondary },
+                        ]}
+                      >
+                        Earn as a rider
+                      </Text>
+                      {userType === 'rider' && (
+                        <View style={styles.selectedBadge}>
+                          <CheckCircle size={16} color={theme.colors.primary} />
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text
+                    style={[styles.inputLabel, { color: theme.colors.text }]}
+                  >
+                    Full Name
+                  </Text>
+                  <View
+                    style={[
+                      styles.inputContainer,
+                      {
+                        backgroundColor: theme.colors.surface,
+                        borderColor: getFieldError('fullName')
+                          ? theme.colors.error
+                          : theme.colors.border,
+                      },
+                    ]}
+                  >
+                    <User
+                      size={20}
+                      color={
+                        getFieldError('fullName')
+                          ? theme.colors.error
+                          : theme.colors.textSecondary
+                      }
+                      strokeWidth={2}
+                    />
+                    <TextInput
+                      style={[styles.input, { color: theme.colors.text }]}
+                      placeholder="Enter your full name"
+                      placeholderTextColor={theme.colors.textTertiary}
+                      value={formData.fullName}
+                      onChangeText={(text) => updateFormData('fullName', text)}
+                      onBlur={() =>
+                        setTouchedFields((prev) =>
+                          new Set(prev).add('fullName'),
+                        )
+                      }
+                    />
+                  </View>
+                  {getFieldError('fullName') && (
+                    <Animated.View
+                      entering={FadeInDown}
+                      style={styles.errorContainer}
+                    >
+                      <AlertCircle size={14} color={theme.colors.error} />
+                      <Text
+                        style={[
+                          styles.errorText,
+                          { color: theme.colors.error },
+                        ]}
+                      >
+                        {getFieldError('fullName')}
+                      </Text>
+                    </Animated.View>
+                  )}
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text
+                    style={[styles.inputLabel, { color: theme.colors.text }]}
+                  >
+                    Email Address
+                  </Text>
+                  <View
+                    style={[
+                      styles.inputContainer,
+                      {
+                        backgroundColor: theme.colors.surface,
+                        borderColor: getFieldError('email')
+                          ? theme.colors.error
+                          : theme.colors.border,
+                      },
+                    ]}
+                  >
+                    <Mail
+                      size={20}
+                      color={
+                        getFieldError('email')
+                          ? theme.colors.error
+                          : theme.colors.textSecondary
+                      }
+                      strokeWidth={2}
+                    />
+                    <TextInput
+                      style={[styles.input, { color: theme.colors.text }]}
+                      placeholder="Enter your email"
+                      placeholderTextColor={theme.colors.textTertiary}
+                      value={formData.email}
+                      onChangeText={(text) => updateFormData('email', text)}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      onBlur={() =>
+                        setTouchedFields((prev) => new Set(prev).add('email'))
+                      }
+                    />
+                    {formData.email &&
+                      !getFieldError('email') &&
+                      validateEmail(formData.email) && (
+                        <CheckCircle size={18} color={theme.colors.success} />
+                      )}
+                  </View>
+                  {getFieldError('email') && (
+                    <Animated.View
+                      entering={FadeInDown}
+                      style={styles.errorContainer}
+                    >
+                      <AlertCircle size={14} color={theme.colors.error} />
+                      <Text
+                        style={[
+                          styles.errorText,
+                          { color: theme.colors.error },
+                        ]}
+                      >
+                        {getFieldError('email')}
+                      </Text>
+                    </Animated.View>
+                  )}
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text
+                    style={[styles.inputLabel, { color: theme.colors.text }]}
+                  >
+                    Phone Number
+                  </Text>
+                  <View
+                    style={[
+                      styles.inputContainer,
+                      {
+                        backgroundColor: theme.colors.surface,
+                        borderColor: getFieldError('phone')
+                          ? theme.colors.error
+                          : theme.colors.border,
+                      },
+                    ]}
+                  >
+                    <Phone
+                      size={20}
+                      color={
+                        getFieldError('phone')
+                          ? theme.colors.error
+                          : theme.colors.textSecondary
+                      }
+                      strokeWidth={2}
+                    />
+                    <TextInput
+                      style={[styles.input, { color: theme.colors.text }]}
+                      placeholder="080 123 4567"
+                      placeholderTextColor={theme.colors.textTertiary}
+                      value={formData.phone}
+                      onChangeText={(text) => updateFormData('phone', text)}
+                      keyboardType="phone-pad"
+                      maxLength={15}
+                      onBlur={() =>
+                        setTouchedFields((prev) => new Set(prev).add('phone'))
+                      }
+                    />
+                    {formData.phone &&
+                      !getFieldError('phone') &&
+                      validatePhone(formData.phone) && (
+                        <CheckCircle size={18} color={theme.colors.success} />
+                      )}
+                  </View>
+                  {getFieldError('phone') && (
+                    <Animated.View
+                      entering={FadeInDown}
+                      style={styles.errorContainer}
+                    >
+                      <AlertCircle size={14} color={theme.colors.error} />
+                      <Text
+                        style={[
+                          styles.errorText,
+                          { color: theme.colors.error },
+                        ]}
+                      >
+                        {getFieldError('phone')}
+                      </Text>
+                    </Animated.View>
+                  )}
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text
+                    style={[styles.inputLabel, { color: theme.colors.text }]}
+                  >
+                    Password
+                  </Text>
+                  <View
+                    style={[
+                      styles.inputContainer,
+                      {
+                        backgroundColor: theme.colors.surface,
+                        borderColor: getFieldError('password')
+                          ? theme.colors.error
+                          : theme.colors.border,
+                      },
+                    ]}
+                  >
+                    <Lock
+                      size={20}
+                      color={
+                        getFieldError('password')
+                          ? theme.colors.error
+                          : theme.colors.textSecondary
+                      }
+                      strokeWidth={2}
+                    />
+                    <TextInput
+                      style={[
+                        styles.passwordInput,
+                        { color: theme.colors.text },
+                      ]}
+                      placeholder="Create a password"
+                      placeholderTextColor={theme.colors.textTertiary}
+                      value={formData.password}
+                      onChangeText={(text) => updateFormData('password', text)}
+                      secureTextEntry={!showPassword}
+                      onBlur={() =>
+                        setTouchedFields((prev) =>
+                          new Set(prev).add('password'),
+                        )
+                      }
+                    />
+                    <TouchableOpacity
+                      style={styles.eyeButton}
+                      onPress={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? (
+                        <EyeOff
+                          size={20}
+                          color={theme.colors.textSecondary}
+                          strokeWidth={2}
+                        />
+                      ) : (
+                        <Eye
+                          size={20}
+                          color={theme.colors.textSecondary}
+                          strokeWidth={2}
+                        />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                  {formData.password && (
+                    <View style={styles.passwordStrengthContainer}>
+                      <View style={styles.passwordStrengthBar}>
+                        {[1, 2, 3, 4].map((i) => (
+                          <View
+                            key={i}
+                            style={[
+                              styles.passwordStrengthSegment,
+                              {
+                                backgroundColor:
+                                  passwordStrength.score >= i
+                                    ? passwordStrength.strength === 'weak'
+                                      ? theme.colors.error
+                                      : passwordStrength.strength === 'fair'
+                                        ? theme.colors.warning
+                                        : theme.colors.success
+                                    : theme.colors.border,
+                              },
+                            ]}
+                          />
+                        ))}
+                      </View>
+                      <Text
+                        style={[
+                          styles.passwordStrengthText,
+                          {
+                            color:
+                              passwordStrength.strength === 'weak'
+                                ? theme.colors.error
+                                : passwordStrength.strength === 'fair'
+                                  ? theme.colors.warning
+                                  : theme.colors.success,
+                          },
+                        ]}
+                      >
+                        {passwordStrength.strength.charAt(0).toUpperCase() +
+                          passwordStrength.strength.slice(1)}
+                      </Text>
+                    </View>
+                  )}
+                  {getFieldError('password') && (
+                    <Animated.View
+                      entering={FadeInDown}
+                      style={styles.errorContainer}
+                    >
+                      <AlertCircle size={14} color={theme.colors.error} />
+                      <Text
+                        style={[
+                          styles.errorText,
+                          { color: theme.colors.error },
+                        ]}
+                      >
+                        {getFieldError('password')}
+                      </Text>
+                    </Animated.View>
+                  )}
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text
+                    style={[styles.inputLabel, { color: theme.colors.text }]}
+                  >
+                    Confirm Password
+                  </Text>
+                  <View
+                    style={[
+                      styles.inputContainer,
+                      {
+                        backgroundColor: theme.colors.surface,
+                        borderColor: getFieldError('confirmPassword')
+                          ? theme.colors.error
+                          : theme.colors.border,
+                      },
+                    ]}
+                  >
+                    <Lock
+                      size={20}
+                      color={
+                        getFieldError('confirmPassword')
+                          ? theme.colors.error
+                          : theme.colors.textSecondary
+                      }
+                      strokeWidth={2}
+                    />
+                    <TextInput
+                      style={[
+                        styles.passwordInput,
+                        { color: theme.colors.text },
+                      ]}
+                      placeholder="Confirm your password"
+                      placeholderTextColor={theme.colors.textTertiary}
+                      value={formData.confirmPassword}
+                      onChangeText={(text) =>
+                        updateFormData('confirmPassword', text)
+                      }
+                      secureTextEntry={!showConfirmPassword}
+                      onBlur={() =>
+                        setTouchedFields((prev) =>
+                          new Set(prev).add('confirmPassword'),
+                        )
+                      }
+                    />
+                    <TouchableOpacity
+                      style={styles.eyeButton}
+                      onPress={() =>
+                        setShowConfirmPassword(!showConfirmPassword)
+                      }
+                    >
+                      {showConfirmPassword ? (
+                        <EyeOff
+                          size={20}
+                          color={theme.colors.textSecondary}
+                          strokeWidth={2}
+                        />
+                      ) : (
+                        <Eye
+                          size={20}
+                          color={theme.colors.textSecondary}
+                          strokeWidth={2}
+                        />
+                      )}
+                    </TouchableOpacity>
+                    {formData.confirmPassword &&
+                      !getFieldError('confirmPassword') &&
+                      formData.password === formData.confirmPassword && (
+                        <CheckCircle size={18} color={theme.colors.success} />
+                      )}
+                  </View>
+                  {getFieldError('confirmPassword') && (
+                    <Animated.View
+                      entering={FadeInDown}
+                      style={styles.errorContainer}
+                    >
+                      <AlertCircle size={14} color={theme.colors.error} />
+                      <Text
+                        style={[
+                          styles.errorText,
+                          { color: theme.colors.error },
+                        ]}
+                      >
+                        {getFieldError('confirmPassword')}
+                      </Text>
+                    </Animated.View>
+                  )}
+                </View>
+
+                {/* Terms and Conditions */}
+                <View style={styles.termsSection}>
+                  <TouchableOpacity
+                    style={styles.termsContainer}
+                    onPress={() => setAcceptTerms(!acceptTerms)}
+                  >
+                    <View
+                      style={[
+                        styles.checkbox,
+                        { borderColor: theme.colors.border },
+                        acceptTerms && {
+                          backgroundColor: theme.colors.primary,
+                          borderColor: theme.colors.primary,
+                        },
+                        getFieldError('terms') && {
+                          borderColor: theme.colors.error,
+                        },
+                      ]}
+                    >
+                      {acceptTerms && <Text style={styles.checkmark}>✓</Text>}
+                    </View>
+                    <Text
+                      style={[
+                        styles.termsText,
+                        { color: theme.colors.textSecondary },
+                      ]}
+                    >
+                      I agree to the{' '}
+                      <Text
+                        style={[
+                          styles.termsLink,
+                          { color: theme.colors.primary },
+                        ]}
+                        onPress={() => router.push('/terms-of-service')}
+                      >
+                        Terms of Service
+                      </Text>{' '}
+                      and{' '}
+                      <Text
+                        style={[
+                          styles.termsLink,
+                          { color: theme.colors.primary },
+                        ]}
+                        onPress={() => router.push('/privacy-policy')}
+                      >
+                        Privacy Policy
+                      </Text>
+                    </Text>
+                  </TouchableOpacity>
+                  {getFieldError('terms') && (
+                    <Animated.View
+                      entering={FadeInDown}
+                      style={styles.errorContainer}
+                    >
+                      <AlertCircle size={14} color={theme.colors.error} />
+                      <Text
+                        style={[
+                          styles.errorText,
+                          { color: theme.colors.error },
+                        ]}
+                      >
+                        {getFieldError('terms')}
+                      </Text>
+                    </Animated.View>
+                  )}
+                </View>
+
+                <Pressable
+                  onPressIn={() => (scale.value = 0.95)}
+                  onPressOut={() => (scale.value = 1)}
+                  onPress={handleSignup}
+                  disabled={isLoading}
+                >
+                  <Animated.View
+                    style={[
+                      styles.signupButton,
+                      { backgroundColor: theme.colors.primary },
+                      isLoading && {
+                        backgroundColor: theme.colors.textTertiary,
+                      },
+                      animatedStyle,
+                    ]}
+                  >
+                    <Text style={styles.signupButtonText}>
+                      {isLoading ? 'Creating Account...' : 'Create Account'}
+                    </Text>
+                  </Animated.View>
+                </Pressable>
+              </View>
+
+              {/* Divider */}
+              <View style={styles.divider}>
+                <View
                   style={[
-                    styles.signupButton,
-                    { backgroundColor: theme.colors.primary },
-                    isLoading && { backgroundColor: theme.colors.textTertiary },
-                    animatedStyle,
+                    styles.dividerLine,
+                    { backgroundColor: theme.colors.border },
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.dividerText,
+                    { color: theme.colors.textSecondary },
                   ]}
                 >
-                  <Text style={styles.signupButtonText}>
-                    {isLoading ? 'Creating Account...' : 'Create Account'}
-                  </Text>
-                </Animated.View>
-              </Pressable>
-            </View>
+                  Or sign up with
+                </Text>
+                <View
+                  style={[
+                    styles.dividerLine,
+                    { backgroundColor: theme.colors.border },
+                  ]}
+                />
+              </View>
 
-            {/* Divider */}
-            <View style={styles.divider}>
-              <View
-                style={[
-                  styles.dividerLine,
-                  { backgroundColor: theme.colors.border },
-                ]}
-              />
-              <Text
-                style={[
-                  styles.dividerText,
-                  { color: theme.colors.textSecondary },
-                ]}
-              >
-                Or sign up with
+              {/* Social Signup */}
+              {enabledProviders.length > 0 ? (
+                <View style={styles.socialContainer}>
+                  {enabledProviders.includes('google') ? (
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      style={[
+                        styles.socialButton,
+                        {
+                          backgroundColor: theme.colors.surface,
+                          borderColor: theme.colors.border,
+                          ...theme.shadows?.small,
+                        },
+                      ]}
+                      onPress={() => handleSocialSignup('google')}
+                    >
+                      <View style={styles.socialIconWrapper}>
+                        <GoogleLogo size={26} />
+                      </View>
+                    </TouchableOpacity>
+                  ) : null}
+                  {enabledProviders.includes('facebook') ? (
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      style={[
+                        styles.socialButton,
+                        {
+                          backgroundColor: theme.colors.surface,
+                          borderColor: theme.colors.border,
+                          ...theme.shadows?.small,
+                        },
+                      ]}
+                      onPress={() => handleSocialSignup('facebook')}
+                    >
+                      <View style={styles.socialIconWrapper}>
+                        <FacebookLogo size={26} color={theme.colors.text} />
+                      </View>
+                    </TouchableOpacity>
+                  ) : null}
+                  {enabledProviders.includes('apple') ? (
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      style={[
+                        styles.socialButton,
+                        {
+                          backgroundColor: theme.colors.surface,
+                          borderColor: theme.colors.border,
+                          ...theme.shadows?.small,
+                        },
+                      ]}
+                      onPress={() => handleSocialSignup('apple')}
+                    >
+                      <View style={styles.socialIconWrapper}>
+                        <AppleLogo size={26} color={theme.colors.text} />
+                      </View>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              ) : (
+                <Text
+                  style={[
+                    styles.socialDisabledText,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  Social sign-up is currently unavailable.
+                </Text>
+              )}
+            </View>
+          </ScrollView>
+
+          {/* Bottom */}
+          <View style={styles.bottomContainer}>
+            <TouchableOpacity onPress={() => router.push('/(auth)/login')}>
+              <Text style={styles.loginText}>
+                Already have an account?{' '}
+                <Text
+                  style={[styles.loginLink, { color: theme.colors.primary }]}
+                >
+                  Sign In
+                </Text>
               </Text>
-              <View
-                style={[
-                  styles.dividerLine,
-                  { backgroundColor: theme.colors.border },
-                ]}
-              />
-            </View>
-
-            {/* Social Signup */}
-            <View style={styles.socialContainer}>
-              <TouchableOpacity
-                style={[
-                  styles.socialButton,
-                  {
-                    backgroundColor: theme.colors.surface,
-                    borderColor: theme.colors.border,
-                  },
-                ]}
-              >
-                <Text style={styles.socialButtonText}>G</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.socialButton,
-                  {
-                    backgroundColor: theme.colors.surface,
-                    borderColor: theme.colors.border,
-                  },
-                ]}
-              >
-                <Text style={styles.socialButtonText}>f</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.socialButton,
-                  {
-                    backgroundColor: theme.colors.surface,
-                    borderColor: theme.colors.border,
-                  },
-                ]}
-              >
-                <Text style={styles.socialButtonText}>🍎</Text>
-              </TouchableOpacity>
-            </View>
+            </TouchableOpacity>
           </View>
-        </ScrollView>
-
-        {/* Bottom */}
-        <View style={styles.bottomContainer}>
-          <TouchableOpacity onPress={() => router.push('/(auth)/login')}>
-            <Text style={styles.loginText}>
-              Already have an account?{' '}
-              <Text style={[styles.loginLink, { color: theme.colors.primary }]}>
-                Sign In
-              </Text>
-            </Text>
-          </TouchableOpacity>
         </View>
-      </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -626,10 +1063,10 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   logoImage: {
-    width: 80,
-    height: 80,
+    width: 120,
+    height: 120,
     resizeMode: 'contain',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   title: {
     fontSize: 28,
@@ -726,20 +1163,32 @@ const styles = StyleSheet.create({
   socialContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 16,
+    alignItems: 'center',
+    gap: 20,
     marginBottom: 32,
   },
   socialButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
-  socialButtonText: {
-    fontSize: 20,
-    fontWeight: '600',
+  socialIconWrapper: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  socialDisabledText: {
+    textAlign: 'center',
+    marginTop: -6,
+    marginBottom: 14,
+    fontSize: 13,
   },
   bottomContainer: {
     paddingHorizontal: 24,
@@ -757,15 +1206,69 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
   },
-  userTypeButton: {
+  userTypeCard: {
     flex: 1,
-    paddingVertical: 16,
-    borderRadius: 12,
+    padding: 20,
+    borderRadius: 16,
     alignItems: 'center',
     borderWidth: 1,
+    position: 'relative',
   },
-  userTypeText: {
+  userTypeIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  userTypeTitle: {
     fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  userTypeDescription: {
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  selectedBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    gap: 6,
+  },
+  errorText: {
+    fontSize: 13,
+  },
+  passwordStrengthContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 8,
+  },
+  passwordStrengthBar: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 4,
+    height: 4,
+  },
+  passwordStrengthSegment: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+  },
+  passwordStrengthText: {
+    fontSize: 12,
     fontWeight: '600',
+    minWidth: 50,
+  },
+  termsSection: {
+    marginBottom: 24,
   },
 });
