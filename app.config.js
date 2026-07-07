@@ -12,13 +12,12 @@ export default {
     icon: './assets/images/icon.png',
     scheme: 'Ridely',
     userInterfaceStyle: 'automatic',
-    // react-native-maps: no plugin in v1.20; android/ios Google keys below are used at prebuild.
-    // For full plugin support (recommended), upgrade: npm install react-native-maps@latest then add 'react-native-maps' to plugins.
+    // react-native-maps v1.20.x does not expose an Expo config plugin.
+    // Keep native Google Maps keys below; do not add react-native-maps to plugins.
     plugins: [
       'expo-router',
       'expo-font',
       'expo-web-browser',
-      'react-native-maps',
     ],
     experiments: { typedRoutes: true },
     android: {
