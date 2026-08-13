@@ -79,6 +79,49 @@ Deno.serve(async (req) => {
       status: 200,
     });
 
+  const fmtNaira = (n: number) =>
+    `\u20a6${Number(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // In-app receipt + push. Never throws — receipts must not break settlement.
+  const sendReceipt = async (opts: {
+    userId: string;
+    riderId?: string | null;
+    title: string;
+    message: string;
+  }) => {
+    try {
+      const { error } = await supabase.from('notifications').insert({
+        user_id: opts.userId,
+        rider_id: opts.riderId ?? null,
+        type: 'payment',
+        title: opts.title,
+        message: opts.message,
+        read: false,
+        actionable: false,
+      });
+      if (error) console.error('paystack-webhook: receipt notification insert failed', error);
+    } catch (e) {
+      console.error('paystack-webhook: receipt notification insert failed', e);
+    }
+    try {
+      await fetch(`${supabaseUrl}/functions/v1/send-push`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${serviceRoleKey}`,
+          apikey: serviceRoleKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(
+          opts.riderId
+            ? { riderIds: [opts.riderId], title: opts.title, body: opts.message }
+            : { userIds: [opts.userId], title: opts.title, body: opts.message }
+        ),
+      });
+    } catch (e) {
+      console.error('paystack-webhook: receipt push failed', e);
+    }
+  };
+
   if (event.event === 'transfer.success' || event.event === 'transfer.failed' || event.event === 'transfer.reversed') {
     const transferData = event.data as {
       reference?: string;
@@ -90,13 +133,15 @@ Deno.serve(async (req) => {
 
     const { data: payout } = await supabase
       .from('rider_payout_requests')
-      .select('status, earning_ids')
+      .select('status, earning_ids, rider_id, amount')
       .eq('reference', reference)
       .maybeSingle();
 
     if (payout) {
       const payoutStatus = String((payout as { status?: string }).status ?? '');
       const earningIds = ((payout as { earning_ids?: string[] }).earning_ids ?? []) as string[];
+      const payoutRiderId = String((payout as { rider_id?: string }).rider_id ?? '');
+      const payoutAmount = Number((payout as { amount?: number }).amount ?? 0);
 
       if (event.event === 'transfer.success') {
         await supabase
@@ -108,6 +153,15 @@ Deno.serve(async (req) => {
             updated_at: new Date().toISOString(),
           })
           .eq('reference', reference);
+
+        if (payoutRiderId && payoutStatus !== 'transfer_success') {
+          await sendReceipt({
+            userId: payoutRiderId,
+            riderId: payoutRiderId,
+            title: 'Payout successful',
+            message: `${fmtNaira(payoutAmount)} has been sent to your bank account. Ref: ${reference}`,
+          });
+        }
         return ok({ received: true, type: 'transfer.success', kind: 'rider_payout' });
       }
 
@@ -134,6 +188,15 @@ Deno.serve(async (req) => {
           updated_at: new Date().toISOString(),
         })
         .eq('reference', reference);
+
+      if (payoutRiderId && !alreadyReleased) {
+        await sendReceipt({
+          userId: payoutRiderId,
+          riderId: payoutRiderId,
+          title: event.event === 'transfer.reversed' ? 'Payout reversed' : 'Payout failed',
+          message: `Your payout of ${fmtNaira(payoutAmount)} could not be completed. Your earnings have been returned to your available balance.`,
+        });
+      }
       return ok({ received: true, type: event.event, kind: 'rider_payout' });
     }
 
@@ -164,6 +227,14 @@ Deno.serve(async (req) => {
           provider_reference: transferData?.transfer_code ?? reference,
         })
         .eq('reference', reference);
+
+      if (String((withdrawal as { status?: string }).status ?? '') !== 'transfer_success') {
+        await sendReceipt({
+          userId: (withdrawal as { user_id: string }).user_id,
+          title: 'Withdrawal successful',
+          message: `${fmtNaira(Number((withdrawal as { amount: number }).amount))} has been sent to your bank account. Ref: ${reference}`,
+        });
+      }
       return ok({ received: true, type: 'transfer.success' });
     }
 
@@ -194,6 +265,14 @@ Deno.serve(async (req) => {
       .from('transactions')
       .update({ status: event.event === 'transfer.reversed' ? 'reversed' : 'failed' })
       .eq('reference', reference);
+
+    if (!alreadyRefunded) {
+      await sendReceipt({
+        userId: (withdrawal as { user_id: string }).user_id,
+        title: event.event === 'transfer.reversed' ? 'Withdrawal reversed' : 'Withdrawal failed',
+        message: `Your withdrawal of ${fmtNaira(Number((withdrawal as { amount: number }).amount))} could not be completed. The amount has been refunded to your wallet.`,
+      });
+    }
     return ok({ received: true, type: event.event });
   }
 
@@ -302,6 +381,21 @@ Deno.serve(async (req) => {
     if (creditError) {
       console.error('paystack-webhook: credit_wallet rpc error', creditError);
     }
+  }
+
+  // Receipt for the customer. Skip bare card authorizations (add-card flow).
+  if (intent === 'fund_wallet') {
+    await sendReceipt({
+      userId,
+      title: 'Wallet top-up successful',
+      message: `Your wallet has been credited with ${fmtNaira(amountNaira)}. Ref: ${data.reference}`,
+    });
+  } else if (intent === 'booking') {
+    await sendReceipt({
+      userId,
+      title: 'Payment successful',
+      message: `Your card payment of ${fmtNaira(amountNaira)} for your delivery was successful. Ref: ${data.reference}`,
+    });
   }
 
   return ok();

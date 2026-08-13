@@ -195,19 +195,31 @@ Deno.serve(async (req) => {
 
     if (exceededThreshold && alertWebhookUrl) {
       try {
+        const isDiscord = /discord(?:app)?\.com\/api\/webhooks\//.test(alertWebhookUrl);
+        const fmt = (n: number) => `${n < 0 ? '-' : ''}\u20a6${Math.abs(n).toFixed(2)}`;
+        const body = isDiscord
+          ? {
+              content:
+                `\u26a0\ufe0f **Ridely wallet reconciliation drift** (threshold ${fmt(threshold)})\n` +
+                `Window: ${fromIso} \u2192 ${toIso}\n` +
+                `Top-up drift: ${fmt(topupDrift)}\n` +
+                `Withdrawal drift: ${fmt(withdrawalDrift)}\n` +
+                `Ledger drift: ${fmt(ledgerDrift)}`,
+            }
+          : {
+              source: 'wallet-reconciliation',
+              project: 'ridely',
+              window_start: fromIso,
+              window_end: toIso,
+              threshold,
+              topup_drift: topupDrift,
+              withdrawal_drift: withdrawalDrift,
+              ledger_drift: ledgerDrift,
+            };
         const alertRes = await fetch(alertWebhookUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            source: 'wallet-reconciliation',
-            project: 'ridely',
-            window_start: fromIso,
-            window_end: toIso,
-            threshold,
-            topup_drift: topupDrift,
-            withdrawal_drift: withdrawalDrift,
-            ledger_drift: ledgerDrift,
-          }),
+          body: JSON.stringify(body),
         });
         alertSent = alertRes.ok;
       } catch (e) {
