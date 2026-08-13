@@ -1,25 +1,15 @@
-# Map marker images (Android)
+# Map marker images
 
-On Android, custom pins use the Marker **`image`** prop (no View children, so no native crash). You can use:
+Custom pins for pickup, dropoff, and rider on tracking maps.
 
-1. **Remote URLs** (current default) – colored placeholder images from placehold.co.
-2. **Local PNGs** (recommended for production) – bundle your own icons for bike, package, and pin.
+- `marker-pickup.png` — green pin (package)
+- `marker-dropoff.png` — red pin (destination)
+- `marker-rider.png` — primary circular badge (bike)
 
-## Use your own icons (local PNGs)
+Used via the Marker **`image`** prop (no View children) so markers render reliably on Android and iOS.
 
-1. Add 3 PNGs in this folder (e.g. **72×72 px** or **96×96 px**):
-   - `marker-rider.png` – bike/delivery icon (e.g. primary color circle)
-   - `marker-pickup.png` – package icon (e.g. green)
-   - `marker-dropoff.png` – map pin icon (e.g. red)
+Regenerate icons:
 
-2. In `app/tracking.tsx`, replace `ANDROID_MARKER_IMAGES` with:
-
-```ts
-const ANDROID_MARKER_IMAGES = {
-  rider: require('@/assets/markers/marker-rider.png'),
-  pickup: require('@/assets/markers/marker-pickup.png'),
-  dropoff: require('@/assets/markers/marker-dropoff.png'),
-};
+```bash
+python scripts/generate-map-markers.py
 ```
-
-Use a solid background (e.g. circle) so pins are visible on the map. If these files are missing, the app uses the placeholder URLs.

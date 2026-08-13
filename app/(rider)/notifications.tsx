@@ -9,11 +9,12 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import Animated from 'react-native-reanimated';
-import { ArrowLeft, Bell, Package, DollarSign, CircleAlert as AlertCircle, CircleCheck as CheckCircle } from 'lucide-react-native';
+import { ArrowLeft, Bell, Package, DollarSign, CircleAlert as AlertCircle, CircleCheck as CheckCircle, Trash2 } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNotifications } from '@/contexts/NotificationsContext';
+import { useAlert } from '@/contexts/AlertContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { useDeliveries } from '@/hooks/useDeliveries';
 import { staggeredCardEnter } from '@/lib/riderAnimations';
@@ -35,6 +36,7 @@ export default function NotificationsScreen() {
   const { theme, isDark } = useTheme();
   const { user } = useAuth();
   const { refetchUnreadCount, decrementUnreadCount, clearUnreadCount } = useNotifications();
+  const { showAlert } = useAlert();
   const { deliveries } = useDeliveries();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,6 +87,19 @@ export default function NotificationsScreen() {
                   notif.id === payload.new.id ? { ...notif, read: payload.new.read } : notif
                 )
               );
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'DELETE',
+            schema: 'public',
+            table: 'notifications',
+          },
+          (payload) => {
+            if (payload.old?.id) {
+              setNotifications((prev) => prev.filter((notif) => notif.id !== payload.old.id));
             }
           }
         )
@@ -233,6 +248,65 @@ export default function NotificationsScreen() {
     await refetchUnreadCount();
   };
 
+  const deleteNotification = async (id: string) => {
+    const target = notifications.find((n) => n.id === id);
+    if (!target) return;
+
+    const index = notifications.findIndex((n) => n.id === id);
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    if (!target.read) decrementUnreadCount(1);
+
+    const { error } = await (supabase as any)
+      .from('notifications')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error deleting notification:', error);
+      setNotifications((prev) => {
+        const restored = [...prev];
+        restored.splice(index < 0 ? 0 : index, 0, target);
+        return restored;
+      });
+      await refetchUnreadCount();
+      showAlert('Error', 'Could not delete notification. Please try again.');
+    }
+  };
+
+  const confirmDeleteNotification = (id: string) => {
+    showAlert('Delete Notification', 'Remove this notification?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => deleteNotification(id) },
+    ]);
+  };
+
+  const clearAll = async () => {
+    if (notifications.length === 0 || !user?.id) return;
+
+    const previous = notifications;
+    setNotifications([]);
+    clearUnreadCount();
+
+    const { error } = await (supabase as any)
+      .from('notifications')
+      .delete()
+      .eq('rider_id', user.id);
+
+    if (error) {
+      console.error('Error clearing notifications:', error);
+      setNotifications(previous);
+      await refetchUnreadCount();
+      showAlert('Error', 'Could not clear notifications. Please try again.');
+    }
+  };
+
+  const confirmClearAll = () => {
+    showAlert('Clear All', 'Delete all notifications? This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Clear All', style: 'destructive', onPress: clearAll },
+    ]);
+  };
+
   const handleOpenMap = () => {
     const activeDelivery = deliveries.find(
       (d) =>
@@ -277,11 +351,18 @@ export default function NotificationsScreen() {
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </AnimatedPressable>
         <Text style={[styles.title, { color: theme.colors.text }]}>Notifications</Text>
-        {unreadCount > 0 && (
-          <AnimatedPressable style={styles.markAllButton} onPress={markAllAsRead}>
-            <Text style={[styles.markAllText, { color: theme.colors.primary }]}>Mark All Read</Text>
-          </AnimatedPressable>
-        )}
+        <View style={styles.headerActions}>
+          {unreadCount > 0 && (
+            <AnimatedPressable style={styles.markAllButton} onPress={markAllAsRead}>
+              <Text style={[styles.markAllText, { color: theme.colors.primary }]}>Mark All Read</Text>
+            </AnimatedPressable>
+          )}
+          {notifications.length > 0 && (
+            <AnimatedPressable style={styles.clearAllButton} onPress={confirmClearAll}>
+              <Text style={[styles.clearAllText, { color: theme.colors.error }]}>Clear All</Text>
+            </AnimatedPressable>
+          )}
+        </View>
       </View>
 
       {/* Unread Count */}
@@ -320,9 +401,18 @@ export default function NotificationsScreen() {
                   {formatTime(notification.timestamp)}
                 </Text>
               </View>
-              {!notification.read && (
-                <View style={[styles.unreadDot, { backgroundColor: theme.colors.primary }]} />
-              )}
+              <View style={styles.notificationRight}>
+                {!notification.read && (
+                  <View style={[styles.unreadDot, { backgroundColor: theme.colors.primary }]} />
+                )}
+                <TouchableOpacity
+                  style={styles.deleteButton}
+                  onPress={() => confirmDeleteNotification(notification.id)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Trash2 size={18} color={theme.colors.textTertiary} strokeWidth={2} />
+                </TouchableOpacity>
+              </View>
             </View>
 
             {notification.actionable && (
@@ -388,12 +478,31 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   markAllButton: {
     padding: 8,
   },
   markAllText: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  clearAllButton: {
+    padding: 8,
+  },
+  clearAllText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  notificationRight: {
+    alignItems: 'center',
+    marginLeft: 12,
+  },
+  deleteButton: {
+    padding: 4,
+    marginTop: 6,
   },
   unreadContainer: {
     paddingHorizontal: 20,
@@ -444,7 +553,6 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    marginLeft: 12,
     marginTop: 6,
   },
   actionContainer: {

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { googleMapsRequest } from '@/lib/googleMapsClient';
 
 export interface AddressSuggestion {
   display_name: string;
@@ -18,14 +19,6 @@ export interface AddressSuggestion {
 const DEBOUNCE_DELAY = 250;
 const MIN_QUERY_LENGTH = 2;
 
-function getGoogleMapsKey(): string {
-  return (
-    process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ||
-    process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY ||
-    ''
-  );
-}
-
 export function useAddressAutocomplete() {
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
@@ -41,13 +34,6 @@ export function useAddressAutocomplete() {
       return;
     }
 
-    const key = getGoogleMapsKey();
-    if (!key) {
-      console.warn('Google Maps API key not found. Set EXPO_PUBLIC_GOOGLE_MAPS_API_KEY.');
-      setSuggestions([]);
-      return;
-    }
-
     // Cancel any in-flight request so it can't overwrite newer results
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -59,18 +45,15 @@ export function useAddressAutocomplete() {
     setLoading(true);
     try {
       // No 'types' restriction so we get both addresses and establishments (malls, shops, landmarks e.g. Shoprite, Market Square, Hypercity in Port Harcourt)
-      const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(trimmed)}&components=country:ng&key=${key}`;
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: { Accept: 'application/json' },
-        signal,
-      });
+      const data = await googleMapsRequest(
+        'place/autocomplete/json',
+        { input: trimmed, components: 'country:ng' },
+        signal
+      );
 
-      if (!response.ok) {
+      if (!data) {
         throw new Error('Failed to fetch address suggestions');
       }
-
-      const data = await response.json();
 
       // Only apply results if this response is still for the current query (avoid race)
       if (lastQueryRef.current !== trimmed) {
@@ -106,17 +89,12 @@ export function useAddressAutocomplete() {
 
   /** Fetch full address with coordinates for a Google place_id. Call this when user selects a suggestion. */
   const getPlaceDetails = async (placeId: string): Promise<AddressSuggestion | null> => {
-    const key = getGoogleMapsKey();
-    if (!key) return null;
     try {
-      const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(placeId)}&fields=geometry,formatted_address,address_components&key=${key}`;
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: { Accept: 'application/json' },
+      const data = await googleMapsRequest('place/details/json', {
+        place_id: placeId,
+        fields: 'geometry,formatted_address,address_components',
       });
-      if (!response.ok) return null;
-      const data = await response.json();
-      if (data.status !== 'OK' || !data.result) return null;
+      if (!data || data.status !== 'OK' || !data.result) return null;
       const r = data.result;
       const lat = r.geometry?.location?.lat;
       const lng = r.geometry?.location?.lng;

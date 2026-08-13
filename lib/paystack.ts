@@ -6,12 +6,16 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 
-/** Anon JWT for public Paystack functions — avoids sending ES256 user tokens to the legacy verify_jwt gate. */
-function getAnonAuthHeaders(): Record<string, string> {
+/** User JWT headers for authenticated Paystack edge functions. */
+async function getUserAuthHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
   const anon = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
-  if (!anon) return {};
+  if (!token) {
+    throw new Error('You must be logged in to continue with payment.');
+  }
   return {
-    Authorization: `Bearer ${anon}`,
+    Authorization: `Bearer ${token}`,
     apikey: anon,
   };
 }
@@ -58,8 +62,9 @@ export async function initializePaystackTransaction(params: {
   /** Restrict to specific channels, e.g. ['card'] to show only card form (no USSD/bank). */
   channels?: string[];
 }): Promise<InitializeResult> {
+  const headers = await getUserAuthHeaders();
   const { data, error } = await supabase.functions.invoke('paystack-initialize', {
-    headers: getAnonAuthHeaders(),
+    headers,
     body: {
       amount_in_kobo: params.amountInKobo,
       email: params.email,
@@ -88,17 +93,22 @@ export interface VerifyResult {
 }
 
 export async function verifyPaystackTransaction(reference: string): Promise<VerifyResult> {
-  const { data, error } = await supabase.functions.invoke('paystack-verify', {
-    headers: getAnonAuthHeaders(),
-    body: { reference },
-  });
+  try {
+    const headers = await getUserAuthHeaders();
+    const { data, error } = await supabase.functions.invoke('paystack-verify', {
+      headers,
+      body: { reference },
+    });
 
-  if (error) {
-    return { success: false, error: await getFunctionErrorMessage(error) };
+    if (error) {
+      return { success: false, error: await getFunctionErrorMessage(error) };
+    }
+
+    const result = data as { success?: boolean; data?: VerifyResult['data']; error?: string };
+    return { success: !!result?.success, data: result?.data, error: result?.error };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'Verification failed' };
   }
-
-  const result = data as { success?: boolean; data?: VerifyResult['data']; error?: string };
-  return { success: !!result?.success, data: result?.data, error: result?.error };
 }
 
 /** URL path the app's WebView should detect after Paystack redirect (callback). */
@@ -121,48 +131,182 @@ export async function chargePaystackSavedCard(params: {
   authorizationCode?: string;
   paymentMethodId?: string;
   reference?: string;
+  metadata?: Record<string, string>;
 }): Promise<ChargeSavedCardResult> {
   if (!params.authorizationCode && !params.paymentMethodId) {
     throw new Error('authorizationCode or paymentMethodId is required');
   }
 
-  const { data: { session } } = await supabase.auth.getSession();
-  const token = session?.access_token;
-  if (!token) {
-    return { success: false, error: 'You must be logged in to use a saved card.' };
+  try {
+    const headers = await getUserAuthHeaders();
+    const { data, error } = await supabase.functions.invoke('paystack-charge', {
+      headers,
+      body: {
+        amount_in_kobo: params.amountInKobo,
+        email: params.email,
+        authorization_code: params.authorizationCode,
+        payment_method_id: params.paymentMethodId,
+        reference: params.reference,
+        metadata: params.metadata,
+      },
+    });
+
+    if (error) {
+      return { success: false, error: await getFunctionErrorMessage(error) };
+    }
+
+    const result = data as {
+      success?: boolean;
+      error?: string;
+      data?: { reference?: string; status?: string };
+    };
+
+    const reference = result.data?.reference;
+    return {
+      success: !!result.success,
+      reference,
+      error: result.success ? undefined : result.error || 'Charge failed',
+    };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'Charge failed' };
   }
-
-  const { data, error } = await supabase.functions.invoke('paystack-charge', {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '',
-    },
-    body: {
-      amount_in_kobo: params.amountInKobo,
-      email: params.email,
-      authorization_code: params.authorizationCode,
-      payment_method_id: params.paymentMethodId,
-      reference: params.reference,
-    },
-  });
-
-  if (error) {
-    return { success: false, error: await getFunctionErrorMessage(error) };
-  }
-
-  const result = data as {
-    success?: boolean;
-    error?: string;
-    data?: { reference?: string; status?: string };
-  };
-
-  const reference = result.data?.reference;
-  return {
-    success: !!result.success,
-    reference,
-    error: result.success ? undefined : result.error || 'Charge failed',
-  };
 }
 
 /** Synthetic id for "pay with new card" on booking confirmation. */
 export const PAYSTACK_NEW_CARD_OPTION_ID = '__paystack_new_card__';
+
+export interface Bank {
+  name: string;
+  code: string;
+}
+
+/** Fetch the list of supported Nigerian banks (via Paystack). */
+export async function fetchBanks(): Promise<Bank[]> {
+  const headers = await getUserAuthHeaders();
+  const { data, error } = await supabase.functions.invoke('paystack-banks?action=list', {
+    method: 'GET',
+    headers,
+  });
+  if (error) {
+    throw new Error(await getFunctionErrorMessage(error));
+  }
+  const result = data as { banks?: Bank[]; error?: string };
+  if (!result?.banks) {
+    throw new Error(result?.error || 'Could not load banks');
+  }
+  return result.banks;
+}
+
+/** Resolve an account number + bank code to the account holder's name. */
+export async function resolveBankAccount(params: {
+  accountNumber: string;
+  bankCode: string;
+}): Promise<string> {
+  const headers = await getUserAuthHeaders();
+  const { data, error } = await supabase.functions.invoke(
+    `paystack-banks?action=resolve&account=${encodeURIComponent(params.accountNumber)}&bank_code=${encodeURIComponent(params.bankCode)}`,
+    { method: 'GET', headers }
+  );
+  if (error) {
+    throw new Error(await getFunctionErrorMessage(error));
+  }
+  const result = data as { account_name?: string; error?: string };
+  if (!result?.account_name) {
+    throw new Error(result?.error || 'Could not verify account');
+  }
+  return result.account_name;
+}
+
+export interface WithdrawResult {
+  success: boolean;
+  amount?: number;
+  account_name?: string;
+  status?: string;
+  message?: string;
+  error?: string;
+}
+
+/** Withdraw from the wallet to a bank account (authenticated). */
+export async function withdrawFromWallet(params: {
+  amountInNaira: number;
+  accountNumber: string;
+  bankCode: string;
+  idempotencyKey?: string;
+  withdrawalPin: string;
+}): Promise<WithdrawResult> {
+  try {
+    const headers = await getUserAuthHeaders();
+    const { data, error } = await supabase.functions.invoke('wallet-withdraw', {
+      headers,
+      body: {
+        amount: params.amountInNaira,
+        account_number: params.accountNumber,
+        bank_code: params.bankCode,
+        idempotency_key: params.idempotencyKey,
+        withdrawal_pin: params.withdrawalPin,
+      },
+    });
+
+    if (error) {
+      return { success: false, error: await getFunctionErrorMessage(error) };
+    }
+
+    const result = data as WithdrawResult;
+    return {
+      success: !!result?.success,
+      amount: result?.amount,
+      account_name: result?.account_name,
+      status: result?.status,
+      message: result?.message,
+      error: result?.success ? undefined : result?.error || 'Withdrawal failed',
+    };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'Withdrawal failed' };
+  }
+}
+
+export interface RiderPayoutResult {
+  success: boolean;
+  amount?: number;
+  account_name?: string;
+  status?: string;
+  message?: string;
+  error?: string;
+}
+
+/** Request rider earnings payout to bank (authenticated, requires withdrawal PIN). */
+export async function requestRiderPayout(params: {
+  accountNumber: string;
+  bankCode: string;
+  idempotencyKey?: string;
+  withdrawalPin: string;
+}): Promise<RiderPayoutResult> {
+  try {
+    const headers = await getUserAuthHeaders();
+    const { data, error } = await supabase.functions.invoke('rider-payout', {
+      headers,
+      body: {
+        account_number: params.accountNumber,
+        bank_code: params.bankCode,
+        idempotency_key: params.idempotencyKey,
+        withdrawal_pin: params.withdrawalPin,
+      },
+    });
+
+    if (error) {
+      return { success: false, error: await getFunctionErrorMessage(error) };
+    }
+
+    const result = data as RiderPayoutResult;
+    return {
+      success: !!result?.success,
+      amount: result?.amount,
+      account_name: result?.account_name,
+      status: result?.status,
+      message: result?.message,
+      error: result?.success ? undefined : result?.error || 'Payout failed',
+    };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'Payout failed' };
+  }
+}

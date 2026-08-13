@@ -15,11 +15,38 @@ verify_jwt = false
 [functions.paystack-charge]
 verify_jwt = false
 
-[functions.paystack-inline-form]
+[functions.livekit-token]
 verify_jwt = false
 
 [functions.send-push]
 verify_jwt = false
 
 [functions.auto-cancel-pending-deliveries]
+verify_jwt = false
+
+[functions.public-tracking]
+verify_jwt = false
+
+[functions.redeem-promo]
+verify_jwt = false
+
+[functions.paystack-banks]
+verify_jwt = false
+
+[functions.wallet-withdraw]
+verify_jwt = false
+
+[functions.wallet-reconciliation]
+verify_jwt = false
+
+[functions.withdrawal-pin]
+verify_jwt = false
+
+[functions.rider-payout]
+verify_jwt = false
+
+[functions.create-delivery]
+verify_jwt = false
+
+[functions.google-maps]
 verify_jwt = false

@@ -1,32 +1,25 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   ScrollView,
+  RefreshControl,
 } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import Animated from 'react-native-reanimated';
-import { ArrowLeft, DollarSign, TrendingUp, Calendar, Download, CreditCard, Clock, CircleCheck as CheckCircle } from 'lucide-react-native';
+import { ArrowLeft, DollarSign, TrendingUp, Calendar, Download, CreditCard, Clock, CircleCheck as CheckCircle, PackageOpen } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { useAlert } from '@/contexts/AlertContext';
+import { useEarnings } from '@/hooks/useEarnings';
+import { Skeleton, CardSkeletonList } from '@/components/Skeleton';
 import { staggeredCardEnter, cardEnterSpring } from '@/lib/riderAnimations';
 import { AnimatedPressable } from '@/components/rider/AnimatedPressable';
-
-interface EarningsData {
-  totalBalance: number;
-  todayEarnings: number;
-  weeklyEarnings: number;
-  monthlyEarnings: number;
-  completedDeliveries: number;
-  pendingPayouts: number;
-}
 
 interface DeliveryEarning {
   id: string;
@@ -41,62 +34,81 @@ interface DeliveryEarning {
   dropoffAddress: string;
 }
 
+const formatNaira = (amount: number) =>
+  `₦${Number(amount || 0).toLocaleString('en-NG', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
 export default function EarningsScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
   const { showAlert } = useAlert();
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month'>('today');
+  const [refreshing, setRefreshing] = useState(false);
   const { animations: animationsEnabled } = useAppSettings();
   const enterCard = (i: number) => (animationsEnabled ? staggeredCardEnter(i) : undefined);
   const enterHero = animationsEnabled ? cardEnterSpring() : undefined;
 
-  const [earningsData] = useState<EarningsData>({
-    totalBalance: 1247.85,
-    todayEarnings: 156.75,
-    weeklyEarnings: 892.40,
-    monthlyEarnings: 3456.20,
-    completedDeliveries: 47,
-    pendingPayouts: 156.75,
-  });
+  const {
+    earnings,
+    totalBalance,
+    todayEarnings,
+    weeklyEarnings,
+    monthlyEarnings,
+    loading,
+    refetch,
+  } = useEarnings();
 
-  const [deliveryEarnings] = useState<DeliveryEarning[]>([
-    {
-      id: '1',
-      date: 'Today',
-      time: '3:45 PM',
-      deliveryId: 'DEL001',
-      grossAmount: 18.50,
-      ridelyFee: 2.78, // 15%
-      netAmount: 15.72,
-      status: 'completed',
-      pickupAddress: '123 Main St',
-      dropoffAddress: '456 Oak Ave',
-    },
-    {
-      id: '2',
-      date: 'Today',
-      time: '2:15 PM',
-      deliveryId: 'DEL002',
-      grossAmount: 24.75,
-      ridelyFee: 3.71,
-      netAmount: 21.04,
-      status: 'completed',
-      pickupAddress: 'City Mall',
-      dropoffAddress: 'Office Complex',
-    },
-    {
-      id: '3',
-      date: 'Today',
-      time: '11:30 AM',
-      deliveryId: 'DEL003',
-      grossAmount: 12.25,
-      ridelyFee: 1.84,
-      netAmount: 10.41,
-      status: 'pending',
-      pickupAddress: 'Restaurant',
-      dropoffAddress: 'Apartment',
-    },
-  ]);
+  const completedDeliveries = earnings.length;
+  const pendingPayouts = useMemo(
+    () =>
+      earnings
+        .filter((e) => e.status !== 'paid')
+        .reduce((sum, e) => sum + Number(e.net_amount || 0), 0),
+    [earnings]
+  );
+
+  const deliveryEarnings = useMemo<DeliveryEarning[]>(() => {
+    return earnings.map((e) => {
+      const created = new Date(e.created_at);
+      const isToday = e.created_at.startsWith(new Date().toISOString().split('T')[0]);
+      return {
+        id: e.id,
+        date: isToday
+          ? 'Today'
+          : created.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+        time: created.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+        deliveryId: e.delivery_id ? e.delivery_id.slice(0, 8).toUpperCase() : '—',
+        grossAmount: Number(e.gross_amount || 0),
+        ridelyFee: Number(e.ridely_fee || 0),
+        netAmount: Number(e.net_amount || 0),
+        status: e.status,
+        pickupAddress: e.deliveries?.pickup_address ?? 'Pickup',
+        dropoffAddress: e.deliveries?.dropoff_address ?? 'Dropoff',
+      };
+    });
+  }, [earnings]);
+
+  const deliveriesInPeriod = useMemo(() => {
+    const now = Date.now();
+    if (selectedPeriod === 'today') {
+      const today = new Date().toISOString().split('T')[0];
+      return earnings.filter((e) => e.created_at.startsWith(today)).length;
+    }
+    const days = selectedPeriod === 'week' ? 7 : 30;
+    const cutoff = new Date(now - days * 24 * 60 * 60 * 1000).toISOString();
+    return earnings.filter((e) => e.created_at >= cutoff).length;
+  }, [earnings, selectedPeriod]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -127,30 +139,22 @@ export default function EarningsScreen() {
   const getCurrentEarnings = () => {
     switch (selectedPeriod) {
       case 'today':
-        return earningsData.todayEarnings;
+        return todayEarnings;
       case 'week':
-        return earningsData.weeklyEarnings;
+        return weeklyEarnings;
       case 'month':
-        return earningsData.monthlyEarnings;
+        return monthlyEarnings;
       default:
-        return earningsData.todayEarnings;
+        return todayEarnings;
     }
   };
 
   const handleRequestPayout = () => {
-    showAlert(
-      'Request Payout',
-      `Request payout of $${earningsData.pendingPayouts}?\n\nFunds will be transferred to your registered bank account within 1-2 business days.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Request Payout',
-          onPress: () => {
-            showAlert('Success', 'Payout request submitted successfully!');
-          },
-        },
-      ]
-    );
+    if (pendingPayouts < 50) {
+      showAlert('No funds to withdraw', 'You need at least ₦50 in pending earnings to request a payout.');
+      return;
+    }
+    router.push('/(rider)/payout');
   };
 
   const buildCsv = () => {
@@ -232,16 +236,33 @@ export default function EarningsScreen() {
         </AnimatedPressable>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      {loading && earnings.length === 0 ? (
+        <View style={{ paddingHorizontal: 20, paddingTop: 8 }}>
+          <Skeleton width="100%" height={160} radius={20} style={{ marginBottom: 24 }} />
+          <Skeleton width="100%" height={48} radius={12} style={{ marginBottom: 24 }} />
+          <CardSkeletonList count={3} />
+        </View>
+      ) : (
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={theme.colors.primary}
+          />
+        }
+      >
         {/* Balance Card */}
         <Animated.View entering={enterHero} style={[styles.balanceCard, { backgroundColor: theme.colors.primary }, theme.shadows.large]}>
           <View style={styles.balanceHeader}>
             <DollarSign size={32} color="#FFFFFF" strokeWidth={2} />
             <Text style={styles.balanceLabel}>Total Balance</Text>
           </View>
-          <Text style={styles.balanceAmount}>₦{earningsData.totalBalance}</Text>
+          <Text style={styles.balanceAmount}>{formatNaira(totalBalance)}</Text>
           <Text style={styles.balanceSubtext}>
-            {earningsData.completedDeliveries} deliveries completed
+            {completedDeliveries} {completedDeliveries === 1 ? 'delivery' : 'deliveries'} completed
           </Text>
           
           <AnimatedPressable
@@ -250,7 +271,7 @@ export default function EarningsScreen() {
           >
             <CreditCard size={20} color={theme.colors.primary} strokeWidth={2} />
             <Text style={[styles.payoutText, { color: theme.colors.primary }]}>
-              Request Payout (₦{earningsData.pendingPayouts})
+              Request Payout ({formatNaira(pendingPayouts)})
             </Text>
           </AnimatedPressable>
         </Animated.View>
@@ -285,7 +306,7 @@ export default function EarningsScreen() {
           <Animated.View entering={enterCard(2)} style={[styles.statCard, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
             <TrendingUp size={24} color={theme.colors.success} strokeWidth={2} />
             <Text style={[styles.statValue, { color: theme.colors.text }]}>
-              ${getCurrentEarnings()}
+              {formatNaira(getCurrentEarnings())}
             </Text>
             <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>
               {selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'week' ? 'This Week' : 'This Month'}
@@ -295,7 +316,7 @@ export default function EarningsScreen() {
           <Animated.View entering={enterCard(3)} style={[styles.statCard, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
             <Calendar size={24} color={theme.colors.primary} strokeWidth={2} />
             <Text style={[styles.statValue, { color: theme.colors.text }]}>
-              {selectedPeriod === 'today' ? '8' : selectedPeriod === 'week' ? '42' : '156'}
+              {deliveriesInPeriod}
             </Text>
             <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Deliveries</Text>
           </Animated.View>
@@ -304,7 +325,17 @@ export default function EarningsScreen() {
         {/* Recent Earnings */}
         <Animated.View entering={enterCard(4)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Recent Deliveries</Text>
-          
+
+          {deliveryEarnings.length === 0 && (
+            <View style={[styles.emptyCard, { backgroundColor: theme.colors.surface }, theme.shadows.small]}>
+              <PackageOpen size={32} color={theme.colors.textTertiary} strokeWidth={1.5} />
+              <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No earnings yet</Text>
+              <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
+                Complete your first delivery to start earning. Your payouts will show up here.
+              </Text>
+            </View>
+          )}
+
           {deliveryEarnings.map((earning, index) => (
             <Animated.View key={earning.id} entering={enterCard(5 + index)} style={[styles.earningCard, { backgroundColor: theme.colors.surface }, theme.shadows.small]}>
               <View style={styles.earningHeader}>
@@ -331,15 +362,15 @@ export default function EarningsScreen() {
               <View style={styles.earningBreakdown}>
                 <View style={styles.breakdownRow}>
                   <Text style={[styles.breakdownLabel, { color: theme.colors.textSecondary }]}>Gross Amount</Text>
-                  <Text style={[styles.breakdownValue, { color: theme.colors.text }]}>₦{earning.grossAmount}</Text>
+                  <Text style={[styles.breakdownValue, { color: theme.colors.text }]}>{formatNaira(earning.grossAmount)}</Text>
                 </View>
                 <View style={styles.breakdownRow}>
                   <Text style={[styles.breakdownLabel, { color: theme.colors.textSecondary }]}>Ridely Fee (15%)</Text>
-                  <Text style={[styles.breakdownValue, { color: theme.colors.error }]}>-₦{earning.ridelyFee}</Text>
+                  <Text style={[styles.breakdownValue, { color: theme.colors.error }]}>-{formatNaira(earning.ridelyFee)}</Text>
                 </View>
                 <View style={[styles.breakdownRow, styles.totalRow]}>
                   <Text style={[styles.breakdownTotal, { color: theme.colors.text }]}>Net Earnings</Text>
-                  <Text style={[styles.breakdownTotalValue, { color: theme.colors.success }]}>₦{earning.netAmount}</Text>
+                  <Text style={[styles.breakdownTotalValue, { color: theme.colors.success }]}>{formatNaira(earning.netAmount)}</Text>
                 </View>
               </View>
             </Animated.View>
@@ -357,6 +388,7 @@ export default function EarningsScreen() {
           </Text>
         </Animated.View>
       </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
@@ -393,6 +425,31 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 14,
+  },
+  emptyCard: {
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    gap: 8,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  emptyText: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   balanceCard: {
     marginHorizontal: 20,

@@ -1,5 +1,5 @@
 /**
- * Deploy Paystack edge functions and sync PAYSTACK_SECRET_KEY from .env.
+ * Deploy payment-related edge functions and sync PAYSTACK_SECRET_KEY from .env.
  * Usage: node scripts/deploy-paystack-functions.mjs
  */
 import { readFileSync } from 'fs';
@@ -54,9 +54,12 @@ const functions = [
   'paystack-verify',
   'paystack-callback',
   'paystack-charge',
+  'paystack-banks',
+  'paystack-webhook',
+  'create-delivery',
 ];
 
-  for (const fn of functions) {
+for (const fn of functions) {
   console.log(`Deploying ${fn} (verify_jwt=false via config.toml)...`);
   const deployResult = spawnSync(
     'npx',
@@ -69,7 +72,7 @@ const functions = [
   }
 }
 
-console.log('Paystack functions deployed. Testing paystack-initialize...');
+console.log('Functions deployed. Testing paystack-initialize rejects anon (expects 401)...');
 
 const anon = env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 const url = `https://${projectRef}.supabase.co/functions/v1/paystack-initialize`;
@@ -92,9 +95,13 @@ const testBody = await testRes.text();
 console.log('Test status:', testRes.status);
 console.log('Test body:', testBody.slice(0, 500));
 
-if (testRes.status === 500 && testBody.includes('PAYSTACK_SECRET_KEY not set')) {
-  console.error('\nSecret still not available to the function. Redeploy after setting the secret in Supabase Dashboard.');
+if (testRes.status === 401) {
+  console.log('\nOK: unauthenticated initialize correctly rejected.');
+} else if (testRes.status === 500 && testBody.includes('PAYSTACK_SECRET_KEY not set')) {
+  console.error('\nSecret still not available to the function. Set PAYSTACK_SECRET_KEY in Supabase Dashboard.');
   process.exit(1);
+} else {
+  console.warn('\nExpected 401 for anon JWT. Check that paystack-initialize requires user auth.');
 }
 
-console.log('\nDone. If test status is 200, Paystack initialize is working.');
+console.log('\nDone.');

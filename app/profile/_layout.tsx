@@ -7,6 +7,9 @@ export default function ProfileLayout() {
       <Stack.Screen name="payment-methods" />
       <Stack.Screen name="add-payment" />
       <Stack.Screen name="add-card" />
+      <Stack.Screen name="wallet" />
+      <Stack.Screen name="withdraw" />
+      <Stack.Screen name="withdrawal-pin" />
       <Stack.Screen name="fund-wallet" />
       <Stack.Screen name="payment-webview" />
       <Stack.Screen name="saved-addresses" />

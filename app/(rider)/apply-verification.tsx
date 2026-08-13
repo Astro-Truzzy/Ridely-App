@@ -7,10 +7,12 @@ import {
   ScrollView,
   ActivityIndicator,
   RefreshControl,
+  Linking,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import { getDocumentAsync } from '@/lib/documentPicker';
 import {
   ArrowLeft,
   FileText,
@@ -20,6 +22,7 @@ import {
   XCircle,
   CircleCheck as CheckCircle,
   Trash2,
+  Eye,
 } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -28,6 +31,7 @@ import { useAlert } from '@/contexts/AlertContext';
 import { supabase } from '@/lib/supabase';
 import {
   uploadVerificationDocument,
+  getVerificationDocumentSignedUrl,
   type VerificationDocumentType,
   type PickedDocument,
 } from '@/lib/verificationUpload';
@@ -56,7 +60,10 @@ export default function ApplyVerificationScreen() {
   const [uploads, setUploads] = useState<Partial<Record<VerificationDocumentType, PickedDocument>>>({});
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [documents, setDocuments] = useState<{ document_type: VerificationDocumentType; file_name: string | null }[]>([]);
+  const [documents, setDocuments] = useState<
+    { document_type: VerificationDocumentType; file_name: string | null; file_path: string; review_status: 'pending' | 'approved' | 'rejected' }[]
+  >([]);
+  const [openingPath, setOpeningPath] = useState<string | null>(null);
 
   const riderProfile = userType === 'rider' ? (userProfile as Record<string, unknown> | null) : null;
   const status = (riderProfile?.account_verification_status as VerificationStatus | undefined) ?? 'not_submitted';
@@ -65,15 +72,27 @@ export default function ApplyVerificationScreen() {
     if (!user?.id) return;
     const { data } = await supabase
       .from('rider_verification_documents')
-      .select('document_type, file_name')
+      .select('document_type, file_name, file_path, review_status')
       .eq('rider_id', user.id)
       .order('created_at', { ascending: false });
     if (data) {
-      const byType = new Map<VerificationDocumentType, string | null>();
-      data.forEach((row: { document_type: VerificationDocumentType; file_name: string | null }) => {
-        if (!byType.has(row.document_type)) byType.set(row.document_type, row.file_name);
+      const byType = new Map<
+        VerificationDocumentType,
+        { file_name: string | null; file_path: string; review_status: 'pending' | 'approved' | 'rejected' }
+      >();
+      (data as typeof documents).forEach((row) => {
+        // Rows are newest-first, so the first one we see per type is the latest.
+        if (!byType.has(row.document_type)) {
+          byType.set(row.document_type, {
+            file_name: row.file_name,
+            file_path: row.file_path,
+            review_status: row.review_status,
+          });
+        }
       });
-      setDocuments(Array.from(byType.entries()).map(([document_type, file_name]) => ({ document_type, file_name })));
+      setDocuments(
+        Array.from(byType.entries()).map(([document_type, v]) => ({ document_type, ...v }))
+      );
     }
   };
 
@@ -89,16 +108,28 @@ export default function ApplyVerificationScreen() {
 
   const pickDocument = async (documentType: VerificationDocumentType) => {
     try {
-      const result = await DocumentPicker.getDocumentAsync({
+      const result = await getDocumentAsync({
         type: ['image/*', 'application/pdf'],
         copyToCacheDirectory: true,
       });
       if (result.canceled) return;
       const file = result.assets[0];
+      let stableUri = file.uri;
+      try {
+        const dir = `${FileSystem.documentDirectory}verification-documents/`;
+        await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+        const safeName = (file.name ?? `doc_${Date.now()}`).replace(/[^a-zA-Z0-9._-]/g, '_');
+        const localPath = `${dir}${Date.now()}_${safeName}`;
+        await FileSystem.copyAsync({ from: file.uri, to: localPath });
+        stableUri = localPath;
+      } catch (copyError) {
+        // Fallback to original picker URI if copy fails in a platform-specific edge case.
+        console.warn('Document local copy failed, using original URI:', copyError);
+      }
       setUploads((prev) => ({
         ...prev,
         [documentType]: {
-          uri: file.uri,
+          uri: stableUri,
           name: file.name ?? 'document',
           mimeType: file.mimeType ?? undefined,
         },
@@ -123,6 +154,37 @@ export default function ApplyVerificationScreen() {
     const existing = documents.find((d) => d.document_type === documentType);
     return existing?.file_name ?? null;
   };
+
+  const openDocument = async (filePath: string) => {
+    setOpeningPath(filePath);
+    try {
+      const url = await getVerificationDocumentSignedUrl(filePath);
+      if (!url) {
+        showAlert('Unavailable', 'Could not open this document. Please try again.');
+        return;
+      }
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen) {
+        showAlert('Unavailable', 'No app is available to open this document.');
+        return;
+      }
+      await Linking.openURL(url);
+    } catch (e) {
+      console.error('Open document error:', e);
+      showAlert('Error', 'Could not open this document.');
+    } finally {
+      setOpeningPath(null);
+    }
+  };
+
+  const reviewLabel: Record<'pending' | 'approved' | 'rejected', string> = {
+    pending: 'Under review',
+    approved: 'Approved',
+    rejected: 'Rejected',
+  };
+
+  const reviewColor = (rs: 'pending' | 'approved' | 'rejected') =>
+    rs === 'approved' ? theme.colors.success : rs === 'rejected' ? theme.colors.error : theme.colors.warning;
 
   const hasRequiredUploads =
     status === 'rejected'
@@ -241,6 +303,47 @@ export default function ApplyVerificationScreen() {
           <Text style={[styles.statusLabel, { color: theme.colors.text }]}>{config.label}</Text>
           <Text style={[styles.statusMessage, { color: theme.colors.textSecondary }]}>{config.message}</Text>
         </View>
+
+        {documents.length > 0 && (
+          <>
+            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Your uploaded documents</Text>
+            {documents.map((doc) => (
+              <View
+                key={doc.document_type}
+                style={[styles.docRow, { backgroundColor: theme.colors.surface }, theme.shadows.small]}
+              >
+                <FileText size={20} color={theme.colors.primary} strokeWidth={2} />
+                <View style={styles.docInfo}>
+                  <Text style={[styles.docLabel, { color: theme.colors.text }]}>
+                    {DOCUMENT_LABELS[doc.document_type]}
+                  </Text>
+                  <Text
+                    style={[styles.docFileName, { color: theme.colors.textSecondary }]}
+                    numberOfLines={1}
+                  >
+                    {doc.file_name ?? 'Document'}
+                  </Text>
+                  <View style={[styles.reviewBadge, { backgroundColor: `${reviewColor(doc.review_status)}20` }]}>
+                    <Text style={[styles.reviewBadgeText, { color: reviewColor(doc.review_status) }]}>
+                      {reviewLabel[doc.review_status]}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={[styles.smallBtn, { backgroundColor: `${theme.colors.primary}20` }]}
+                  onPress={() => openDocument(doc.file_path)}
+                  disabled={openingPath === doc.file_path}
+                >
+                  {openingPath === doc.file_path ? (
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                  ) : (
+                    <Eye size={18} color={theme.colors.primary} strokeWidth={2} />
+                  )}
+                </TouchableOpacity>
+              </View>
+            ))}
+          </>
+        )}
 
         {canEdit && (
           <>
@@ -403,6 +506,14 @@ const styles = StyleSheet.create({
   docInfo: { flex: 1, marginLeft: 12 },
   docLabel: { fontSize: 15, fontWeight: '600' },
   docFileName: { fontSize: 13, marginTop: 2 },
+  reviewBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  reviewBadgeText: { fontSize: 11, fontWeight: '700' },
   docActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   smallBtn: {
     width: 40,

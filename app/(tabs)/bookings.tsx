@@ -11,13 +11,16 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Package, Clock, CheckCircle, XCircle, MapPin, X, Star } from 'lucide-react-native';
+import { Package, Clock, CheckCircle, XCircle, MapPin, X, Star, RotateCcw } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAlert } from '@/contexts/AlertContext';
 import { GestureHandlerRootView, PanGestureHandler, State } from 'react-native-gesture-handler';
 import { useDeliveries } from '@/hooks/useDeliveries';
 import { useDeliveryRatings } from '@/hooks/useDeliveryRatings';
+import { geocodeAddress } from '@/lib/googleDirections';
+import { CardSkeletonList } from '@/components/Skeleton';
+import { tapLight, notifyWarning, notifySuccess, notifyError } from '@/lib/haptics';
 
 interface Booking {
   id: string;
@@ -114,11 +117,14 @@ export default function BookingsScreen() {
           text: 'Cancel delivery',
           style: 'destructive',
           onPress: async () => {
+            notifyWarning();
             setCancellingId(booking.deliveryId);
             try {
               await updateDeliveryStatus(booking.deliveryId, 'cancelled');
               await refetch();
+              notifySuccess();
             } catch (e) {
+              notifyError();
               showAlert('Error', 'Could not cancel delivery. Please try again.');
             } finally {
               setCancellingId(null);
@@ -127,6 +133,44 @@ export default function BookingsScreen() {
         },
       ]
     );
+  };
+
+  const handleRebook = async (booking: Booking) => {
+    const delivery = deliveries.find((d) => d.id === booking.deliveryId);
+    let pickupLat = delivery?.pickup_lat;
+    let pickupLng = delivery?.pickup_lng;
+    let dropoffLat = delivery?.dropoff_lat;
+    let dropoffLng = delivery?.dropoff_lng;
+
+    if (pickupLat == null || pickupLng == null) {
+      const coords = await geocodeAddress(booking.from);
+      if (coords) {
+        pickupLat = coords.latitude;
+        pickupLng = coords.longitude;
+      }
+    }
+    if (dropoffLat == null || dropoffLng == null) {
+      const coords = await geocodeAddress(booking.to);
+      if (coords) {
+        dropoffLat = coords.latitude;
+        dropoffLng = coords.longitude;
+      }
+    }
+
+    router.push({
+      pathname: '/booking/address',
+      params: {
+        size: booking.parcelSize,
+        rebookPickup: booking.from,
+        rebookDropoff: booking.to,
+        ...(pickupLat != null && pickupLng != null
+          ? { pickupLat: String(pickupLat), pickupLon: String(pickupLng) }
+          : {}),
+        ...(dropoffLat != null && dropoffLng != null
+          ? { dropoffLat: String(dropoffLat), dropoffLon: String(dropoffLng) }
+          : {}),
+      },
+    });
   };
 
   const getStatusColor = (status: string) => {
@@ -189,8 +233,8 @@ export default function BookingsScreen() {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['left', 'right', 'bottom']}>
         <StatusBar style={isDark ? 'light' : 'dark'} />
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: insets.top }}>
-          <Text style={{ color: theme.colors.text }}>Loading bookings...</Text>
+        <View style={{ paddingTop: insets.top + 20, paddingHorizontal: 20 }}>
+          <CardSkeletonList count={4} />
         </View>
       </SafeAreaView>
     );
@@ -435,6 +479,20 @@ export default function BookingsScreen() {
     },
     ratedText: {
       fontSize: 14,
+    },
+    rebookButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderRadius: 12,
+      gap: 8,
+      borderWidth: 1.5,
+    },
+    rebookButtonText: {
+      fontSize: 14,
+      fontWeight: '600',
     },
     modalOverlay: {
       flex: 1,
@@ -689,6 +747,18 @@ export default function BookingsScreen() {
                     )}
                   </View>
                 )}
+
+                {(booking.status === 'delivered' || booking.status === 'cancelled') && (
+                  <View style={styles.actionContainer}>
+                    <TouchableOpacity
+                      style={[styles.rebookButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.primary }]}
+                      onPress={() => handleRebook(booking)}
+                    >
+                      <RotateCcw size={18} color={theme.colors.primary} strokeWidth={2} />
+                      <Text style={[styles.rebookButtonText, { color: theme.colors.primary }]}>Rebook</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </TouchableOpacity>
             ))}
 
@@ -734,7 +804,7 @@ export default function BookingsScreen() {
                   {[1, 2, 3, 4, 5].map((n) => (
                     <TouchableOpacity
                       key={n}
-                      onPress={() => setRateStars(n)}
+                      onPress={() => { tapLight(); setRateStars(n); }}
                       style={styles.starButton}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
@@ -784,7 +854,9 @@ export default function BookingsScreen() {
                       setRateStars(0);
                       setRateReviewText('');
                       refetchRatings();
+                      notifySuccess();
                     } catch (e) {
+                      notifyError();
                       showAlert('Error', e instanceof Error ? e.message : 'Could not submit rating.');
                     } finally {
                       setSubmittingRating(false);

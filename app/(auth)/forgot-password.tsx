@@ -13,8 +13,10 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, Mail, Package, Send } from 'lucide-react-native';
 import { router } from 'expo-router';
+import * as Linking from 'expo-linking';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAlert } from '@/contexts/AlertContext';
+import { supabase } from '@/lib/supabase';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -29,33 +31,48 @@ export default function ForgotPasswordScreen() {
   const [isLoading, setIsLoading] = useState(false);
 
   const handleResetPassword = async () => {
-    if (!email) {
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail) {
       showAlert('Error', 'Please enter your email address');
       return;
     }
 
-    if (!email.includes('@')) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
       showAlert('Error', 'Please enter a valid email address');
       return;
     }
 
     setIsLoading(true);
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      const redirectTo = Linking.createURL('/reset-password');
+      const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
+        redirectTo,
+      });
 
-    setIsLoading(false);
+      if (error) throw error;
 
-    showAlert(
-      'Reset Link Sent',
-      "We've sent a password reset link to your email address. Please check your inbox and follow the instructions.",
-      [
-        {
-          text: 'OK',
-          onPress: () => router.back(),
-        },
-      ]
-    );
+      showAlert(
+        'Reset Link Sent',
+        "If an account exists for that email, we've sent a password reset link. Please check your inbox (and spam folder) and follow the instructions.",
+        [
+          {
+            text: 'OK',
+            onPress: () => router.back(),
+          },
+        ]
+      );
+    } catch (err) {
+      showAlert(
+        'Error',
+        err instanceof Error
+          ? err.message
+          : 'Something went wrong while sending the reset link. Please try again.'
+      );
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const buttonScale = useSharedValue(1);

@@ -6,10 +6,12 @@ import {
   Image,
   StyleSheet,
   TouchableOpacity,
-  Platform,
   PanResponder,
   Dimensions,
   ScrollView,
+  Share,
+  Linking,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -23,17 +25,20 @@ import {
   Shield,
   MapPin,
   CreditCard,
-  Bike,
   Crosshair,
+  Share2,
+  KeyRound,
 } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Constants from 'expo-constants';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { useAlert } from '@/contexts/AlertContext';
+import { useAlert, type AlertButton } from '@/contexts/AlertContext';
+import { useVoiceCall } from '@/contexts/VoiceCallContext';
 import { useDeliveries, type Delivery } from '@/hooks/useDeliveries';
 import { useAutoCancelPendingDelivery } from '@/hooks/useAutoCancelPendingDelivery';
 import { fetchGoogleDirections, geocodeAddress } from '@/lib/googleDirections';
+import { getDeliveryProofSignedUrl } from '@/lib/deliveryProofUpload';
 
 interface RiderInfo {
   name: string;
@@ -110,11 +115,85 @@ function getProgressIndex(status: Delivery['status'] | undefined): number {
   return PROGRESS_INDEX[display];
 }
 
-const ANDROID_MARKER_IMAGES = {
+const MARKER_IMAGES = {
   rider: require('@/assets/markers/marker-rider.png'),
   pickup: require('@/assets/markers/marker-pickup.png'),
   dropoff: require('@/assets/markers/marker-dropoff.png'),
 };
+
+/** Pin markers tip at the bottom; rider is a centered circular badge. */
+const MARKER_ANCHOR = {
+  pin: { x: 0.5, y: 1 },
+  rider: { x: 0.5, y: 0.5 },
+} as const;
+
+type LatLng = { latitude: number; longitude: number };
+
+const DEFAULT_DELTA = { latitudeDelta: 0.05, longitudeDelta: 0.05 };
+
+function DeliveryMapMarkers({
+  Marker,
+  pickupCoords,
+  dropoffCoords,
+  riderCoords,
+}: {
+  Marker: React.ComponentType<any>;
+  pickupCoords: LatLng | null;
+  dropoffCoords: LatLng | null;
+  riderCoords: LatLng | null;
+}) {
+  return (
+    <>
+      {pickupCoords && (
+        <Marker
+          coordinate={pickupCoords}
+          title="Pickup Location"
+          image={MARKER_IMAGES.pickup}
+          anchor={MARKER_ANCHOR.pin}
+          tracksViewChanges={false}
+        />
+      )}
+      {dropoffCoords && (
+        <Marker
+          coordinate={dropoffCoords}
+          title="Dropoff Location"
+          image={MARKER_IMAGES.dropoff}
+          anchor={MARKER_ANCHOR.pin}
+          tracksViewChanges={false}
+        />
+      )}
+      {riderCoords && (
+        <Marker
+          coordinate={riderCoords}
+          title="Rider Location"
+          image={MARKER_IMAGES.rider}
+          anchor={MARKER_ANCHOR.rider}
+          tracksViewChanges={false}
+        />
+      )}
+    </>
+  );
+}
+
+function regionFromPoints(points: LatLng[]) {
+  if (points.length === 0) return null;
+  if (points.length === 1) {
+    return { ...points[0], ...DEFAULT_DELTA };
+  }
+  const lats = points.map((p) => p.latitude);
+  const lngs = points.map((p) => p.longitude);
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs);
+  const maxLng = Math.max(...lngs);
+  const pad = 0.01;
+  return {
+    latitude: (minLat + maxLat) / 2,
+    longitude: (minLng + maxLng) / 2,
+    latitudeDelta: Math.max(maxLat - minLat + pad, 0.02),
+    longitudeDelta: Math.max(maxLng - minLng + pad, 0.02),
+  };
+}
 
 // Simplified map style: light background, soft roads/labels (lower contrast for readability).
 const SIMPLIFIED_MAP_STYLE = [
@@ -138,7 +217,6 @@ const SIMPLIFIED_MAP_STYLE = [
 ];
 
 const ROUTE_LINE_COLOR = '#22C55E';
-const DEFAULT_DELTA = { latitudeDelta: 0.05, longitudeDelta: 0.05 };
 
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371000;
@@ -163,7 +241,8 @@ export default function TrackingScreen() {
   const { theme, isDark } = useTheme();
   const { user } = useAuth();
   const { showAlert } = useAlert();
-  const { deliveries, updateDeliveryStatus } = useDeliveries();
+  const { startCall } = useVoiceCall();
+  const { deliveries } = useDeliveries();
   const params = useLocalSearchParams<{ deliveryId?: string }>();
   
   // Get active delivery - from params or most recent non-completed (including pending "searching for rider")
@@ -257,18 +336,18 @@ export default function TrackingScreen() {
   });
   const [elapsedTime, setElapsedTime] = useState(0);
   const [mapExpanded, setMapExpanded] = useState(false);
-  // Real-time rider coordinates (live updates from rider app)
-  const [riderCoords, setRiderCoords] = useState({
-    latitude: 37.78825,
-    longitude: -122.4324,
-  });
+  // Real-time rider coordinates — null until we have a real GPS sample (never invent a city).
+  const [riderCoords, setRiderCoords] = useState<LatLng | null>(null);
   const [isLive, setIsLive] = useState(false);
   const subscriptionRef = useRef<any | null>(null);
   const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
   const [pickupCoords, setPickupCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [dropoffCoords, setDropoffCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [fallbackCoords, setFallbackCoords] = useState<LatLng | null>(null);
   const [followMode, setFollowMode] = useState(true);
   const [riderSpeedKmh, setRiderSpeedKmh] = useState(0);
+  const [handoffCode, setHandoffCode] = useState<string | null>(null);
+  const [proofPhotoUrl, setProofPhotoUrl] = useState<string | null>(null);
   const lastRiderSampleRef = useRef<{ lat: number; lng: number; ts: number } | null>(null);
   
   // Draggable card state – top of map
@@ -278,6 +357,7 @@ export default function TrackingScreen() {
   const mapRef = useRef<any>(null);
 
   const handleRecenterMap = () => {
+    if (!riderCoords) return;
     setFollowMode(true);
     mapRef.current?.animateCamera?.(
       {
@@ -319,31 +399,22 @@ export default function TrackingScreen() {
     })
   ).current;
 
-  const mapRegion = useMemo(() => {
-    const points = [riderCoords, pickupCoords, dropoffCoords].filter(
-      (p): p is { latitude: number; longitude: number } => !!p
-    );
-    if (points.length >= 2) {
-      const lats = points.map((p) => p.latitude);
-      const lngs = points.map((p) => p.longitude);
-      const minLat = Math.min(...lats);
-      const maxLat = Math.max(...lats);
-      const minLng = Math.min(...lngs);
-      const maxLng = Math.max(...lngs);
-      const pad = 0.01;
-      return {
-        latitude: (minLat + maxLat) / 2,
-        longitude: (minLng + maxLng) / 2,
-        latitudeDelta: Math.max(maxLat - minLat + pad, 0.02),
-        longitudeDelta: Math.max(maxLng - minLng + pad, 0.02),
-      };
-    }
-    return {
-      latitude: riderCoords.latitude,
-      longitude: riderCoords.longitude,
-      ...DEFAULT_DELTA,
-    };
-  }, [riderCoords.latitude, riderCoords.longitude, pickupCoords?.latitude, pickupCoords?.longitude, dropoffCoords?.latitude, dropoffCoords?.longitude]);
+  const mapRegion = useMemo(
+    () =>
+      regionFromPoints(
+        [riderCoords, pickupCoords, dropoffCoords, fallbackCoords].filter((p): p is LatLng => !!p)
+      ),
+    [
+      riderCoords?.latitude,
+      riderCoords?.longitude,
+      pickupCoords?.latitude,
+      pickupCoords?.longitude,
+      dropoffCoords?.latitude,
+      dropoffCoords?.longitude,
+      fallbackCoords?.latitude,
+      fallbackCoords?.longitude,
+    ]
+  );
   const speedKmhRounded = Math.max(0, Math.round(riderSpeedKmh));
 
   useEffect(() => {
@@ -351,9 +422,7 @@ export default function TrackingScreen() {
     const fitPoints =
       routeCoordinates.length > 1
         ? routeCoordinates
-        : [riderCoords, pickupCoords, dropoffCoords].filter(
-            (p): p is { latitude: number; longitude: number } => !!p
-          );
+        : [riderCoords, pickupCoords, dropoffCoords].filter((p): p is LatLng => !!p);
     if (fitPoints.length < 2) return;
     mapRef.current.fitToCoordinates?.(fitPoints, {
       edgePadding: { top: 90, right: 60, bottom: 320, left: 60 },
@@ -362,7 +431,7 @@ export default function TrackingScreen() {
   }, [mapExpanded, routeCoordinates.length, pickupCoords?.latitude, pickupCoords?.longitude, dropoffCoords?.latitude, dropoffCoords?.longitude]);
 
   useEffect(() => {
-    if (!mapExpanded || !followMode || !mapRef.current) return;
+    if (!mapExpanded || !followMode || !mapRef.current || !riderCoords) return;
     mapRef.current.animateCamera?.(
       {
         center: {
@@ -373,7 +442,7 @@ export default function TrackingScreen() {
       },
       { duration: 500 }
     );
-  }, [mapExpanded, followMode, riderCoords.latitude, riderCoords.longitude, riderSpeedKmh]);
+  }, [mapExpanded, followMode, riderCoords?.latitude, riderCoords?.longitude, riderSpeedKmh]);
 
   // Fetch rider info when delivery is available
   useEffect(() => {
@@ -466,9 +535,7 @@ export default function TrackingScreen() {
         },
         handleLocationPayload
       )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') setIsLive(true);
-      });
+      .subscribe();
 
     subscriptionRef.current = channel;
 
@@ -483,10 +550,18 @@ export default function TrackingScreen() {
 
         if (!error && data) {
           const location = data as { latitude: number; longitude: number };
-          setRiderCoords({
-            latitude: location.latitude,
-            longitude: location.longitude,
-          });
+          if (
+            typeof location.latitude === 'number' &&
+            typeof location.longitude === 'number' &&
+            Number.isFinite(location.latitude) &&
+            Number.isFinite(location.longitude)
+          ) {
+            setRiderCoords({
+              latitude: location.latitude,
+              longitude: location.longitude,
+            });
+            setIsLive(true);
+          }
         }
       } catch (err) {
         console.warn('[tracking] initial location fetch error', err);
@@ -507,21 +582,157 @@ export default function TrackingScreen() {
     };
   }, [riderId]);
 
-  // Geocode pickup and dropoff addresses so we can draw route and markers
+  // Resolve pickup/dropoff coords from DB first (independently), then geocode any gaps.
   useEffect(() => {
-    if (!activeDelivery?.pickup_address || !activeDelivery?.dropoff_address) return;
+    if (!activeDelivery) return;
+
+    const hasPickupDb =
+      activeDelivery.pickup_lat != null &&
+      activeDelivery.pickup_lng != null &&
+      Number.isFinite(Number(activeDelivery.pickup_lat)) &&
+      Number.isFinite(Number(activeDelivery.pickup_lng));
+    const hasDropoffDb =
+      activeDelivery.dropoff_lat != null &&
+      activeDelivery.dropoff_lng != null &&
+      Number.isFinite(Number(activeDelivery.dropoff_lat)) &&
+      Number.isFinite(Number(activeDelivery.dropoff_lng));
+
+    if (hasPickupDb) {
+      setPickupCoords({
+        latitude: Number(activeDelivery.pickup_lat),
+        longitude: Number(activeDelivery.pickup_lng),
+      });
+    }
+    if (hasDropoffDb) {
+      setDropoffCoords({
+        latitude: Number(activeDelivery.dropoff_lat),
+        longitude: Number(activeDelivery.dropoff_lng),
+      });
+    }
+    if (hasPickupDb && hasDropoffDb) return;
+
     let cancelled = false;
     (async () => {
-      const [pickup, dropoff] = await Promise.all([
-        geocodeAddress(activeDelivery.pickup_address),
-        geocodeAddress(activeDelivery.dropoff_address),
-      ]);
-      if (cancelled) return;
-      if (pickup) setPickupCoords(pickup);
-      if (dropoff) setDropoffCoords(dropoff);
+      const tasks: Promise<void>[] = [];
+      if (!hasPickupDb && activeDelivery.pickup_address) {
+        tasks.push(
+          geocodeAddress(activeDelivery.pickup_address).then((pickup) => {
+            if (!cancelled && pickup) setPickupCoords(pickup);
+          })
+        );
+      }
+      if (!hasDropoffDb && activeDelivery.dropoff_address) {
+        tasks.push(
+          geocodeAddress(activeDelivery.dropoff_address).then((dropoff) => {
+            if (!cancelled && dropoff) setDropoffCoords(dropoff);
+          })
+        );
+      }
+      await Promise.all(tasks);
     })();
-    return () => { cancelled = true; };
-  }, [activeDelivery?.pickup_address, activeDelivery?.dropoff_address]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeDelivery?.id,
+    activeDelivery?.pickup_address,
+    activeDelivery?.dropoff_address,
+    activeDelivery?.pickup_lat,
+    activeDelivery?.pickup_lng,
+    activeDelivery?.dropoff_lat,
+    activeDelivery?.dropoff_lng,
+  ]);
+
+  // If list/realtime didn't include coords yet, fetch this delivery row once.
+  useEffect(() => {
+    if (!deliveryId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await (supabase as any)
+          .from('deliveries')
+          .select('pickup_address, dropoff_address, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, share_token, status, rider_id')
+          .eq('id', deliveryId)
+          .maybeSingle();
+        if (cancelled || error || !data) return;
+        setLocalDelivery((prev) => (prev ? { ...prev, ...data } : (data as Delivery)));
+      } catch (err) {
+        console.warn('[tracking] delivery coords fetch failed', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [deliveryId]);
+
+  // Last-resort map center: device location so we never stick on a blank "Locating" forever.
+  useEffect(() => {
+    if (riderCoords || pickupCoords || dropoffCoords || fallbackCoords) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const Location = await import('expo-location');
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted' || cancelled) return;
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (cancelled) return;
+        setFallbackCoords({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+        });
+      } catch (err) {
+        console.warn('[tracking] device location fallback failed', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [riderCoords, pickupCoords, dropoffCoords, fallbackCoords]);
+
+  // Fetch handoff OTP for customer when package is picked up
+  useEffect(() => {
+    if (!deliveryId) return;
+    const showCode =
+      activeDelivery?.status === 'picked_up' ||
+      activeDelivery?.status === 'in_transit' ||
+      activeDelivery?.status === 'nearby';
+    if (!showCode) {
+      setHandoffCode(null);
+      return;
+    }
+    (async () => {
+      const { data } = await (supabase as any)
+        .from('delivery_handoffs')
+        .select('code, verified')
+        .eq('delivery_id', deliveryId)
+        .maybeSingle();
+      if (data && !data.verified) {
+        setHandoffCode(data.code);
+      } else {
+        setHandoffCode(null);
+      }
+    })();
+  }, [deliveryId, activeDelivery?.status]);
+
+  // Load proof-of-delivery photo when delivered
+  useEffect(() => {
+    if (!activeDelivery?.proof_photo_path) {
+      setProofPhotoUrl(null);
+      return;
+    }
+    if (
+      activeDelivery.status !== 'delivered' &&
+      activeDelivery.status !== 'completed'
+    ) {
+      return;
+    }
+    (async () => {
+      const url = await getDeliveryProofSignedUrl(activeDelivery.proof_photo_path!);
+      setProofPhotoUrl(url);
+    })();
+  }, [activeDelivery?.proof_photo_path, activeDelivery?.status]);
 
   // Fetch route from rider to dropoff and update ETA (debounced when rider moves)
   const riderCoordsRef = useRef(riderCoords);
@@ -534,15 +745,18 @@ export default function TrackingScreen() {
 
   useEffect(() => {
     const drop = dropoffCoordsRef.current;
-    if (!drop) return;
+    const rider = riderCoordsRef.current;
+    if (!drop || !rider) return;
 
     const fetchRouteAndEta = async () => {
-      const rider = riderCoordsRef.current;
+      const currentRider = riderCoordsRef.current;
+      const currentDrop = dropoffCoordsRef.current;
+      if (!currentRider || !currentDrop) return;
       const result = await fetchGoogleDirections(
-        rider.latitude,
-        rider.longitude,
-        drop.latitude,
-        drop.longitude
+        currentRider.latitude,
+        currentRider.longitude,
+        currentDrop.latitude,
+        currentDrop.longitude
       );
       if (!result) return;
       setRouteCoordinates(result.coordinates);
@@ -573,7 +787,7 @@ export default function TrackingScreen() {
     return () => {
       if (routeFetchRef.current) clearTimeout(routeFetchRef.current);
     };
-  }, [dropoffCoords?.latitude, dropoffCoords?.longitude, riderCoords.latitude, riderCoords.longitude]);
+  }, [dropoffCoords?.latitude, dropoffCoords?.longitude, riderCoords?.latitude, riderCoords?.longitude]);
 
   useEffect(() => {
     if (!activeDelivery?.created_at) {
@@ -642,46 +856,62 @@ export default function TrackingScreen() {
   };
 
   const handleCall = () => {
-    showAlert('Call Rider', 'Choose how you want to call Mike', [
+    if (!activeDelivery?.id || !riderId) {
+      showAlert('Call Rider', 'A rider must be assigned before you can call.');
+      return;
+    }
+
+    const riderName = rider.name && rider.name !== 'Loading...' ? rider.name : 'Rider';
+    const buttons: AlertButton[] = [
       {
         text: 'In-App Call',
-        onPress: () =>
-          showAlert('In-App Call', 'Starting in-app call with Mike...'),
+        onPress: () => {
+          startCall(activeDelivery.id, riderName).catch(() => {});
+        },
       },
-      {
+    ];
+
+    if (rider.phone) {
+      buttons.push({
         text: 'Phone Call',
-        onPress: () => showAlert('Phone Call', `Calling ${rider.phone}...`),
-      },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+        onPress: () => {
+          Linking.openURL(`tel:${rider.phone}`).catch(() => {});
+        },
+      });
+    }
+
+    buttons.push({ text: 'Cancel', style: 'cancel' });
+    showAlert('Call Rider', `Choose how you want to call ${riderName}`, buttons);
   };
 
   const handleMessage = () => {
-    router.push('/chat');
+    if (!activeDelivery?.id || !riderId) return;
+    router.push({
+      pathname: '/chat',
+      params: {
+        deliveryId: activeDelivery.id,
+        peerName: rider.name && rider.name !== 'Loading...' ? rider.name : '',
+        peerPhone: rider.phone ?? '',
+      },
+    });
   };
 
-  const handleMarkDelivered = () => {
-    if (!activeDelivery?.id) return;
-    showAlert('Confirm Delivery', 'Has your package been delivered?', [
-      { text: 'No, Not Yet', style: 'cancel' },
-      {
-        text: 'Yes, Delivered',
-        onPress: async () => {
-          try {
-            await updateDeliveryStatus(activeDelivery.id, 'delivered');
-            showAlert(
-              'Delivery Confirmed',
-              'Thank you! Your delivery has been marked as completed.'
-            );
-          } catch (e) {
-            showAlert(
-              'Error',
-              e instanceof Error ? e.message : 'Could not confirm delivery. Please try again.'
-            );
-          }
-        },
-      },
-    ]);
+  const handleShareTracking = async () => {
+    if (!activeDelivery?.share_token) {
+      showAlert('Share', 'Tracking link is not available for this delivery.');
+      return;
+    }
+    const webUrl =
+      process.env.EXPO_PUBLIC_WEB_URL?.replace(/\/$/, '') ??
+      process.env.EXPO_PUBLIC_SUPABASE_URL?.replace(/\/$/, '');
+    const link = `${webUrl}/track/${activeDelivery.share_token}`;
+    try {
+      await Share.share({
+        message: `Track my Ridely delivery live: ${link}`,
+        url: link,
+        title: 'Ridely delivery tracking',
+      });
+    } catch (_) {}
   };
 
   return (
@@ -725,20 +955,20 @@ export default function TrackingScreen() {
           activeOpacity={0.8}
           onPress={() => setMapExpanded(true)}
         >
-          {RNMaps ? (
+          {RNMaps && mapRegion ? (
             <RNMaps.default
               style={styles.map}
               mapType="standard"
               customMapStyle={SIMPLIFIED_MAP_STYLE}
-              initialRegion={mapRegion}
+              region={mapRegion}
               loadingEnabled
               moveOnMarkerPress={false}
               toolbarEnabled={false}
-              liteMode={Platform.OS === 'android'}
               scrollEnabled={false}
               zoomEnabled={false}
               rotateEnabled={false}
               pitchEnabled={false}
+              pointerEvents="none"
             >
               {routeCoordinates.length > 0 && (
                 <RNMaps.Polyline
@@ -749,69 +979,25 @@ export default function TrackingScreen() {
                   lineJoin="round"
                 />
               )}
-              {pickupCoords && (
-                Platform.OS === 'ios' ? (
-                  <RNMaps.Marker coordinate={pickupCoords} title="Pickup Location" anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
-                    <View style={styles.customMarker}>
-                      <View style={[styles.markerIconWrap, { backgroundColor: '#10B981' }]}>
-                        <Package size={16} color="#FFFFFF" strokeWidth={2.5} />
-                      </View>
-                    </View>
-                  </RNMaps.Marker>
-                ) : (
-                  <RNMaps.Marker coordinate={pickupCoords} title="Pickup Location" anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
-                    <View style={styles.customMarker}>
-                      <Image source={ANDROID_MARKER_IMAGES.pickup} style={styles.markerImage} resizeMode="contain" />
-                    </View>
-                  </RNMaps.Marker>
-                )
-              )}
-              {dropoffCoords && (
-                Platform.OS === 'ios' ? (
-                  <RNMaps.Marker coordinate={dropoffCoords} title="Dropoff Location" anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
-                    <View style={styles.customMarker}>
-                      <View style={[styles.markerIconWrap, { backgroundColor: '#EF4444' }]}>
-                        <MapPin size={16} color="#FFFFFF" strokeWidth={2.5} />
-                      </View>
-                    </View>
-                  </RNMaps.Marker>
-                ) : (
-                  <RNMaps.Marker coordinate={dropoffCoords} title="Dropoff Location" anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
-                    <View style={styles.customMarker}>
-                      <Image source={ANDROID_MARKER_IMAGES.dropoff} style={styles.markerImage} resizeMode="contain" />
-                    </View>
-                  </RNMaps.Marker>
-                )
-              )}
-              {Platform.OS === 'ios' ? (
-                <RNMaps.Marker
-                  coordinate={{ latitude: riderCoords.latitude, longitude: riderCoords.longitude }}
-                  title="Rider Location"
-                  anchor={{ x: 0.5, y: 0.5 }}
-                  tracksViewChanges={false}
-                >
-                  <View style={styles.customMarker}>
-                    <View style={[styles.markerIconWrap, { backgroundColor: theme.colors.primary || ROUTE_LINE_COLOR }]}>
-                      <Bike size={16} color="#FFFFFF" strokeWidth={2.5} />
-                    </View>
-                  </View>
-                </RNMaps.Marker>
-              ) : (
-                <RNMaps.Marker
-                  coordinate={{ latitude: riderCoords.latitude, longitude: riderCoords.longitude }}
-                  title="Rider Location"
-                  anchor={{ x: 0.5, y: 0.5 }}
-                  tracksViewChanges={false}
-                >
-                  <View style={styles.customMarker}>
-                    <Image source={ANDROID_MARKER_IMAGES.rider} style={styles.markerImage} resizeMode="contain" />
-                  </View>
-                </RNMaps.Marker>
-              )}
+              <DeliveryMapMarkers
+                Marker={RNMaps.Marker}
+                pickupCoords={pickupCoords}
+                dropoffCoords={dropoffCoords}
+                riderCoords={riderCoords}
+              />
             </RNMaps.default>
           ) : (
             <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.surface }]}>
-              <Text style={{ color: theme.colors.textSecondary }}>Map requires a development build</Text>
+              {RNMaps ? (
+                <>
+                  <ActivityIndicator size="large" color={theme.colors.primary} />
+                  <Text style={{ color: theme.colors.textSecondary, marginTop: 12 }}>
+                    Locating delivery…
+                  </Text>
+                </>
+              ) : (
+                <Text style={{ color: theme.colors.textSecondary }}>Map requires a development build</Text>
+              )}
             </View>
           )}
         </TouchableOpacity>
@@ -952,6 +1138,16 @@ export default function TrackingScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.quickActionCard, { backgroundColor: isDark ? theme.colors.surface : '#F0F2FF' }]}
+              onPress={handleShareTracking}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.quickActionIconWrap, { backgroundColor: theme.colors.accent ?? '#FFC947' }]}>
+                <Share2 size={22} color="#FFFFFF" strokeWidth={2} />
+              </View>
+              <Text style={[styles.quickActionLabel, { color: theme.colors.textSecondary }]}>Share</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.quickActionCard, { backgroundColor: isDark ? theme.colors.surface : '#F0F2FF' }]}
               onPress={() => router.push('/support')}
               activeOpacity={0.7}
             >
@@ -961,6 +1157,25 @@ export default function TrackingScreen() {
               <Text style={[styles.quickActionLabel, { color: theme.colors.textSecondary }]}>Safety</Text>
             </TouchableOpacity>
           </View>
+
+          {handoffCode && (
+            <View style={[styles.handoffCard, { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary }]}>
+              <KeyRound size={22} color="#FFFFFF" strokeWidth={2} />
+              <View style={styles.handoffContent}>
+                <Text style={styles.handoffLabel}>Handoff code — share with rider at delivery</Text>
+                <Text style={styles.handoffCode}>{handoffCode}</Text>
+              </View>
+            </View>
+          )}
+
+          {proofPhotoUrl && (
+            <View style={[styles.infoCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, flexDirection: 'column', alignItems: 'stretch' }]}>
+              <Text style={[styles.infoCardSubtitle, { color: theme.colors.text, fontWeight: '700', marginBottom: 8 }]}>
+                Proof of delivery
+              </Text>
+              <Image source={{ uri: proofPhotoUrl }} style={styles.proofImage} resizeMode="cover" />
+            </View>
+          )}
 
           <TouchableOpacity
             style={[styles.infoCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
@@ -1041,19 +1256,22 @@ export default function TrackingScreen() {
         </View>
         )}
 
-        {/* Bottom Action - hidden when map is fullscreen */}
-        {!mapExpanded && displayStatus === 'nearby' && (
+        {/* Rider confirms delivery via handoff code — customers wait for that */}
+        {!mapExpanded &&
+          displayStatus !== 'delivered' &&
+          displayStatus !== 'completed' &&
+          displayStatus !== 'cancelled' &&
+          activeDelivery?.rider_id && (
           <View style={[styles.bottomContainer, { 
             backgroundColor: theme.colors.card,
             borderTopColor: theme.colors.border
           }]}>
-            <TouchableOpacity
-              style={[styles.deliveredButton, { backgroundColor: theme.colors.success }]}
-              onPress={handleMarkDelivered}
-            >
-              <Package size={20} color="#FFFFFF" strokeWidth={2} />
-              <Text style={styles.deliveredText}>Mark as Delivered</Text>
-            </TouchableOpacity>
+            <View style={[styles.deliveredButton, { backgroundColor: theme.colors.border, opacity: 0.95 }]}>
+              <Package size={20} color={theme.colors.text} strokeWidth={2} />
+              <Text style={[styles.deliveredText, { color: theme.colors.text }]}>
+                Waiting for rider to confirm delivery
+              </Text>
+            </View>
           </View>
         )}
       </ScrollView>
@@ -1061,7 +1279,7 @@ export default function TrackingScreen() {
       {/* Fullscreen Map - outside ScrollView so it covers entire screen */}
       {mapExpanded && (
         <View style={[StyleSheet.absoluteFill, { zIndex: 1000 }]}>
-          {RNMaps ? (
+          {RNMaps && mapRegion ? (
             <RNMaps.default
               ref={mapRef}
               style={{ flex: 1 }}
@@ -1085,69 +1303,18 @@ export default function TrackingScreen() {
                   lineJoin="round"
                 />
               )}
-              {pickupCoords && (
-                Platform.OS === 'ios' ? (
-                  <RNMaps.Marker coordinate={pickupCoords} title="Pickup Location" anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
-                    <View style={styles.customMarker}>
-                      <View style={[styles.markerIconWrap, { backgroundColor: '#10B981' }]}>
-                        <Package size={16} color="#FFFFFF" strokeWidth={2.5} />
-                      </View>
-                    </View>
-                  </RNMaps.Marker>
-                ) : (
-                  <RNMaps.Marker coordinate={pickupCoords} title="Pickup Location" anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
-                    <View style={styles.customMarker}>
-                      <Image source={ANDROID_MARKER_IMAGES.pickup} style={styles.markerImage} resizeMode="contain" />
-                    </View>
-                  </RNMaps.Marker>
-                )
-              )}
-              {dropoffCoords && (
-                Platform.OS === 'ios' ? (
-                  <RNMaps.Marker coordinate={dropoffCoords} title="Dropoff Location" anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
-                    <View style={styles.customMarker}>
-                      <View style={[styles.markerIconWrap, { backgroundColor: '#EF4444' }]}>
-                        <MapPin size={16} color="#FFFFFF" strokeWidth={2.5} />
-                      </View>
-                    </View>
-                  </RNMaps.Marker>
-                ) : (
-                  <RNMaps.Marker coordinate={dropoffCoords} title="Dropoff Location" anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
-                    <View style={styles.customMarker}>
-                      <Image source={ANDROID_MARKER_IMAGES.dropoff} style={styles.markerImage} resizeMode="contain" />
-                    </View>
-                  </RNMaps.Marker>
-                )
-              )}
-              {Platform.OS === 'ios' ? (
-                <RNMaps.Marker
-                  coordinate={{ latitude: riderCoords.latitude, longitude: riderCoords.longitude }}
-                  title="Rider Location"
-                  anchor={{ x: 0.5, y: 0.5 }}
-                  tracksViewChanges={false}
-                >
-                  <View style={styles.customMarker}>
-                    <View style={[styles.markerIconWrap, { backgroundColor: theme.colors.primary || ROUTE_LINE_COLOR }]}>
-                      <Bike size={16} color="#FFFFFF" strokeWidth={2.5} />
-                    </View>
-                  </View>
-                </RNMaps.Marker>
-              ) : (
-                <RNMaps.Marker
-                  coordinate={{ latitude: riderCoords.latitude, longitude: riderCoords.longitude }}
-                  title="Rider Location"
-                  anchor={{ x: 0.5, y: 0.5 }}
-                  tracksViewChanges={false}
-                >
-                  <View style={styles.customMarker}>
-                    <Image source={ANDROID_MARKER_IMAGES.rider} style={styles.markerImage} resizeMode="contain" />
-                  </View>
-                </RNMaps.Marker>
-              )}
+              <DeliveryMapMarkers
+                Marker={RNMaps.Marker}
+                pickupCoords={pickupCoords}
+                dropoffCoords={dropoffCoords}
+                riderCoords={riderCoords}
+              />
             </RNMaps.default>
           ) : (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.background }}>
-              <Text style={{ color: theme.colors.text }}>Map requires a development build</Text>
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.surface }}>
+              <Text style={{ color: theme.colors.textSecondary }}>
+                {RNMaps ? 'Locating delivery…' : 'Map requires a development build'}
+              </Text>
             </View>
           )}
           <View style={{ position: 'absolute', top: 40, right: 20, flexDirection: 'row', gap: 10, zIndex: 10 }}>
@@ -1334,24 +1501,6 @@ export default function TrackingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  customMarker: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  markerIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-    ...Platform.select({ ios: { shadowRadius: 3, shadowOpacity: 0.25, shadowOffset: { width: 0, height: 1 }, shadowColor: '#000' }, android: { elevation: 3 } }),
-  },
-  markerImage: {
-    width: 50,
-    height: 50,
   },
   header: {
     flexDirection: 'row',
@@ -1637,5 +1786,31 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  handoffCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 14,
+    marginBottom: 12,
+    gap: 14,
+  },
+  handoffContent: { flex: 1 },
+  handoffLabel: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  handoffCode: {
+    color: '#FFFFFF',
+    fontSize: 32,
+    fontWeight: '800',
+    letterSpacing: 6,
+  },
+  proofImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: 10,
   },
 });

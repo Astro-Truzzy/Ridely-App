@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -115,7 +115,17 @@ export default function AddressScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
   const { showAlert } = useAlert();
-  const { size, scheduleLater } = useLocalSearchParams<{ size: string; scheduleLater?: string }>();
+  const { size, scheduleLater, rebookPickup, rebookDropoff, pickupLat, pickupLon, dropoffLat, dropoffLon } =
+    useLocalSearchParams<{
+      size: string;
+      scheduleLater?: string;
+      rebookPickup?: string;
+      rebookDropoff?: string;
+      pickupLat?: string;
+      pickupLon?: string;
+      dropoffLat?: string;
+      dropoffLon?: string;
+    }>();
   const [pickupAddress, setPickupAddress] = useState('');
   const [dropoffAddress, setDropoffAddress] = useState('');
   const [pickupCoords, setPickupCoords] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -153,6 +163,24 @@ export default function AddressScreen() {
   } = useAddressAutocomplete();
 
   const { addresses: savedAddressesFromDb } = useSavedAddresses();
+
+  useEffect(() => {
+    if (rebookPickup) setPickupAddress(rebookPickup);
+    if (rebookDropoff) setDropoffAddress(rebookDropoff);
+    if (pickupLat && pickupLon) {
+      setPickupCoords({
+        latitude: parseFloat(pickupLat),
+        longitude: parseFloat(pickupLon),
+      });
+    }
+    if (dropoffLat && dropoffLon) {
+      setDropoffCoords({
+        latitude: parseFloat(dropoffLat),
+        longitude: parseFloat(dropoffLon),
+      });
+    }
+  }, [rebookPickup, rebookDropoff, pickupLat, pickupLon, dropoffLat, dropoffLon]);
+
   const savedAddresses: Address[] = savedAddressesFromDb.map((a) => ({
     id: a.id,
     label: a.label,

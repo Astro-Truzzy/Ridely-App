@@ -96,7 +96,12 @@ android {
         versionName "1.0.0"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
-        manifestPlaceholders = [GOOGLE_MAPS_API_KEY: findProperty("GOOGLE_MAPS_ANDROID_API_KEY") ?: ""]
+        // Prefer gradle property, then env (EAS / CI). Never commit the key.
+        def mapsApiKey = findProperty("GOOGLE_MAPS_ANDROID_API_KEY")
+                ?: System.getenv("GOOGLE_MAPS_ANDROID_API_KEY")
+                ?: System.getenv("EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY")
+                ?: ""
+        manifestPlaceholders = [GOOGLE_MAPS_API_KEY: mapsApiKey]
     }
     signingConfigs {
         debug {

@@ -18,6 +18,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useAlert } from '@/contexts/AlertContext';
 import { getPaystackCallbackPath, initializePaystackTransaction } from '@/lib/paystack';
 import { setPendingPayment } from '@/lib/paymentWebViewState';
+import { supabase } from '@/lib/supabase';
+import { useWallet } from '@/hooks/useWallet';
 
 const MIN_NAIRA = 100; // ₦100 minimum
 const MAX_NAIRA = 1_000_000;
@@ -27,9 +29,13 @@ export default function FundWalletScreen() {
   const { theme, isDark } = useTheme();
   const { user, userProfile } = useAuth();
   const { showAlert } = useAlert();
+  const { refetch: refetchWallet } = useWallet();
   const [amount, setAmount] = useState('');
+  const [promoCode, setPromoCode] = useState('');
   const [loading, setLoading] = useState(false);
+  const [promoLoading, setPromoLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
 
   const handleFund = useCallback(async () => {
     const email = user?.email || userProfile?.email || '';
@@ -72,6 +78,37 @@ export default function FundWalletScreen() {
       setLoading(false);
     }
   }, [user?.id, user?.email, userProfile?.email, amount]);
+
+  const handleRedeemPromo = useCallback(async () => {
+    const code = promoCode.trim().toUpperCase();
+    if (!code) {
+      setPromoError('Enter a promo code');
+      return;
+    }
+    setPromoError(null);
+    setPromoLoading(true);
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke('redeem-promo', {
+        body: { code },
+      });
+      if (fnError) throw fnError;
+      const result = data as { error?: string; message?: string; credited?: number };
+      if (result?.error) {
+        setPromoError(result.error);
+        return;
+      }
+      showAlert(
+        'Promo redeemed',
+        result?.message ?? `₦${result?.credited ?? 0} added to your wallet`
+      );
+      setPromoCode('');
+      await refetchWallet();
+    } catch (e) {
+      setPromoError(e instanceof Error ? e.message : 'Could not redeem promo code');
+    } finally {
+      setPromoLoading(false);
+    }
+  }, [promoCode, showAlert, refetchWallet]);
 
   return (
     <SafeAreaView
@@ -144,6 +181,50 @@ export default function FundWalletScreen() {
         <Text style={[styles.hint, { color: theme.colors.textTertiary }]}>
           Minimum ₦{MIN_NAIRA}. You will be redirected to Paystack to complete the payment.
         </Text>
+
+        <View style={[styles.promoSection, { borderTopColor: theme.colors.border }]}>
+          <Text style={[styles.promoTitle, { color: theme.colors.text }]}>Redeem promo code</Text>
+          <Text style={[styles.promoSubtitle, { color: theme.colors.textSecondary }]}>
+            Enter a code to add credit to your wallet
+          </Text>
+          <TextInput
+            style={[
+              styles.input,
+              {
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+                color: theme.colors.text,
+              },
+            ]}
+            placeholder="e.g. RIDELY500"
+            placeholderTextColor={theme.colors.textTertiary}
+            value={promoCode}
+            onChangeText={(t) => {
+              setPromoCode(t.toUpperCase());
+              setPromoError(null);
+            }}
+            autoCapitalize="characters"
+            editable={!promoLoading}
+          />
+          {promoError ? (
+            <Text style={[styles.errorText, { color: theme.colors.error }]}>{promoError}</Text>
+          ) : null}
+          <TouchableOpacity
+            style={[
+              styles.promoButton,
+              { backgroundColor: theme.colors.success },
+              promoLoading && styles.buttonDisabled,
+            ]}
+            onPress={handleRedeemPromo}
+            disabled={promoLoading}
+          >
+            {promoLoading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Redeem code</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -189,4 +270,26 @@ const styles = StyleSheet.create({
   buttonDisabled: { opacity: 0.7 },
   buttonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
   hint: { fontSize: 13, marginTop: 16, textAlign: 'center' },
+  promoSection: {
+    marginTop: 32,
+    paddingTop: 24,
+    borderTopWidth: 1,
+  },
+  promoTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  promoSubtitle: {
+    fontSize: 13,
+    marginBottom: 12,
+  },
+  promoButton: {
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+    marginTop: 4,
+  },
 });

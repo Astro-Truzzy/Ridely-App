@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,9 @@ import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDeliveries } from '@/hooks/useDeliveries';
+import { useAvailableJobCacheVersion, getCachedAvailableJob, type AvailableJob } from '@/hooks/useAvailableJobs';
+import { rejectDelivery } from '@/lib/deliveryRejections';
+import { withRetry } from '@/lib/retry';
 import { supabase } from '@/lib/supabase';
 
 const { width } = Dimensions.get('window');
@@ -38,52 +41,87 @@ interface DeliveryDetails {
   users?: { full_name?: string } | null;
 }
 
+const DELIVERY_SELECT = `
+  id,
+  pickup_address,
+  dropoff_address,
+  parcel_size,
+  total_cost,
+  distance,
+  estimated_time,
+  status,
+  rider_id,
+  users:user_id ( full_name )
+`;
+
+function jobToDeliveryDetails(job: AvailableJob): DeliveryDetails {
+  return {
+    id: job.id,
+    pickup_address: job.pickup_address,
+    dropoff_address: job.dropoff_address,
+    parcel_size: job.parcel_size,
+    total_cost: job.total_cost,
+    distance: job.distance,
+    estimated_time: job.estimated_time,
+    status: job.status ?? 'pending',
+    rider_id: job.rider_id ?? null,
+    users: job.users ?? null,
+  };
+}
+
 export function DeliveryRequestModal({ visible, deliveryId, onClose }: DeliveryRequestModalProps) {
   const { theme } = useTheme();
   const { user } = useAuth();
   const { acceptDelivery } = useDeliveries();
+  useAvailableJobCacheVersion();
   const [delivery, setDelivery] = useState<DeliveryDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  const fetchIdRef = useRef(0);
+
+  const prefetchedJob =
+    visible && deliveryId ? getCachedAvailableJob(deliveryId) ?? null : null;
 
   useEffect(() => {
     if (!visible || !deliveryId) {
       setDelivery(null);
+      setLoading(false);
       return;
     }
-    let cancelled = false;
+
+    if (prefetchedJob) {
+      setDelivery(jobToDeliveryDetails(prefetchedJob));
+      setLoading(false);
+      return;
+    }
+
+    const requestId = ++fetchIdRef.current;
     setLoading(true);
+
     (async () => {
       try {
-        const { data, error } = await (supabase as any)
-          .from('deliveries')
-          .select(`
-            id,
-            pickup_address,
-            dropoff_address,
-            parcel_size,
-            total_cost,
-            distance,
-            estimated_time,
-            status,
-            rider_id,
-            users:user_id ( full_name )
-          `)
-          .eq('id', deliveryId)
-          .single();
-        if (!cancelled && !error && data) {
-          setDelivery(data as DeliveryDetails);
-        } else if (!cancelled) {
-          setDelivery(null);
-        }
+        const data = await withRetry(async () => {
+          const { data, error } = await supabase
+            .from('deliveries')
+            .select(DELIVERY_SELECT)
+            .eq('id', deliveryId)
+            .eq('status', 'pending')
+            .is('rider_id', null)
+            .maybeSingle();
+          if (error) throw error;
+          return data;
+        });
+
+        if (fetchIdRef.current !== requestId) return;
+        setDelivery(data ? (data as DeliveryDetails) : null);
       } catch {
-        if (!cancelled) setDelivery(null);
+        if (fetchIdRef.current !== requestId) return;
+        setDelivery(null);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (fetchIdRef.current === requestId) setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
-  }, [visible, deliveryId]);
+  }, [visible, deliveryId, prefetchedJob]);
 
   const handleAccept = async () => {
     if (!deliveryId || !user || !delivery) return;
@@ -114,7 +152,14 @@ export function DeliveryRequestModal({ visible, deliveryId, onClose }: DeliveryR
     }
   };
 
-  const handleReject = () => {
+  const handleReject = async () => {
+    // Server-side rejection: hides this job from the rider across devices while
+    // keeping it available to other riders.
+    if (deliveryId && user?.id) {
+      try {
+        await rejectDelivery(user.id, deliveryId);
+      } catch {}
+    }
     onClose();
   };
 

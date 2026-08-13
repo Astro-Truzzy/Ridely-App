@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   ScrollView,
   Switch,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -15,11 +14,7 @@ import { router } from 'expo-router';
 import { useTheme, ThemeMode } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAlert } from '@/contexts/AlertContext';
-import { supabase } from '@/lib/supabase';
-import { useDeliveries } from '@/hooks/useDeliveries';
 import { useLanguage } from '@/contexts/LanguageContext';
-
-const TEST_RIDER_ID = 'a1b2c3d4-e5f6-4789-a012-345678901234';
 
 interface SettingsState {
   pushNotifications: boolean;
@@ -34,9 +29,7 @@ export default function SettingsScreen() {
   const { theme, themeMode, setThemeMode, isDark } = useTheme();
   const { signOut, loading, user } = useAuth();
   const { showAlert } = useAlert();
-  const { refetch: refetchDeliveries } = useDeliveries();
   const { languageName } = useLanguage();
-  const [seeding, setSeeding] = useState(false);
   const [settings, setSettings] = useState<SettingsState>({
     pushNotifications: true,
     emailNotifications: true,
@@ -144,42 +137,9 @@ export default function SettingsScreen() {
   ];
 
   const handleSeedTestData = async () => {
-    if (!user) return;
     showAlert(
-      'Seed test data',
-      'This will add sample deliveries (pending, in-transit, delivered, cancelled) and 2 notifications for your account. Run the SQL seed in docs first to create the test rider for the tracking map.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Seed',
-          onPress: async () => {
-            setSeeding(true);
-            try {
-              const uid = user.id;
-              const rows = [
-                { user_id: uid, rider_id: TEST_RIDER_ID, pickup_address: '12 Admiralty Way, Lekki Phase 1, Lagos', dropoff_address: '45 Isaac John St, GRA, Ikeja, Lagos', parcel_size: 'medium', status: 'in_transit', total_cost: 3500, distance: 18.5, estimated_time: '35 mins', delivery_time: 'now' },
-                { user_id: uid, rider_id: null, pickup_address: 'Shop 3, Ajah Market, Lagos', dropoff_address: 'Victoria Island, Lagos', parcel_size: 'small', status: 'pending', total_cost: 1200, distance: 8.2, estimated_time: '20 mins', delivery_time: 'now' },
-                { user_id: uid, rider_id: TEST_RIDER_ID, pickup_address: '15 Ozumba Mbadiwe Ave, VI, Lagos', dropoff_address: '7 Adeola Odeku St, VI, Lagos', parcel_size: 'small', status: 'delivered', total_cost: 2500, distance: 5.1, estimated_time: '15 mins', delivery_time: 'now', completed_at: new Date().toISOString() },
-                { user_id: uid, rider_id: TEST_RIDER_ID, pickup_address: '22 Adeola Hopewell St, VI, Lagos', dropoff_address: 'Lekki-Epe Expressway, Lekki, Lagos', parcel_size: 'large', status: 'delivered', total_cost: 6200, distance: 22, estimated_time: '45 mins', delivery_time: 'now', completed_at: new Date(Date.now() - 86400 * 1000).toISOString() },
-                { user_id: uid, rider_id: null, pickup_address: '1 Muri Okunola St, VI, Lagos', dropoff_address: 'Alausa, Ikeja, Lagos', parcel_size: 'medium', status: 'cancelled', total_cost: 2800, distance: 14, estimated_time: '30 mins', delivery_time: 'now' },
-              ];
-              const { error: delError } = await supabase.from('deliveries').insert(rows as never);
-              if (delError) throw delError;
-              await supabase.from('notifications').insert([
-                { user_id: uid, type: 'delivery_update', title: 'Delivery in progress', message: 'Your package is on the way. Track live on the map.', read: false, actionable: true },
-                { user_id: uid, type: 'system', title: 'Welcome to Ridely', message: 'Tap Book Delivery to send your first package.', read: true, actionable: false },
-              ] as never);
-              await refetchDeliveries();
-              showAlert('Done', 'Test data added. Check Home, My Bookings, Tracking, and Notifications.');
-            } catch (e: unknown) {
-              const msg = e instanceof Error ? e.message : 'Insert failed. Run the SQL seed first to create the test rider (see docs/TEST_DATA_SEED.md).';
-              showAlert('Seed failed', msg);
-            } finally {
-              setSeeding(false);
-            }
-          },
-        },
-      ]
+      'Seed unavailable',
+      'Client delivery inserts are disabled. Seed test deliveries via the SQL scripts in docs/ (service role) instead of the app.'
     );
   };
 
@@ -331,7 +291,6 @@ export default function SettingsScreen() {
               <TouchableOpacity
                 style={styles.settingItem}
                 onPress={handleSeedTestData}
-                disabled={seeding}
               >
                 <View style={[styles.settingIcon, { backgroundColor: `${theme.colors.warning}20` }]}>
                   <FlaskConical size={20} color={theme.colors.warning} strokeWidth={2} />
@@ -339,10 +298,10 @@ export default function SettingsScreen() {
                 <View style={styles.settingInfo}>
                   <Text style={[styles.settingTitle, { color: theme.colors.text }]}>Seed test data</Text>
                   <Text style={[styles.settingSubtitle, { color: theme.colors.textSecondary }]}>
-                    Add sample deliveries and notifications for testing
+                    Client inserts disabled — use SQL seed docs instead
                   </Text>
                 </View>
-                {seeding ? <ActivityIndicator size="small" color={theme.colors.primary} /> : <ChevronRight size={20} color={theme.colors.textTertiary} strokeWidth={2} />}
+                <ChevronRight size={20} color={theme.colors.textTertiary} strokeWidth={2} />
               </TouchableOpacity>
             </View>
           </View>

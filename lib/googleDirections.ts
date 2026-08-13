@@ -1,15 +1,10 @@
 /**
  * Google Directions API and polyline decoding.
- * Use EXPO_PUBLIC_GOOGLE_MAPS_API_KEY (or EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY) for Directions.
+ * Requests are routed through googleMapsRequest so they work on web (via the
+ * google-maps Supabase Edge Function proxy) as well as native.
  */
 
-function getApiKey(): string {
-  return (
-    process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ||
-    process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY ||
-    ''
-  );
-}
+import { googleMapsRequest } from '@/lib/googleMapsClient';
 
 /**
  * Decode Google's encoded polyline format into lat/lng pairs.
@@ -67,25 +62,12 @@ export async function fetchGoogleDirections(
   lat2: number,
   lon2: number
 ): Promise<DirectionsResult | null> {
-  const key = getApiKey();
-  if (!key) {
-    console.warn('Google Maps API key not configured. Set EXPO_PUBLIC_GOOGLE_MAPS_API_KEY.');
-    return null;
-  }
-
   const origin = `${lat1},${lon1}`;
   const destination = `${lat2},${lon2}`;
-  const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&key=${key}`;
 
   try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-    });
-    if (!response.ok) return null;
-
-    const data = await response.json();
-    if (data.status !== 'OK' || !data.routes?.length) return null;
+    const data = await googleMapsRequest('directions/json', { origin, destination });
+    if (!data || data.status !== 'OK' || !data.routes?.length) return null;
 
     const route = data.routes[0];
     const leg = route.legs?.[0];
@@ -112,13 +94,8 @@ export async function fetchGoogleDirections(
 export async function geocodeAddress(
   address: string
 ): Promise<{ latitude: number; longitude: number } | null> {
-  const key = getApiKey();
-  if (!key) return null;
-  const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${key}`;
   try {
-    const response = await fetch(url, { method: 'GET', headers: { Accept: 'application/json' } });
-    if (!response.ok) return null;
-    const data = await response.json();
+    const data = await googleMapsRequest('geocode/json', { address });
     const loc = data?.results?.[0]?.geometry?.location;
     if (loc && typeof loc.lat === 'number' && typeof loc.lng === 'number') {
       return { latitude: loc.lat, longitude: loc.lng };
@@ -137,13 +114,8 @@ export async function reverseGeocodeCoords(
   latitude: number,
   longitude: number
 ): Promise<string | null> {
-  const key = getApiKey();
-  if (!key) return null;
-  const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${key}`;
   try {
-    const response = await fetch(url, { method: 'GET', headers: { Accept: 'application/json' } });
-    if (!response.ok) return null;
-    const data = await response.json();
+    const data = await googleMapsRequest('geocode/json', { latlng: `${latitude},${longitude}` });
     const formatted = data?.results?.[0]?.formatted_address;
     if (typeof formatted === 'string' && formatted.trim()) {
       return formatted.replace(/, Nigeria$/, '').trim();

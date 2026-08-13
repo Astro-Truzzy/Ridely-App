@@ -5,8 +5,15 @@ import {
   StyleSheet,
   TextInput,
   Platform,
+  Modal,
+  Image,
+  TouchableOpacity,
+  ScrollView,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 
 import {
@@ -19,20 +26,24 @@ import {
   Package,
   CircleCheck as CheckCircle,
   User,
+  Camera,
+  ImageIcon,
 } from 'lucide-react-native';
 import Constants from 'expo-constants';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { useAlert } from '@/contexts/AlertContext';
+import { useAlert, type AlertButton } from '@/contexts/AlertContext';
+import { useVoiceCall } from '@/contexts/VoiceCallContext';
 import { AnimatedPressable } from '@/components/rider/AnimatedPressable';
 import * as Location from 'expo-location';
 import { supabase } from '@/lib/supabase';
 import { geocodeAddress, fetchGoogleDirections } from '@/lib/googleDirections';
+import { pickProofImage, uploadDeliveryProof } from '@/lib/deliveryProofUpload';
 
 /**
  * Active Delivery Screen
- * 
+ *
  * This screen shows the active delivery information, map, and controls for a rider
  * to complete a delivery job. It handles location tracking, delivery status updates,
  * and communication with the backend.
@@ -47,6 +58,17 @@ type DeliveryStatus =
   | 'delivered';
 
 const DEFAULT_DELTA = { latitudeDelta: 0.05, longitudeDelta: 0.05 };
+
+const MARKER_IMAGES = {
+  rider: require('@/assets/markers/marker-rider.png'),
+  pickup: require('@/assets/markers/marker-pickup.png'),
+  dropoff: require('@/assets/markers/marker-dropoff.png'),
+};
+
+const MARKER_ANCHOR = {
+  pin: { x: 0.5, y: 1 },
+  rider: { x: 0.5, y: 0.5 },
+} as const;
 
 function getZoomForSpeed(speedKmh: number): number {
   if (speedKmh < 10) return 16.8;
@@ -72,11 +94,12 @@ export default function ActiveDeliveryScreen() {
     }
     import('react-native-maps')
       .then((maps) => {
-        if (mounted) setRNMaps({
-          default: maps.default as unknown as React.ComponentType<any>,
-          Marker: maps.Marker as unknown as React.ComponentType<any>,
-          Polyline: maps.Polyline as unknown as React.ComponentType<any>,
-        });
+        if (mounted)
+          setRNMaps({
+            default: maps.default as unknown as React.ComponentType<any>,
+            Marker: maps.Marker as unknown as React.ComponentType<any>,
+            Polyline: maps.Polyline as unknown as React.ComponentType<any>,
+          });
       })
       .catch(() => {
         if (mounted) setRNMaps(null);
@@ -90,26 +113,46 @@ export default function ActiveDeliveryScreen() {
     latitude: number;
     longitude: number;
   } | null>(null);
-  const [pickupCoordsState, setPickupCoordsState] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [dropoffCoordsState, setDropoffCoordsState] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
+  const [pickupCoordsState, setPickupCoordsState] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [dropoffCoordsState, setDropoffCoordsState] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [routeCoordinates, setRouteCoordinates] = useState<
+    Array<{ latitude: number; longitude: number }>
+  >([]);
   const mapRef = useRef<any>(null);
   const [mapReady, setMapReady] = useState(false);
   const didInitialFitRef = useRef(false);
   const [followMode, setFollowMode] = useState(true);
   const [riderSpeedKmh, setRiderSpeedKmh] = useState(0);
-  const lastSpeedSampleRef = useRef<{ lat: number; lng: number; ts: number } | null>(null);
+  const lastSpeedSampleRef = useRef<{
+    lat: number;
+    lng: number;
+    ts: number;
+  } | null>(null);
 
   const lastSentLocationRef = useRef<{ lat: number; lng: number } | null>(null);
   const MIN_MOVEMENT_METERS = 20;
 
-  const haversineMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  const haversineMeters = (
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ) => {
     const R = 6371000;
     const dLat = ((lat2 - lat1) * Math.PI) / 180;
     const dLon = ((lon2 - lon1) * Math.PI) / 180;
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   };
@@ -138,33 +181,44 @@ export default function ActiveDeliveryScreen() {
           const now = Date.now();
           const prev = lastSpeedSampleRef.current;
           if (prev) {
-            const meters = haversineMeters(prev.lat, prev.lng, latitude, longitude);
+            const meters = haversineMeters(
+              prev.lat,
+              prev.lng,
+              latitude,
+              longitude,
+            );
             const seconds = Math.max((now - prev.ts) / 1000, 1);
             const kmh = (meters / seconds) * 3.6;
             setRiderSpeedKmh((old) => old * 0.7 + Math.min(kmh, 120) * 0.3);
           }
-          lastSpeedSampleRef.current = { lat: latitude, lng: longitude, ts: now };
+          lastSpeedSampleRef.current = {
+            lat: latitude,
+            lng: longitude,
+            ts: now,
+          };
 
           const last = lastSentLocationRef.current;
           const shouldWrite =
             last === null ||
-            haversineMeters(last.lat, last.lng, latitude, longitude) >= MIN_MOVEMENT_METERS;
+            haversineMeters(last.lat, last.lng, latitude, longitude) >=
+              MIN_MOVEMENT_METERS;
 
           if (!shouldWrite) return;
 
           lastSentLocationRef.current = { lat: latitude, lng: longitude };
 
-          await supabase
-            .from('rider_locations')
-            .upsert({
-              rider_id: user.id,
-              latitude,
-              longitude,
-              updated_at: new Date().toISOString(),
-            } as never);
+          await supabase.from('rider_locations').upsert({
+            rider_id: user.id,
+            latitude,
+            longitude,
+            updated_at: new Date().toISOString(),
+          } as never);
 
-          await (supabase as any).rpc('update_rider_location', { lat: latitude, lng: longitude });
-        }
+          await (supabase as any).rpc('update_rider_location', {
+            lat: latitude,
+            lng: longitude,
+          });
+        },
       );
     })();
     return () => {
@@ -176,17 +230,26 @@ export default function ActiveDeliveryScreen() {
   const { theme, isDark } = useTheme();
   const { user } = useAuth();
   const { showAlert } = useAlert();
+  const { startCall } = useVoiceCall();
   const { jobId, jobData } = useLocalSearchParams<{
     jobId: string;
     jobData: string;
   }>();
-  const [delivery, setDelivery] = useState<{ id: string; status: string } | null>(() =>
-    jobId ? { id: jobId, status: 'accepted' } : null
+  const [delivery, setDelivery] = useState<{
+    id: string;
+    status: string;
+  } | null>(() => (jobId ? { id: jobId, status: 'accepted' } : null));
+  const [routeTarget, setRouteTarget] = useState<'pickup' | 'dropoff' | null>(
+    'pickup',
   );
-  const [routeTarget, setRouteTarget] = useState<'pickup' | 'dropoff' | null>('pickup');
   const [deliveryStatus, setDeliveryStatus] =
     useState<DeliveryStatus>('heading_to_pickup');
   const [deliveryOTP, setDeliveryOTP] = useState('');
+  const [showConfirmSheet, setShowConfirmSheet] = useState(false);
+  const [proofPreview, setProofPreview] = useState<{
+    uri: string;
+    mimeType?: string;
+  } | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [confirming, setConfirming] = useState(false);
 
@@ -205,7 +268,9 @@ export default function ActiveDeliveryScreen() {
       if (pickup) setPickupCoordsState(pickup);
       if (dropoff) setDropoffCoordsState(dropoff);
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [job?.pickupAddress, job?.dropoffAddress]);
 
   // Fetch route from rider to current target (pickup or dropoff), debounced
@@ -222,7 +287,12 @@ export default function ActiveDeliveryScreen() {
     const dropoff = dropoffCoordsState;
     if (!rider || (!pickup && !dropoff)) return;
 
-    const destination = (status === 'picked_up' || status === 'heading_to_dropoff' || status === 'at_dropoff') ? dropoff : pickup;
+    const destination =
+      status === 'picked_up' ||
+      status === 'heading_to_dropoff' ||
+      status === 'at_dropoff'
+        ? dropoff
+        : pickup;
     if (!destination) return;
 
     const fetchRoute = async () => {
@@ -230,7 +300,7 @@ export default function ActiveDeliveryScreen() {
         rider.latitude,
         rider.longitude,
         destination.latitude,
-        destination.longitude
+        destination.longitude,
       );
       if (result?.coordinates?.length) setRouteCoordinates(result.coordinates);
     };
@@ -244,12 +314,22 @@ export default function ActiveDeliveryScreen() {
     return () => {
       if (routeFetchRef.current) clearTimeout(routeFetchRef.current);
     };
-  }, [riderCoords?.latitude, riderCoords?.longitude, pickupCoordsState, dropoffCoordsState, deliveryStatus]);
+  }, [
+    riderCoords?.latitude,
+    riderCoords?.longitude,
+    pickupCoordsState,
+    dropoffCoordsState,
+    deliveryStatus,
+  ]);
 
   useEffect(() => {
     if (!jobId) return;
     const fetchDelivery = async () => {
-      const { data } = await (supabase as any).from('deliveries').select('id, status').eq('id', jobId).maybeSingle();
+      const { data } = await (supabase as any)
+        .from('deliveries')
+        .select('id, status')
+        .eq('id', jobId)
+        .maybeSingle();
       if (data) setDelivery({ id: data.id, status: data.status });
     };
     fetchDelivery();
@@ -258,11 +338,17 @@ export default function ActiveDeliveryScreen() {
       .channel(`delivery-${jobId}`)
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'deliveries', filter: `id=eq.${jobId}` },
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'deliveries',
+          filter: `id=eq.${jobId}`,
+        },
         (payload: { new: { id?: string; status?: string } }) => {
           const next = payload.new;
-          if (next?.id != null && next?.status != null) setDelivery({ id: next.id, status: next.status });
-        }
+          if (next?.id != null && next?.status != null)
+            setDelivery({ id: next.id, status: next.status });
+        },
       )
       .subscribe();
 
@@ -290,11 +376,17 @@ export default function ActiveDeliveryScreen() {
     if (delivery?.status === 'delivered' || delivery?.status === 'completed') {
       showAlert(
         'Delivery Completed',
-        `You've earned ₦${job?.reward ?? 0}!\n\nNet earnings: ₦${(((job?.reward ?? 0) * 0.85)).toFixed(2)} (after 15% platform fee)\n\nThank you for using Ridely!`,
+        `You've earned ₦${job?.reward ?? 0}!\n\nNet earnings: ₦${((job?.reward ?? 0) * 0.85).toFixed(2)} (after 15% platform fee)\n\nThank you for using Ridely!`,
         [
-          { text: 'View Earnings', onPress: () => router.replace('/(rider)/earnings') },
-          { text: 'Back to Dashboard', onPress: () => router.replace('/(rider)/dashboard') },
-        ]
+          {
+            text: 'View Earnings',
+            onPress: () => router.replace('/(rider)/earnings'),
+          },
+          {
+            text: 'Back to Dashboard',
+            onPress: () => router.replace('/(rider)/dashboard'),
+          },
+        ],
       );
     }
   }, [delivery?.status]);
@@ -312,7 +404,12 @@ export default function ActiveDeliveryScreen() {
       if (error) throw error;
       let customerUserId: string | null = data?.[0]?.user_id ?? null;
       if (!data?.length) {
-        const { data: d2 } = await (supabase as any).from('deliveries').update({ status: 'picked_up' }).eq('id', jobId).eq('status', 'rider_assigned').select('user_id');
+        const { data: d2 } = await (supabase as any)
+          .from('deliveries')
+          .update({ status: 'picked_up' })
+          .eq('id', jobId)
+          .eq('status', 'rider_assigned')
+          .select('user_id');
         if (!d2?.length) {
           showAlert('Error', 'Invalid state. Cannot confirm pickup.');
           return;
@@ -342,36 +439,94 @@ export default function ActiveDeliveryScreen() {
         } catch (_) {}
       }
     } catch (e) {
-      showAlert('Error', e instanceof Error ? e.message : 'Failed to confirm pickup.');
+      showAlert(
+        'Error',
+        e instanceof Error ? e.message : 'Failed to confirm pickup.',
+      );
     } finally {
       setConfirming(false);
     }
   };
 
+  const openConfirmDeliverySheet = () => {
+    setDeliveryOTP('');
+    setProofPreview(null);
+    setShowConfirmSheet(true);
+  };
+
+  const handlePickProof = async (source: 'camera' | 'gallery') => {
+    try {
+      const picked = await pickProofImage(source);
+      if (picked) setProofPreview(picked);
+    } catch (e) {
+      showAlert(
+        'Photo',
+        e instanceof Error ? e.message : 'Could not pick photo.',
+      );
+    }
+  };
+
   const handleConfirmDelivery = async () => {
     if (!jobId || !user) return;
+    if (!deliveryOTP.trim() || deliveryOTP.trim().length < 4) {
+      showAlert(
+        'Handoff code',
+        'Ask the recipient for the 4-digit delivery code shown in their app.',
+      );
+      return;
+    }
     setConfirming(true);
     try {
-      const { data, error } = await (supabase as any)
-        .from('deliveries')
-        .update({ status: 'delivered', completed_at: new Date().toISOString() })
-        .eq('id', jobId)
-        .eq('status', 'picked_up')
-        .select('user_id');
-      if (error) throw error;
-      if (!data?.length) {
-        showAlert('Error', 'Invalid state. Cannot confirm delivery.');
+      let proofPath: string | null = null;
+      if (proofPreview) {
+        proofPath = await uploadDeliveryProof(jobId, proofPreview);
+      }
+
+      const { data: verified, error: rpcError } = await (supabase as any).rpc(
+        'verify_delivery_handoff',
+        {
+          p_delivery_id: jobId,
+          p_code: deliveryOTP.trim(),
+          p_proof_photo_path: proofPath,
+        },
+      );
+
+      if (rpcError) {
+        const msg = String((rpcError as { message?: string }).message ?? '');
+        if (/locked|too many failed attempts/i.test(msg)) {
+          showAlert(
+            'Handoff locked',
+            msg.replace(/^.*ERROR:\s*/i, '').trim() || msg,
+          );
+          setConfirming(false);
+          return;
+        }
+        throw rpcError;
+      }
+      if (!verified) {
+        showAlert(
+          'Invalid code',
+          'The handoff code is incorrect. Ask the recipient to check their app.',
+        );
         setConfirming(false);
         return;
       }
-      const customerUserId = data[0]?.user_id ?? null;
+
+      const { data: deliveryRow } = await (supabase as any)
+        .from('deliveries')
+        .select('user_id')
+        .eq('id', jobId)
+        .maybeSingle();
+
+      const customerUserId = deliveryRow?.user_id ?? null;
       if (customerUserId) {
         await (supabase as any).from('notifications').insert({
           user_id: customerUserId,
           rider_id: null,
           type: 'delivery_update',
           title: 'Delivery completed',
-          message: 'Your package has been delivered. Thank you for using Ridely!',
+          message:
+            'Your package has been delivered. Thank you for using Ridely!',
           read: false,
           actionable: true,
           delivery_id: jobId,
@@ -387,21 +542,36 @@ export default function ActiveDeliveryScreen() {
           });
         } catch (_) {}
       }
-      await (supabase as any).from('riders').update({ is_available: true }).eq('id', user.id);
+
+      setShowConfirmSheet(false);
       setDelivery((prev) => (prev ? { ...prev, status: 'delivered' } : null));
+      setDeliveryStatus('delivered');
     } catch (e) {
-      showAlert('Error', e instanceof Error ? e.message : 'Failed to confirm delivery.');
+      showAlert(
+        'Error',
+        e instanceof Error ? e.message : 'Failed to confirm delivery.',
+      );
     } finally {
       setConfirming(false);
     }
   };
 
-  const pickupCoords = pickupCoordsState ?? { latitude: 6.5244, longitude: 3.3792 };
-  const dropoffCoords = dropoffCoordsState ?? { latitude: 6.5244, longitude: 3.3892 };
+  const pickupCoords = pickupCoordsState ?? {
+    latitude: 6.5244,
+    longitude: 3.3792,
+  };
+  const dropoffCoords = dropoffCoordsState ?? {
+    latitude: 6.5244,
+    longitude: 3.3892,
+  };
   const riderCoordsForMap = riderCoords ?? pickupCoords;
 
   const mapRegion = useMemo(() => {
-    const allMapPoints = [riderCoordsForMap, pickupCoords, dropoffCoords].filter(Boolean);
+    const allMapPoints = [
+      riderCoordsForMap,
+      pickupCoords,
+      dropoffCoords,
+    ].filter(Boolean);
     if (allMapPoints.length >= 2) {
       const lats = allMapPoints.map((p) => p.latitude);
       const lngs = allMapPoints.map((p) => p.longitude);
@@ -422,16 +592,26 @@ export default function ActiveDeliveryScreen() {
       longitude: riderCoordsForMap.longitude,
       ...DEFAULT_DELTA,
     };
-  }, [riderCoordsForMap.latitude, riderCoordsForMap.longitude, pickupCoords.latitude, pickupCoords.longitude, dropoffCoords.latitude, dropoffCoords.longitude]);
+  }, [
+    riderCoordsForMap.latitude,
+    riderCoordsForMap.longitude,
+    pickupCoords.latitude,
+    pickupCoords.longitude,
+    dropoffCoords.latitude,
+    dropoffCoords.longitude,
+  ]);
   const speedKmhRounded = Math.max(0, Math.round(riderSpeedKmh));
 
   // Fit once to show rider, pickup, and dropoff together.
   useEffect(() => {
     if (!mapReady || !mapRef.current || didInitialFitRef.current) return;
-    mapRef.current.fitToCoordinates?.([riderCoordsForMap, pickupCoords, dropoffCoords], {
-      edgePadding: { top: 80, right: 50, bottom: 280, left: 50 },
-      animated: false,
-    });
+    mapRef.current.fitToCoordinates?.(
+      [riderCoordsForMap, pickupCoords, dropoffCoords],
+      {
+        edgePadding: { top: 80, right: 50, bottom: 280, left: 50 },
+        animated: false,
+      },
+    );
     didInitialFitRef.current = true;
   }, [mapReady, riderCoordsForMap, pickupCoords, dropoffCoords]);
 
@@ -446,20 +626,37 @@ export default function ActiveDeliveryScreen() {
         },
         zoom: getZoomForSpeed(riderSpeedKmh),
       },
-      { duration: 500 }
+      { duration: 500 },
     );
-  }, [mapReady, followMode, riderCoords?.latitude, riderCoords?.longitude, riderSpeedKmh]);
+  }, [
+    mapReady,
+    followMode,
+    riderCoords?.latitude,
+    riderCoords?.longitude,
+    riderSpeedKmh,
+  ]);
 
   // Snap to route bounds whenever route gets refreshed while follow mode is on.
   useEffect(() => {
     if (!mapReady || !mapRef.current || !followMode) return;
-    const points = routeCoordinates.length > 1 ? routeCoordinates : [riderCoordsForMap, pickupCoords, dropoffCoords];
+    const points =
+      routeCoordinates.length > 1
+        ? routeCoordinates
+        : [riderCoordsForMap, pickupCoords, dropoffCoords];
     if (points.length < 2) return;
     mapRef.current.fitToCoordinates?.(points, {
       edgePadding: { top: 80, right: 50, bottom: 280, left: 50 },
       animated: true,
     });
-  }, [mapReady, followMode, routeCoordinates.length, pickupCoords.latitude, pickupCoords.longitude, dropoffCoords.latitude, dropoffCoords.longitude]);
+  }, [
+    mapReady,
+    followMode,
+    routeCoordinates.length,
+    pickupCoords.latitude,
+    pickupCoords.longitude,
+    dropoffCoords.latitude,
+    dropoffCoords.longitude,
+  ]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -500,7 +697,7 @@ export default function ActiveDeliveryScreen() {
       return { text: 'Confirm Pickup', action: handleConfirmPickup };
     }
     if (s === 'picked_up') {
-      return { text: 'Confirm Delivery', action: handleConfirmDelivery };
+      return { text: 'Confirm Delivery', action: openConfirmDeliverySheet };
     }
     switch (deliveryStatus) {
       case 'heading_to_pickup':
@@ -524,24 +721,41 @@ export default function ActiveDeliveryScreen() {
           action: () => setDeliveryStatus('at_dropoff'),
         };
       case 'at_dropoff':
-        return { text: 'Complete Delivery', action: handleConfirmDelivery };
+        return { text: 'Complete Delivery', action: openConfirmDeliverySheet };
       default:
         return null;
     }
   };
 
   const handleContactSender = () => {
-    showAlert('Contact Sender', `Contact ${job?.senderName}`, [
+    if (!jobId) return;
+    const senderName = job?.senderName ?? 'Customer';
+    const buttons: AlertButton[] = [
       {
-        text: 'Call',
-        onPress: () => showAlert('Calling', `Calling ${job?.senderName}...`),
+        text: 'Chat',
+        onPress: () => {
+          router.push({
+            pathname: '/chat',
+            params: {
+              deliveryId: jobId,
+              peerName: senderName,
+            },
+          });
+        },
       },
       {
-        text: 'Message',
-        onPress: () => showAlert('Message', 'Opening chat...'),
+        text: 'Voice Call',
+        onPress: () => {
+          startCall(jobId, senderName).catch(() => {});
+        },
       },
       { text: 'Cancel', style: 'cancel' },
-    ]);
+    ];
+    showAlert(
+      'Contact Sender',
+      'How would you like to reach the customer?',
+      buttons,
+    );
   };
 
   const handleContactReceiver = () => {
@@ -636,7 +850,8 @@ export default function ActiveDeliveryScreen() {
                 coordinate={pickupCoords}
                 title="Pickup"
                 description={job?.pickupAddress}
-                pinColor={Platform.OS === 'android' ? '#10B981' : undefined}
+                image={MARKER_IMAGES.pickup}
+                anchor={MARKER_ANCHOR.pin}
                 tracksViewChanges={false}
               />
             )}
@@ -645,27 +860,44 @@ export default function ActiveDeliveryScreen() {
                 coordinate={dropoffCoords}
                 title="Dropoff"
                 description={job?.dropoffAddress}
-                pinColor={Platform.OS === 'android' ? '#EF4444' : undefined}
+                image={MARKER_IMAGES.dropoff}
+                anchor={MARKER_ANCHOR.pin}
                 tracksViewChanges={false}
               />
             )}
             {riderCoords && (
               <RNMaps.Marker
-                coordinate={{ latitude: riderCoords.latitude, longitude: riderCoords.longitude }}
+                coordinate={{
+                  latitude: riderCoords.latitude,
+                  longitude: riderCoords.longitude,
+                }}
                 title="Your location"
-                pinColor={Platform.OS === 'android' ? (theme.colors.primary ?? '#5A47FF') : undefined}
+                image={MARKER_IMAGES.rider}
+                anchor={MARKER_ANCHOR.rider}
                 tracksViewChanges={false}
               />
             )}
           </RNMaps.default>
         ) : (
-          <View style={[styles.mapPlaceholder, { backgroundColor: theme.colors.surface }]}>
-            <MapPin size={48} color={theme.colors.textSecondary} strokeWidth={2} />
+          <View
+            style={[
+              styles.mapPlaceholder,
+              { backgroundColor: theme.colors.surface },
+            ]}
+          >
+            <MapPin
+              size={48}
+              color={theme.colors.textSecondary}
+              strokeWidth={2}
+            />
             <Text style={[styles.mapText, { color: theme.colors.text }]}>
               Map unavailable in Expo Go
             </Text>
-            <Text style={[styles.mapSubtext, { color: theme.colors.textSecondary }]}>
-              Run a development build (expo run:android / expo run:ios) for maps.
+            <Text
+              style={[styles.mapSubtext, { color: theme.colors.textSecondary }]}
+            >
+              Run a development build (expo run:android / expo run:ios) for
+              maps.
             </Text>
           </View>
         )}
@@ -701,7 +933,11 @@ export default function ActiveDeliveryScreen() {
         <AnimatedPressable
           style={[
             styles.followToggle,
-            { backgroundColor: followMode ? theme.colors.primary : theme.colors.surface },
+            {
+              backgroundColor: followMode
+                ? theme.colors.primary
+                : theme.colors.surface,
+            },
             theme.shadows.medium,
           ]}
           onPress={() => {
@@ -716,12 +952,17 @@ export default function ActiveDeliveryScreen() {
                   },
                   zoom: getZoomForSpeed(riderSpeedKmh),
                 },
-                { duration: 450 }
+                { duration: 450 },
               );
             }
           }}
         >
-          <Text style={{ color: followMode ? '#FFFFFF' : theme.colors.text, fontWeight: '600' }}>
+          <Text
+            style={{
+              color: followMode ? '#FFFFFF' : theme.colors.text,
+              fontWeight: '600',
+            }}
+          >
             Follow
           </Text>
         </AnimatedPressable>
@@ -729,15 +970,31 @@ export default function ActiveDeliveryScreen() {
           style={[
             styles.followStateChip,
             {
-              backgroundColor: followMode ? `${theme.colors.primary}E6` : theme.colors.surface,
+              backgroundColor: followMode
+                ? `${theme.colors.primary}E6`
+                : theme.colors.surface,
             },
             theme.shadows.small,
           ]}
         >
-          <Text style={{ color: followMode ? '#FFFFFF' : theme.colors.text, fontSize: 11, fontWeight: '700' }}>
+          <Text
+            style={{
+              color: followMode ? '#FFFFFF' : theme.colors.text,
+              fontSize: 11,
+              fontWeight: '700',
+            }}
+          >
             {followMode ? 'FOLLOWING' : 'FREE PAN'}
           </Text>
-          <Text style={{ color: followMode ? 'rgba(255,255,255,0.92)' : theme.colors.textSecondary, fontSize: 11, marginTop: 2 }}>
+          <Text
+            style={{
+              color: followMode
+                ? 'rgba(255,255,255,0.92)'
+                : theme.colors.textSecondary,
+              fontSize: 11,
+              marginTop: 2,
+            }}
+          >
             {speedKmhRounded} km/h
           </Text>
         </View>
@@ -839,9 +1096,13 @@ export default function ActiveDeliveryScreen() {
           ]}
           onPress={handleContactSender}
         >
-          <User size={20} color={theme.colors.primary} strokeWidth={2} />
+          <MessageCircle
+            size={20}
+            color={theme.colors.primary}
+            strokeWidth={2}
+          />
           <Text style={[styles.contactText, { color: theme.colors.text }]}>
-            Contact Sender
+            Chat with Sender
           </Text>
         </AnimatedPressable>
 
@@ -872,7 +1133,9 @@ export default function ActiveDeliveryScreen() {
             disabled={confirming}
           >
             <CheckCircle size={20} color="#FFFFFF" strokeWidth={2} />
-            <Text style={styles.actionText}>{confirming ? 'Updating…' : nextAction.text}</Text>
+            <Text style={styles.actionText}>
+              {confirming ? 'Updating…' : nextAction.text}
+            </Text>
           </AnimatedPressable>
         </View>
       )}
@@ -893,6 +1156,131 @@ export default function ActiveDeliveryScreen() {
           </View>
         </View>
       )}
+
+      <Modal
+        visible={showConfirmSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !confirming && setShowConfirmSheet(false)}
+      >
+        <View style={styles.sheetOverlay}>
+          <View
+            style={[styles.sheetCard, { backgroundColor: theme.colors.card }]}
+          >
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={[styles.sheetTitle, { color: theme.colors.text }]}>
+                Confirm delivery
+              </Text>
+              <Text
+                style={[
+                  styles.sheetSubtitle,
+                  { color: theme.colors.textSecondary },
+                ]}
+              >
+                Ask the recipient for their 4-digit handoff code from the Ridely
+                app.
+              </Text>
+
+              <TextInput
+                style={[
+                  styles.otpInput,
+                  {
+                    backgroundColor: theme.colors.surface,
+                    borderColor: theme.colors.border,
+                    color: theme.colors.text,
+                  },
+                ]}
+                placeholder="Enter 4-digit code"
+                placeholderTextColor={theme.colors.textTertiary}
+                value={deliveryOTP}
+                onChangeText={(t) =>
+                  setDeliveryOTP(t.replace(/\D/g, '').slice(0, 4))
+                }
+                keyboardType="number-pad"
+                maxLength={4}
+              />
+
+              <Text
+                style={[
+                  styles.proofLabel,
+                  { color: theme.colors.textSecondary },
+                ]}
+              >
+                Proof of delivery (optional)
+              </Text>
+              {proofPreview ? (
+                <Image
+                  source={{ uri: proofPreview.uri }}
+                  style={styles.proofPreview}
+                />
+              ) : null}
+              <View style={styles.proofButtons}>
+                <TouchableOpacity
+                  style={[
+                    styles.proofButton,
+                    { backgroundColor: theme.colors.surface },
+                  ]}
+                  onPress={() => handlePickProof('camera')}
+                >
+                  <Camera size={18} color={theme.colors.primary} />
+                  <Text
+                    style={[
+                      styles.proofButtonText,
+                      { color: theme.colors.text },
+                    ]}
+                  >
+                    Camera
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.proofButton,
+                    { backgroundColor: theme.colors.surface },
+                  ]}
+                  onPress={() => handlePickProof('gallery')}
+                >
+                  <ImageIcon size={18} color={theme.colors.primary} />
+                  <Text
+                    style={[
+                      styles.proofButtonText,
+                      { color: theme.colors.text },
+                    ]}
+                  >
+                    Gallery
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <AnimatedPressable
+                style={[
+                  styles.sheetConfirmBtn,
+                  { backgroundColor: theme.colors.primary },
+                ]}
+                onPress={handleConfirmDelivery}
+                disabled={confirming}
+              >
+                <Text style={styles.sheetConfirmText}>
+                  {confirming ? 'Verifying…' : 'Complete delivery'}
+                </Text>
+              </AnimatedPressable>
+              <TouchableOpacity
+                style={styles.sheetCancelBtn}
+                onPress={() => setShowConfirmSheet(false)}
+                disabled={confirming}
+              >
+                <Text
+                  style={[
+                    styles.sheetCancelText,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1137,6 +1525,86 @@ const styles = StyleSheet.create({
   backButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
+    fontWeight: '600',
+  },
+  sheetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  sheetCard: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    maxHeight: '85%',
+  },
+  sheetTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  sheetSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  otpInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 24,
+    fontWeight: '700',
+    letterSpacing: 8,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  proofLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 10,
+  },
+  proofPreview: {
+    width: '100%',
+    height: 160,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  proofButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  proofButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  proofButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  sheetConfirmBtn: {
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  sheetConfirmText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  sheetCancelBtn: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  sheetCancelText: {
+    fontSize: 15,
     fontWeight: '600',
   },
 });

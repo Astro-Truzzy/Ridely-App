@@ -51,3 +51,18 @@ export async function uploadVerificationDocument(
   if (error) throw error;
   return { filePath, fileName: picked.name };
 }
+
+/**
+ * Create a short-lived signed URL so a rider can view/download a document
+ * they uploaded. Returns null if the file can't be signed.
+ */
+export async function getVerificationDocumentSignedUrl(
+  filePath: string,
+  expiresIn = 3600
+): Promise<string | null> {
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrl(filePath, expiresIn);
+  if (error || !data) return null;
+  return data.signedUrl;
+}

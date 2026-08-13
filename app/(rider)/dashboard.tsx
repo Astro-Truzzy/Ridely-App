@@ -21,6 +21,7 @@ import {
   Navigation,
   CircleCheck as CheckCircle,
   X,
+  Flame,
 } from 'lucide-react-native';
 import { router, type Href } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -37,6 +38,8 @@ import { useDeliveries } from '@/hooks/useDeliveries';
 import { useEarnings } from '@/hooks/useEarnings';
 import { useNotifications } from '@/contexts/NotificationsContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
+import { CardSkeletonList } from '@/components/Skeleton';
+import { tapLight, tapMedium, notifySuccess, notifyWarning, notifyError } from '@/lib/haptics';
 import type { AvailableJob } from '@/hooks/useAvailableJobs';
 
 export default function RiderDashboard() {
@@ -65,6 +68,7 @@ export default function RiderDashboard() {
 
   const handleOnlineToggle = async (value: boolean) => {
     if (!user) return;
+    tapLight();
     setIsOnline(value);
     try {
       if (value) {
@@ -85,9 +89,26 @@ export default function RiderDashboard() {
     }
   };
 
-  const { jobs: availableJobs, loading: jobsLoading } = useAvailableJobs();
-  const { deliveries, acceptDelivery } = useDeliveries();
+  const { jobs: availableJobs, loading: jobsLoading, refetch: refetchAvailableJobs, rejectJob, removeJob } = useAvailableJobs();
+  const { deliveries, acceptDelivery, refetch: refetchDeliveries } = useDeliveries();
   const { todayEarnings } = useEarnings();
+
+  useFocusEffect(
+    useCallback(() => {
+      refetchAvailableJobs();
+      refetchDeliveries();
+    }, [refetchAvailableJobs, refetchDeliveries])
+  );
+
+  const firstName =
+    ((userProfile as { full_name?: string } | null)?.full_name ?? '').trim().split(/\s+/)[0] || 'Rider';
+
+  const greetingPrefix = (() => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  })();
 
   const accountVerificationStatus = (userProfile as { account_verification_status?: string } | null)?.account_verification_status ?? 'not_submitted';
   const isVerified = accountVerificationStatus === 'verified';
@@ -115,9 +136,13 @@ export default function RiderDashboard() {
   }, [deliveries, todayEarnings, userProfile]);
 
   const handleAcceptJob = async (job: AvailableJob) => {
+    tapMedium();
     setAcceptingId(job.id);
     try {
       await acceptDelivery(job.id);
+      // Optimistically drop it from the available list so it can't linger.
+      removeJob(job.id);
+      notifySuccess();
       const jobData = {
         id: job.id,
         reward: job.total_cost,
@@ -140,6 +165,7 @@ export default function RiderDashboard() {
       });
     } catch (err) {
       console.error('Accept job error:', err);
+      notifyError();
       showAlert(
         'Error',
         err instanceof Error ? err.message : 'Failed to accept. Job may have been taken.'
@@ -149,8 +175,17 @@ export default function RiderDashboard() {
     }
   };
 
-  const handleRejectJob = (_jobId: string) => {
-    // No backend reject; user can ignore the job
+  const handleRejectJob = async (jobId: string) => {
+    // Server-side per-rider rejection: hides the job from this rider across
+    // devices while keeping it available to other riders. Works for verified
+    // and unverified riders alike.
+    notifyWarning();
+    try {
+      await rejectJob(jobId);
+    } catch {
+      notifyError();
+      showAlert('Error', 'Could not reject this job. Please try again.');
+    }
   };
 
   const handleNavigate = () => {
@@ -223,7 +258,7 @@ export default function RiderDashboard() {
         >
           <View style={styles.headerLeft}>
             <Text style={[styles.greeting, { color: theme.colors.text }]}>
-              Good morning, Rider! 🏍️
+              {greetingPrefix}, {firstName}! 🏍️
             </Text>
             <View style={styles.onlineStatus}>
               <View
@@ -380,6 +415,18 @@ export default function RiderDashboard() {
             <Navigation size={20} color="#FFFFFF" strokeWidth={2} />
             <Text style={styles.actionText}>Navigate</Text>
           </AnimatedPressable>
+
+          <AnimatedPressable
+            style={[
+              styles.actionButton,
+              { backgroundColor: theme.colors.error },
+              theme.shadows.medium,
+            ]}
+            onPress={() => router.push('/(rider)/heatmap' as Href)}
+          >
+            <Flame size={20} color="#FFFFFF" strokeWidth={2} />
+            <Text style={styles.actionText}>Demand Map</Text>
+          </AnimatedPressable>
         </View>
 
         {/* Verification required banner */}
@@ -444,24 +491,7 @@ export default function RiderDashboard() {
           )}
 
           {isOnline && jobsLoading && availableJobs.length === 0 && (
-            <View
-              style={[
-                styles.emptyState,
-                { backgroundColor: theme.colors.surface },
-                theme.shadows.medium,
-              ]}
-            >
-              <ActivityIndicator size="large" color={theme.colors.primary} />
-              <Text
-                style={[
-                  styles.emptyText,
-                  { color: theme.colors.textSecondary },
-                  { marginTop: 16 },
-                ]}
-              >
-                Loading jobs...
-              </Text>
-            </View>
+            <CardSkeletonList count={3} />
           )}
 
           {isOnline && !jobsLoading && availableJobs.length === 0 && (

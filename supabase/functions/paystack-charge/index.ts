@@ -59,6 +59,7 @@ Deno.serve(async (req) => {
       email,
       amount_in_kobo,
       reference: idempotencyRef,
+      metadata: clientMetadata,
     } = body as {
       authorization_code?: string;
       saved_card_id?: string;
@@ -66,6 +67,7 @@ Deno.serve(async (req) => {
       email?: string;
       amount_in_kobo: number;
       reference?: string;
+      metadata?: Record<string, string>;
     };
 
     let code = authorization_code;
@@ -115,6 +117,11 @@ Deno.serve(async (req) => {
       );
     }
 
+    const metadata: Record<string, string> = {
+      ...(clientMetadata && typeof clientMetadata === 'object' ? clientMetadata : {}),
+      user_id: authUser.id,
+    };
+
     const res = await fetch('https://api.paystack.co/transaction/charge_authorization', {
       method: 'POST',
       headers: {
@@ -125,6 +132,7 @@ Deno.serve(async (req) => {
         authorization_code: code,
         email: chargeEmail,
         amount: Number(amount_in_kobo),
+        metadata,
         ...(idempotencyRef ? { reference: idempotencyRef } : {}),
       }),
     });
@@ -152,6 +160,14 @@ Deno.serve(async (req) => {
           user_id: authUser.id,
           amount: amountNaira,
           type: 'debit',
+          category: 'booking_charge',
+          provider: 'paystack',
+          provider_reference: tx.reference,
+          metadata: {
+            payment_method_id: payment_method_id ?? null,
+            saved_card_id: saved_card_id ?? null,
+            charged_email: chargeEmail,
+          },
           reference: tx.reference,
           status: 'success',
         });

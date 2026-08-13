@@ -11,7 +11,10 @@ import {
   Image,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import {
   ArrowLeft,
@@ -40,15 +43,26 @@ export default function RiderEditProfileScreen() {
     name: (userProfile as { full_name?: string } | null)?.full_name ?? '',
     email: (userProfile as { email?: string } | null)?.email ?? '',
     phone: (userProfile as { phone?: string } | null)?.phone ?? '',
-    vehicleType: (userProfile as { vehicle_type?: string } | null)?.vehicle_type ?? '',
-    plateNumber: (userProfile as { plate_number?: string } | null)?.plate_number ?? '',
+    vehicleType:
+      (userProfile as { vehicle_type?: string } | null)?.vehicle_type ?? '',
+    plateNumber:
+      (userProfile as { plate_number?: string } | null)?.plate_number ?? '',
   });
-  const [avatar, setAvatar] = useState<string | null>((userProfile as { avatar_url?: string | null } | null)?.avatar_url ?? null);
+  const [avatar, setAvatar] = useState<string | null>(
+    (userProfile as { avatar_url?: string | null } | null)?.avatar_url ?? null,
+  );
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (userProfile) {
-      const p = userProfile as { full_name?: string; email?: string; phone?: string; vehicle_type?: string; plate_number?: string; avatar_url?: string | null };
+      const p = userProfile as {
+        full_name?: string;
+        email?: string;
+        phone?: string;
+        vehicle_type?: string;
+        plate_number?: string;
+        avatar_url?: string | null;
+      };
       setProfile({
         name: p.full_name ?? '',
         email: p.email ?? '',
@@ -83,7 +97,10 @@ export default function RiderEditProfileScreen() {
         vehicle_type: profile.vehicleType.trim() || undefined,
         plate_number: profile.plateNumber.trim() || undefined,
       };
-      if (avatar !== (userProfile as { avatar_url?: string | null } | null)?.avatar_url) {
+      if (
+        avatar !==
+        (userProfile as { avatar_url?: string | null } | null)?.avatar_url
+      ) {
         updates.avatar_url = avatar;
       }
       await updateProfile(updates);
@@ -92,40 +109,56 @@ export default function RiderEditProfileScreen() {
       ]);
     } catch (error: unknown) {
       console.error('Profile update error:', error);
-      showAlert('Error', error instanceof Error ? error.message : 'Failed to update profile');
+      showAlert(
+        'Error',
+        error instanceof Error ? error.message : 'Failed to update profile',
+      );
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleImageUpload = async () => {
-    const choice = await new Promise<'camera' | 'gallery' | 'remove' | null>((resolve) => {
-      showAlert('Update Profile Picture', 'Choose an option', [
-        { text: 'Camera', onPress: () => resolve('camera') },
-        { text: 'Gallery', onPress: () => resolve('gallery') },
-        { text: 'Remove Photo', onPress: () => resolve('remove'), style: 'destructive' },
-        { text: 'Cancel', style: 'cancel', onPress: () => resolve(null) },
-      ]);
-    });
+    const choice = await new Promise<'camera' | 'gallery' | 'remove' | null>(
+      (resolve) => {
+        showAlert('Update Profile Picture', 'Choose an option', [
+          { text: 'Camera', onPress: () => resolve('camera') },
+          { text: 'Gallery', onPress: () => resolve('gallery') },
+          {
+            text: 'Remove Photo',
+            onPress: () => resolve('remove'),
+            style: 'destructive',
+          },
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve(null) },
+        ]);
+      },
+    );
     if (choice === 'remove') {
       try {
         await updateProfile({ avatar_url: null });
         setAvatar(null);
       } catch (e) {
-        showAlert('Error', e instanceof Error ? e.message : 'Could not remove photo.');
+        showAlert(
+          'Error',
+          e instanceof Error ? e.message : 'Could not remove photo.',
+        );
       }
       return;
     }
     if (!choice || !user?.id) return;
     setUploadingAvatar(true);
     try {
+      await new Promise((resolve) => setTimeout(resolve, 350));
       const picked = await pickProfileImage(choice);
       if (!picked) return;
       const avatarUrl = await uploadAvatar(user.id, picked);
       await updateProfile({ avatar_url: avatarUrl });
       setAvatar(avatarUrl);
     } catch (e) {
-      showAlert('Error', e instanceof Error ? e.message : 'Could not update profile picture.');
+      showAlert(
+        'Error',
+        e instanceof Error ? e.message : 'Could not update profile picture.',
+      );
     } finally {
       setUploadingAvatar(false);
     }
@@ -205,7 +238,11 @@ export default function RiderEditProfileScreen() {
       borderWidth: 3,
       borderColor: theme.colors.surface,
     },
-    avatarLabel: { fontSize: 14, color: theme.colors.textSecondary, fontWeight: '500' },
+    avatarLabel: {
+      fontSize: 14,
+      color: theme.colors.textSecondary,
+      fontWeight: '500',
+    },
     section: {
       backgroundColor: theme.colors.surface,
       marginHorizontal: 20,
@@ -261,15 +298,25 @@ export default function RiderEditProfileScreen() {
       borderRadius: 16,
       alignItems: 'center',
     },
-    saveButtonText: { fontSize: 16, fontWeight: '600', color: theme.colors.surface },
+    saveButtonText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: theme.colors.surface,
+    },
     saveButtonTextDisabled: { color: theme.colors.textTertiary },
   });
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['left', 'right', 'bottom']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['left', 'right', 'bottom']}
+    >
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
-        <AnimatedPressable style={styles.backButton} onPress={() => router.back()}>
+        <AnimatedPressable
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </AnimatedPressable>
         <Text style={styles.title}>Edit Profile</Text>
@@ -282,24 +329,52 @@ export default function RiderEditProfileScreen() {
         </AnimatedPressable>
       </View>
 
-      <KeyboardAvoidingView style={styles.keyboardAvoidingView} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoidingView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.avatarSection}>
-            <TouchableOpacity style={styles.avatarContainer} onPress={handleImageUpload} disabled={uploadingAvatar}>
+            <TouchableOpacity
+              style={styles.avatarContainer}
+              onPress={handleImageUpload}
+              disabled={uploadingAvatar}
+            >
               {avatar ? (
                 <Image source={{ uri: avatar }} style={styles.avatar} />
               ) : (
-                <View style={[styles.avatarPlaceholder, { backgroundColor: theme.colors.primary }]}>
-                  <User size={40} color={theme.colors.surface} strokeWidth={2} />
+                <View
+                  style={[
+                    styles.avatarPlaceholder,
+                    { backgroundColor: theme.colors.primary },
+                  ]}
+                >
+                  <User
+                    size={40}
+                    color={theme.colors.surface}
+                    strokeWidth={2}
+                  />
                 </View>
               )}
               {uploadingAvatar ? (
-                <View style={[styles.avatarOverlay, { backgroundColor: 'rgba(0,0,0,0.4)' }]}>
+                <View
+                  style={[
+                    styles.avatarOverlay,
+                    { backgroundColor: 'rgba(0,0,0,0.4)' },
+                  ]}
+                >
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 </View>
               ) : (
                 <View style={styles.cameraOverlay}>
-                  <Camera size={16} color={theme.colors.surface} strokeWidth={2} />
+                  <Camera
+                    size={16}
+                    color={theme.colors.surface}
+                    strokeWidth={2}
+                  />
                 </View>
               )}
             </TouchableOpacity>
@@ -310,12 +385,23 @@ export default function RiderEditProfileScreen() {
             <Text style={styles.sectionTitle}>Personal Information</Text>
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Full Name</Text>
-              <View style={[styles.inputContainer, { borderColor: theme.colors.border }]}>
-                <User size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+              <View
+                style={[
+                  styles.inputContainer,
+                  { borderColor: theme.colors.border },
+                ]}
+              >
+                <User
+                  size={20}
+                  color={theme.colors.textSecondary}
+                  strokeWidth={2}
+                />
                 <TextInput
                   style={styles.input}
                   value={profile.name}
-                  onChangeText={(text) => setProfile((prev) => ({ ...prev, name: text }))}
+                  onChangeText={(text) =>
+                    setProfile((prev) => ({ ...prev, name: text }))
+                  }
                   placeholder="Enter your full name"
                   placeholderTextColor={theme.colors.textTertiary}
                 />
@@ -323,12 +409,23 @@ export default function RiderEditProfileScreen() {
             </View>
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Email Address</Text>
-              <View style={[styles.inputContainer, { borderColor: theme.colors.border }]}>
-                <Mail size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+              <View
+                style={[
+                  styles.inputContainer,
+                  { borderColor: theme.colors.border },
+                ]}
+              >
+                <Mail
+                  size={20}
+                  color={theme.colors.textSecondary}
+                  strokeWidth={2}
+                />
                 <TextInput
                   style={styles.input}
                   value={profile.email}
-                  onChangeText={(text) => setProfile((prev) => ({ ...prev, email: text }))}
+                  onChangeText={(text) =>
+                    setProfile((prev) => ({ ...prev, email: text }))
+                  }
                   placeholder="Enter your email"
                   keyboardType="email-address"
                   autoCapitalize="none"
@@ -338,12 +435,23 @@ export default function RiderEditProfileScreen() {
             </View>
             <View style={[styles.inputGroup, styles.inputGroupLast]}>
               <Text style={styles.inputLabel}>Phone Number</Text>
-              <View style={[styles.inputContainer, { borderColor: theme.colors.border }]}>
-                <Phone size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+              <View
+                style={[
+                  styles.inputContainer,
+                  { borderColor: theme.colors.border },
+                ]}
+              >
+                <Phone
+                  size={20}
+                  color={theme.colors.textSecondary}
+                  strokeWidth={2}
+                />
                 <TextInput
                   style={styles.input}
                   value={profile.phone}
-                  onChangeText={(text) => setProfile((prev) => ({ ...prev, phone: text }))}
+                  onChangeText={(text) =>
+                    setProfile((prev) => ({ ...prev, phone: text }))
+                  }
                   placeholder="Enter your phone number"
                   keyboardType="phone-pad"
                   placeholderTextColor={theme.colors.textTertiary}
@@ -356,12 +464,23 @@ export default function RiderEditProfileScreen() {
             <Text style={styles.sectionTitle}>Vehicle Information</Text>
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Vehicle Type</Text>
-              <View style={[styles.inputContainer, { borderColor: theme.colors.border }]}>
-                <Car size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+              <View
+                style={[
+                  styles.inputContainer,
+                  { borderColor: theme.colors.border },
+                ]}
+              >
+                <Car
+                  size={20}
+                  color={theme.colors.textSecondary}
+                  strokeWidth={2}
+                />
                 <TextInput
                   style={styles.input}
                   value={profile.vehicleType}
-                  onChangeText={(text) => setProfile((prev) => ({ ...prev, vehicleType: text }))}
+                  onChangeText={(text) =>
+                    setProfile((prev) => ({ ...prev, vehicleType: text }))
+                  }
                   placeholder="e.g. Motorcycle, Bike"
                   placeholderTextColor={theme.colors.textTertiary}
                 />
@@ -369,12 +488,23 @@ export default function RiderEditProfileScreen() {
             </View>
             <View style={[styles.inputGroup, styles.inputGroupLast]}>
               <Text style={styles.inputLabel}>Plate Number</Text>
-              <View style={[styles.inputContainer, { borderColor: theme.colors.border }]}>
-                <FileText size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+              <View
+                style={[
+                  styles.inputContainer,
+                  { borderColor: theme.colors.border },
+                ]}
+              >
+                <FileText
+                  size={20}
+                  color={theme.colors.textSecondary}
+                  strokeWidth={2}
+                />
                 <TextInput
                   style={styles.input}
                   value={profile.plateNumber}
-                  onChangeText={(text) => setProfile((prev) => ({ ...prev, plateNumber: text }))}
+                  onChangeText={(text) =>
+                    setProfile((prev) => ({ ...prev, plateNumber: text }))
+                  }
                   placeholder="License plate number"
                   placeholderTextColor={theme.colors.textTertiary}
                 />
@@ -384,13 +514,23 @@ export default function RiderEditProfileScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <View style={[styles.bottomContainer, { borderTopColor: theme.colors.border }]}>
+      <View
+        style={[
+          styles.bottomContainer,
+          { borderTopColor: theme.colors.border },
+        ]}
+      >
         <AnimatedPressable
-          style={[styles.saveButtonLarge, isLoading && styles.saveButtonDisabled]}
+          style={[
+            styles.saveButtonLarge,
+            isLoading && styles.saveButtonDisabled,
+          ]}
           onPress={handleSave}
           disabled={isLoading}
         >
-          <Text style={[styles.saveButtonText, { color: theme.colors.surface }]}>
+          <Text
+            style={[styles.saveButtonText, { color: theme.colors.surface }]}
+          >
             {isLoading ? 'Saving...' : 'Save Changes'}
           </Text>
         </AnimatedPressable>

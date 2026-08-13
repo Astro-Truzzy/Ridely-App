@@ -141,6 +141,10 @@ export interface Database {
           estimated_time: string;
           delivery_time: 'now' | 'scheduled';
           scheduled_time: string | null;
+          payment_method: 'cash' | 'card' | 'wallet';
+          payment_status: 'unpaid' | 'pending' | 'paid' | 'failed' | 'refunded';
+          payment_reference: string | null;
+          amount_paid: number | null;
           created_at: string;
           updated_at: string;
           completed_at: string | null;
@@ -158,6 +162,10 @@ export interface Database {
           estimated_time: string;
           delivery_time: 'now' | 'scheduled';
           scheduled_time?: string | null;
+          payment_method?: 'cash' | 'card' | 'wallet';
+          payment_status?: 'unpaid' | 'pending' | 'paid' | 'failed' | 'refunded';
+          payment_reference?: string | null;
+          amount_paid?: number | null;
           created_at?: string;
           updated_at?: string;
           completed_at?: string | null;
@@ -175,6 +183,10 @@ export interface Database {
           estimated_time?: string;
           delivery_time?: 'now' | 'scheduled';
           scheduled_time?: string | null;
+          payment_method?: 'cash' | 'card' | 'wallet';
+          payment_status?: 'unpaid' | 'pending' | 'paid' | 'failed' | 'refunded';
+          payment_reference?: string | null;
+          amount_paid?: number | null;
           created_at?: string;
           updated_at?: string;
           completed_at?: string | null;
@@ -258,6 +270,10 @@ export interface Database {
       find_nearby_riders: {
         Args: { pickup_lat: number; pickup_lng: number; radius?: number };
         Returns: { id: string; distance: number }[];
+      };
+      accept_delivery: {
+        Args: { p_delivery_id: string };
+        Returns: Database['public']['Tables']['deliveries']['Row'];
       };
       update_rider_location: {
         Args: { lat: number; lng: number };

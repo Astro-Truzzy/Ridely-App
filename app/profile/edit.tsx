@@ -11,7 +11,10 @@ import {
   Image,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import {
   ArrowLeft,
@@ -43,7 +46,9 @@ export default function EditProfileScreen() {
     newPassword: '',
     confirmPassword: '',
   });
-  const [avatar, setAvatar] = useState<string | null>(userProfile?.avatar_url || null);
+  const [avatar, setAvatar] = useState<string | null>(
+    userProfile?.avatar_url || null,
+  );
 
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -118,11 +123,9 @@ export default function EditProfileScreen() {
       // Update profile in the database
       await updateProfile(updates);
 
-      showAlert(
-        'Success',
-        'Your profile has been updated successfully!',
-        [{ text: 'OK', onPress: () => router.back() }]
-      );
+      showAlert('Success', 'Your profile has been updated successfully!', [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
     } catch (error: any) {
       console.error('Profile update error:', error);
       showAlert('Error', error.message || 'Failed to update profile');
@@ -132,37 +135,46 @@ export default function EditProfileScreen() {
   };
 
   const handleImageUpload = async () => {
-    const choice = await new Promise<'camera' | 'gallery' | 'remove' | null>((resolve) => {
-      showAlert(
-        'Update Profile Picture',
-        'Choose an option',
-        [
+    const choice = await new Promise<'camera' | 'gallery' | 'remove' | null>(
+      (resolve) => {
+        showAlert('Update Profile Picture', 'Choose an option', [
           { text: 'Camera', onPress: () => resolve('camera') },
           { text: 'Gallery', onPress: () => resolve('gallery') },
-          { text: 'Remove Photo', onPress: () => resolve('remove'), style: 'destructive' },
+          {
+            text: 'Remove Photo',
+            onPress: () => resolve('remove'),
+            style: 'destructive',
+          },
           { text: 'Cancel', style: 'cancel', onPress: () => resolve(null) },
-        ]
-      );
-    });
+        ]);
+      },
+    );
     if (choice === 'remove') {
       try {
         await updateProfile({ avatar_url: null });
         setAvatar(null);
       } catch (e) {
-        showAlert('Error', e instanceof Error ? e.message : 'Could not remove photo.');
+        showAlert(
+          'Error',
+          e instanceof Error ? e.message : 'Could not remove photo.',
+        );
       }
       return;
     }
     if (!choice || !user?.id) return;
     setUploadingAvatar(true);
     try {
+      await new Promise((resolve) => setTimeout(resolve, 350));
       const picked = await pickProfileImage(choice);
       if (!picked) return;
       const avatarUrl = await uploadAvatar(user.id, picked);
       await updateProfile({ avatar_url: avatarUrl });
       setAvatar(avatarUrl);
     } catch (e) {
-      showAlert('Error', e instanceof Error ? e.message : 'Could not update profile picture.');
+      showAlert(
+        'Error',
+        e instanceof Error ? e.message : 'Could not update profile picture.',
+      );
     } finally {
       setUploadingAvatar(false);
     }
@@ -349,22 +361,30 @@ export default function EditProfileScreen() {
       <StatusBar style={isDark ? 'light' : 'dark'} />
       {/* Header */}
       <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
         <Text style={styles.title}>Edit Profile</Text>
         <TouchableOpacity
           style={[styles.saveButton, isLoading && styles.saveButtonDisabled]}
           onPress={handleSave}
-          disabled={isLoading}>
+          disabled={isLoading}
+        >
           <Save size={20} color={theme.colors.primary} strokeWidth={2} />
         </TouchableOpacity>
       </View>
 
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+        >
           {/* Profile Picture */}
           <View style={styles.avatarSection}>
             <TouchableOpacity
@@ -375,17 +395,35 @@ export default function EditProfileScreen() {
               {avatar ? (
                 <Image source={{ uri: avatar }} style={styles.avatar} />
               ) : (
-                <View style={[styles.avatarPlaceholder, { backgroundColor: theme.colors.primary }]}>
-                  <User size={40} color={theme.colors.surface} strokeWidth={2} />
+                <View
+                  style={[
+                    styles.avatarPlaceholder,
+                    { backgroundColor: theme.colors.primary },
+                  ]}
+                >
+                  <User
+                    size={40}
+                    color={theme.colors.surface}
+                    strokeWidth={2}
+                  />
                 </View>
               )}
               {uploadingAvatar ? (
-                <View style={[styles.avatarOverlay, { backgroundColor: 'rgba(0,0,0,0.4)' }]}>
+                <View
+                  style={[
+                    styles.avatarOverlay,
+                    { backgroundColor: 'rgba(0,0,0,0.4)' },
+                  ]}
+                >
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 </View>
               ) : (
                 <View style={styles.cameraOverlay}>
-                  <Camera size={16} color={theme.colors.surface} strokeWidth={2} />
+                  <Camera
+                    size={16}
+                    color={theme.colors.surface}
+                    strokeWidth={2}
+                  />
                 </View>
               )}
             </TouchableOpacity>
@@ -395,15 +433,21 @@ export default function EditProfileScreen() {
           {/* Personal Information */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Personal Information</Text>
-            
+
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Full Name</Text>
               <View style={styles.inputContainer}>
-                <User size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+                <User
+                  size={20}
+                  color={theme.colors.textSecondary}
+                  strokeWidth={2}
+                />
                 <TextInput
                   style={styles.input}
                   value={profile.name}
-                  onChangeText={(text) => setProfile(prev => ({...prev, name: text}))}
+                  onChangeText={(text) =>
+                    setProfile((prev) => ({ ...prev, name: text }))
+                  }
                   placeholder="Enter your full name"
                   placeholderTextColor={theme.colors.textTertiary}
                 />
@@ -413,11 +457,17 @@ export default function EditProfileScreen() {
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Email Address</Text>
               <View style={styles.inputContainer}>
-                <Mail size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+                <Mail
+                  size={20}
+                  color={theme.colors.textSecondary}
+                  strokeWidth={2}
+                />
                 <TextInput
                   style={styles.input}
                   value={profile.email}
-                  onChangeText={(text) => setProfile(prev => ({...prev, email: text}))}
+                  onChangeText={(text) =>
+                    setProfile((prev) => ({ ...prev, email: text }))
+                  }
                   placeholder="Enter your email"
                   keyboardType="email-address"
                   autoCapitalize="none"
@@ -429,11 +479,17 @@ export default function EditProfileScreen() {
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Phone Number</Text>
               <View style={styles.inputContainer}>
-                <Phone size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+                <Phone
+                  size={20}
+                  color={theme.colors.textSecondary}
+                  strokeWidth={2}
+                />
                 <TextInput
                   style={styles.input}
                   value={profile.phone}
-                  onChangeText={(text) => setProfile(prev => ({...prev, phone: text}))}
+                  onChangeText={(text) =>
+                    setProfile((prev) => ({ ...prev, phone: text }))
+                  }
                   placeholder="Enter your phone number"
                   keyboardType="phone-pad"
                   placeholderTextColor={theme.colors.textTertiary}
@@ -453,24 +509,38 @@ export default function EditProfileScreen() {
               <Text style={styles.inputLabel}>Current Password</Text>
               <View style={styles.inputContainer}>
                 <TextInput
-                  style={[styles.passwordInput, { 
-                    color: theme.colors.text,
-                    borderColor: theme.colors.border,
-                    backgroundColor: theme.colors.surface
-                  }]}
+                  style={[
+                    styles.passwordInput,
+                    {
+                      color: theme.colors.text,
+                      borderColor: theme.colors.border,
+                      backgroundColor: theme.colors.surface,
+                    },
+                  ]}
                   value={profile.currentPassword}
-                  onChangeText={(text) => setProfile(prev => ({...prev, currentPassword: text}))}
+                  onChangeText={(text) =>
+                    setProfile((prev) => ({ ...prev, currentPassword: text }))
+                  }
                   placeholder="Enter current password"
                   secureTextEntry={!showCurrentPassword}
                   placeholderTextColor={theme.colors.textTertiary}
                 />
                 <TouchableOpacity
                   style={styles.eyeButton}
-                  onPress={() => setShowCurrentPassword(!showCurrentPassword)}>
+                  onPress={() => setShowCurrentPassword(!showCurrentPassword)}
+                >
                   {showCurrentPassword ? (
-                    <EyeOff size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+                    <EyeOff
+                      size={20}
+                      color={theme.colors.textSecondary}
+                      strokeWidth={2}
+                    />
                   ) : (
-                    <Eye size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+                    <Eye
+                      size={20}
+                      color={theme.colors.textSecondary}
+                      strokeWidth={2}
+                    />
                   )}
                 </TouchableOpacity>
               </View>
@@ -480,24 +550,38 @@ export default function EditProfileScreen() {
               <Text style={styles.inputLabel}>New Password</Text>
               <View style={styles.inputContainer}>
                 <TextInput
-                  style={[styles.passwordInput, { 
-                    color: theme.colors.text,
-                    borderColor: theme.colors.border,
-                    backgroundColor: theme.colors.surface
-                  }]}
+                  style={[
+                    styles.passwordInput,
+                    {
+                      color: theme.colors.text,
+                      borderColor: theme.colors.border,
+                      backgroundColor: theme.colors.surface,
+                    },
+                  ]}
                   value={profile.newPassword}
-                  onChangeText={(text) => setProfile(prev => ({...prev, newPassword: text}))}
+                  onChangeText={(text) =>
+                    setProfile((prev) => ({ ...prev, newPassword: text }))
+                  }
                   placeholder="Enter new password"
                   secureTextEntry={!showNewPassword}
                   placeholderTextColor={theme.colors.textTertiary}
                 />
                 <TouchableOpacity
                   style={styles.eyeButton}
-                  onPress={() => setShowNewPassword(!showNewPassword)}>
+                  onPress={() => setShowNewPassword(!showNewPassword)}
+                >
                   {showNewPassword ? (
-                    <EyeOff size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+                    <EyeOff
+                      size={20}
+                      color={theme.colors.textSecondary}
+                      strokeWidth={2}
+                    />
                   ) : (
-                    <Eye size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+                    <Eye
+                      size={20}
+                      color={theme.colors.textSecondary}
+                      strokeWidth={2}
+                    />
                   )}
                 </TouchableOpacity>
               </View>
@@ -507,24 +591,38 @@ export default function EditProfileScreen() {
               <Text style={styles.inputLabel}>Confirm New Password</Text>
               <View style={styles.inputContainer}>
                 <TextInput
-                  style={[styles.passwordInput, { 
-                    color: theme.colors.text,
-                    borderColor: theme.colors.border,
-                    backgroundColor: theme.colors.surface
-                  }]}
+                  style={[
+                    styles.passwordInput,
+                    {
+                      color: theme.colors.text,
+                      borderColor: theme.colors.border,
+                      backgroundColor: theme.colors.surface,
+                    },
+                  ]}
                   value={profile.confirmPassword}
-                  onChangeText={(text) => setProfile(prev => ({...prev, confirmPassword: text}))}
+                  onChangeText={(text) =>
+                    setProfile((prev) => ({ ...prev, confirmPassword: text }))
+                  }
                   placeholder="Confirm new password"
                   secureTextEntry={!showConfirmPassword}
                   placeholderTextColor={theme.colors.textTertiary}
                 />
                 <TouchableOpacity
                   style={styles.eyeButton}
-                  onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
+                  onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                >
                   {showConfirmPassword ? (
-                    <EyeOff size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+                    <EyeOff
+                      size={20}
+                      color={theme.colors.textSecondary}
+                      strokeWidth={2}
+                    />
                   ) : (
-                    <Eye size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+                    <Eye
+                      size={20}
+                      color={theme.colors.textSecondary}
+                      strokeWidth={2}
+                    />
                   )}
                 </TouchableOpacity>
               </View>
@@ -536,10 +634,16 @@ export default function EditProfileScreen() {
       {/* Bottom Save Button */}
       <View style={styles.bottomContainer}>
         <TouchableOpacity
-          style={[styles.saveButtonLarge, isLoading && styles.saveButtonDisabled]}
+          style={[
+            styles.saveButtonLarge,
+            isLoading && styles.saveButtonDisabled,
+          ]}
           onPress={handleSave}
-          disabled={isLoading}>
-          <Text style={[styles.saveButtonText, { color: theme.colors.surface }]}>
+          disabled={isLoading}
+        >
+          <Text
+            style={[styles.saveButtonText, { color: theme.colors.surface }]}
+          >
             {isLoading ? 'Saving...' : 'Save Changes'}
           </Text>
         </TouchableOpacity>

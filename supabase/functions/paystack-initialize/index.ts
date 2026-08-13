@@ -1,3 +1,5 @@
+import { createClient } from 'npm:@supabase/supabase-js@2';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -8,11 +10,42 @@ Deno.serve(async (req) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return new Response(
+      JSON.stringify({ error: 'Missing or invalid Authorization header' }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
+    );
+  }
+
   const secret = Deno.env.get('PAYSTACK_SECRET_KEY')?.trim();
   if (!secret) {
     return new Response(
       JSON.stringify({ error: 'PAYSTACK_SECRET_KEY not set. Add it under Project Settings → Edge Functions → Secrets, then redeploy this function.' }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+    );
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return new Response(
+      JSON.stringify({ error: 'Supabase config missing' }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+    );
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const {
+    data: { user: authUser },
+    error: authError,
+  } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
+  if (authError || !authUser) {
+    return new Response(
+      JSON.stringify({ error: 'Unauthorized' }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
     );
   }
 
@@ -33,7 +66,13 @@ Deno.serve(async (req) => {
       );
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    // Bind identity from auth — never trust client user_id
+    const safeMetadata: Record<string, string> = {
+      ...(metadata && typeof metadata === 'object' ? metadata : {}),
+      user_id: authUser.id,
+    };
+    delete (safeMetadata as { userId?: string }).userId;
+
     const defaultCallback = `${supabaseUrl}/functions/v1/paystack-callback`;
 
     const res = await fetch('https://api.paystack.co/transaction/initialize', {
@@ -46,7 +85,7 @@ Deno.serve(async (req) => {
         email,
         amount: Number(amount_in_kobo),
         callback_url: callback_url || defaultCallback,
-        metadata: metadata || undefined,
+        metadata: safeMetadata,
         channels: Array.isArray(channels) && channels.length > 0 ? channels : ['card'],
       }),
     });

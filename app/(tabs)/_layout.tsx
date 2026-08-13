@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Tabs, useRouter } from 'expo-router';
-import { House as Home, Package, User, Settings, Bell } from 'lucide-react-native';
+import { House as Home, Package, User, Settings } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { LanguageProvider } from '@/contexts/LanguageContext';

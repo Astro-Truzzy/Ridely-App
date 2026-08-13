@@ -21,6 +21,7 @@ import {
 } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { fetchGoogleDirections } from '@/lib/googleDirections';
+import { PRICE_PER_KM, estimateRoadDistanceKm } from '@/lib/pricing';
 
 interface PricingBreakdown {
   basePrice: number;
@@ -76,26 +77,11 @@ export default function PricingScreen() {
       };
     }
 
-    // Fallback: Haversine formula with buffer if Google Directions fails or API key is missing
-    console.warn('Using estimated distance (Google Directions API unavailable). Set EXPO_PUBLIC_GOOGLE_MAPS_API_KEY for accurate calculations.');
-    const R = 6371; // Earth's radius in kilometers
-    const dLat = (lat2 - lat1) * (Math.PI / 180);
-    const dLon = (lon2 - lon1) * (Math.PI / 180);
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(lat1 * (Math.PI / 180)) *
-        Math.cos(lat2 * (Math.PI / 180)) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const straightLineDistance = R * c;
-    
-    // Add 40% buffer for road distance approximation
-    const estimatedRoadDistance = straightLineDistance * 1.4;
+    // Fallback: Haversine + road factor (must match server fare rules)
+    console.warn('Using estimated distance (Google Directions API unavailable).');
     setEstimatedTime('25-35 mins');
-    
     return {
-      distance: estimatedRoadDistance,
+      distance: estimateRoadDistanceKm(lat1, lon1, lat2, lon2),
       duration: 0,
     };
   };
@@ -128,8 +114,6 @@ export default function PricingScreen() {
           parseFloat(dropoffLon)
         );
 
-        // Calculate price: 250 naira per kilometer
-        const PRICE_PER_KM = 250;
         const basePrice = distanceKm * PRICE_PER_KM;
         
         // No surcharges, just distance-based pricing
@@ -317,7 +301,7 @@ export default function PricingScreen() {
                 
                 <View style={styles.breakdownItem}>
                   <Text style={[styles.breakdownLabel, { color: theme.colors.textSecondary }]}>
-                    Delivery fee ({pricing?.distance ? pricing.distance.toFixed(2) : '0.00'} km × ₦250)
+                    Delivery fee ({pricing?.distance ? pricing.distance.toFixed(2) : '0.00'} km × ₦{PRICE_PER_KM})
                   </Text>
                   <Text style={[styles.breakdownValue, { color: theme.colors.text }]}>
                     ₦{pricing?.basePrice ? pricing.basePrice.toLocaleString('en-NG') : '0'}

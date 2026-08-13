@@ -8,7 +8,10 @@ import {
   Image,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import {
   Edit3,
@@ -20,11 +23,13 @@ import {
   Star,
   Shield,
   ChevronRight,
+  Wallet,
 } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAlert } from '@/contexts/AlertContext';
+import { useWallet } from '@/hooks/useWallet';
 import { pickProfileImage, uploadAvatar } from '@/lib/avatarUpload';
 
 interface UserProfile {
@@ -38,11 +43,19 @@ interface UserProfile {
   verified: boolean;
 }
 
+function formatMemberSince(createdAt?: string | null): string {
+  if (!createdAt) return '—';
+  const date = new Date(createdAt);
+  if (isNaN(date.getTime())) return '—';
+  return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
   const { userProfile, user, updateProfile } = useAuth();
   const { showAlert } = useAlert();
+  const { balance: walletBalance } = useWallet();
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [profile, setProfile] = useState<UserProfile>({
     name: userProfile?.full_name || 'User',
@@ -51,7 +64,7 @@ export default function ProfileScreen() {
     avatar: userProfile?.avatar_url || null,
     rating: 4.8,
     totalDeliveries: userProfile?.total_deliveries || 0,
-    memberSince: 'January 2024',
+    memberSince: formatMemberSince((userProfile as { created_at?: string } | null)?.created_at),
     verified: true,
   });
 
@@ -65,7 +78,7 @@ export default function ProfileScreen() {
         avatar: userProfile.avatar_url || null,
         rating: 4.8,
         totalDeliveries: userProfile.total_deliveries || 0,
-        memberSince: 'January 2024',
+        memberSince: formatMemberSince((userProfile as { created_at?: string } | null)?.created_at),
         verified: true,
       });
     }
@@ -77,6 +90,15 @@ export default function ProfileScreen() {
       title: 'Edit Profile',
       subtitle: 'Update your personal information',
       onPress: () => router.push('/profile/edit'),
+    },
+    {
+      icon: Wallet,
+      title: 'My Wallet',
+      subtitle:
+        walletBalance != null
+          ? `Balance: ₦${Number(walletBalance).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`
+          : 'View balance, fund and withdraw',
+      onPress: () => router.push('/profile/wallet'),
     },
     {
       icon: CreditCard,
@@ -99,30 +121,36 @@ export default function ProfileScreen() {
   ];
 
   const handleImageUpload = async () => {
-    const choice = await new Promise<'camera' | 'gallery' | 'remove' | null>((resolve) => {
-      showAlert(
-        'Update Profile Picture',
-        'Choose an option',
-        [
+    const choice = await new Promise<'camera' | 'gallery' | 'remove' | null>(
+      (resolve) => {
+        showAlert('Update Profile Picture', 'Choose an option', [
           { text: 'Camera', onPress: () => resolve('camera') },
           { text: 'Gallery', onPress: () => resolve('gallery') },
-          { text: 'Remove Photo', onPress: () => resolve('remove'), style: 'destructive' },
+          {
+            text: 'Remove Photo',
+            onPress: () => resolve('remove'),
+            style: 'destructive',
+          },
           { text: 'Cancel', style: 'cancel', onPress: () => resolve(null) },
-        ]
-      );
-    });
+        ]);
+      },
+    );
     if (choice === 'remove') {
       try {
         await updateProfile({ avatar_url: null });
         setProfile((prev) => ({ ...prev, avatar: null }));
       } catch (e) {
-        showAlert('Error', e instanceof Error ? e.message : 'Could not remove photo.');
+        showAlert(
+          'Error',
+          e instanceof Error ? e.message : 'Could not remove photo.',
+        );
       }
       return;
     }
     if (!choice || !user?.id) return;
     setUploadingAvatar(true);
     try {
+      await new Promise((resolve) => setTimeout(resolve, 350));
       const picked = await pickProfileImage(choice);
       if (!picked) return;
       const avatarUrl = await uploadAvatar(user.id, picked);
@@ -131,7 +159,7 @@ export default function ProfileScreen() {
     } catch (e) {
       showAlert(
         'Error',
-        e instanceof Error ? e.message : 'Could not update profile picture.'
+        e instanceof Error ? e.message : 'Could not update profile picture.',
       );
     } finally {
       setUploadingAvatar(false);
@@ -345,7 +373,10 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Header */}
         <View style={[styles.header, { paddingTop: 20 + insets.top }]}>
           <Text style={styles.title}>Profile</Text>
@@ -364,12 +395,20 @@ export default function ProfileScreen() {
               ) : (
                 <View style={styles.avatarPlaceholder}>
                   <Text style={styles.avatarText}>
-                    {profile.name.split(' ').map(n => n[0]).join('')}
+                    {profile.name
+                      .split(' ')
+                      .map((n) => n[0])
+                      .join('')}
                   </Text>
                 </View>
               )}
               {uploadingAvatar && (
-                <View style={[styles.avatarOverlay, { backgroundColor: 'rgba(0,0,0,0.4)' }]}>
+                <View
+                  style={[
+                    styles.avatarOverlay,
+                    { backgroundColor: 'rgba(0,0,0,0.4)' },
+                  ]}
+                >
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 </View>
               )}
@@ -379,10 +418,20 @@ export default function ProfileScreen() {
             </TouchableOpacity>
             <View style={styles.profileInfo}>
               <View style={styles.nameContainer}>
-                <Text style={[styles.name, { color: theme.colors.text }]}>{profile.name}</Text>
+                <Text style={[styles.name, { color: theme.colors.text }]}>
+                  {profile.name}
+                </Text>
               </View>
-              <Text style={[styles.email, { color: theme.colors.textSecondary }]}>{profile.email}</Text>
-              <Text style={[styles.phone, { color: theme.colors.textSecondary }]}>{profile.phone}</Text>
+              <Text
+                style={[styles.email, { color: theme.colors.textSecondary }]}
+              >
+                {profile.email}
+              </Text>
+              <Text
+                style={[styles.phone, { color: theme.colors.textSecondary }]}
+              >
+                {profile.phone}
+              </Text>
             </View>
           </View>
 
@@ -391,7 +440,12 @@ export default function ProfileScreen() {
             <View style={styles.statItem}>
               <Text style={styles.statValue}>{profile.rating}</Text>
               <View style={styles.statLabelContainer}>
-                <Star size={16} color="#FFC947" fill="#FFC947" strokeWidth={2} />
+                <Star
+                  size={16}
+                  color="#FFC947"
+                  fill="#FFC947"
+                  strokeWidth={2}
+                />
                 <Text style={styles.statLabel}>Rating</Text>
               </View>
             </View>
@@ -414,15 +468,24 @@ export default function ProfileScreen() {
             <TouchableOpacity
               key={index}
               style={styles.actionItem}
-              onPress={action.onPress}>
+              onPress={action.onPress}
+            >
               <View style={styles.actionIcon}>
-                <action.icon size={24} color={theme.colors.primary} strokeWidth={2} />
+                <action.icon
+                  size={24}
+                  color={theme.colors.primary}
+                  strokeWidth={2}
+                />
               </View>
               <View style={styles.actionInfo}>
                 <Text style={styles.actionTitle}>{action.title}</Text>
                 <Text style={styles.actionSubtitle}>{action.subtitle}</Text>
               </View>
-              <ChevronRight size={20} color={theme.colors.textTertiary} strokeWidth={2} />
+              <ChevronRight
+                size={20}
+                color={theme.colors.textTertiary}
+                strokeWidth={2}
+              />
             </TouchableOpacity>
           ))}
         </View>
@@ -430,23 +493,31 @@ export default function ProfileScreen() {
         {/* Account Info */}
         <View style={styles.accountInfo}>
           <Text style={styles.sectionTitle}>Account Information</Text>
-          
+
           <View style={styles.infoItem}>
-            <Mail size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+            <Mail
+              size={20}
+              color={theme.colors.textSecondary}
+              strokeWidth={2}
+            />
             <View style={styles.infoContent}>
               <Text style={styles.infoLabel}>Email</Text>
               <Text style={styles.infoValue}>{profile.email}</Text>
             </View>
           </View>
-          
+
           <View style={styles.infoItem}>
-            <Phone size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+            <Phone
+              size={20}
+              color={theme.colors.textSecondary}
+              strokeWidth={2}
+            />
             <View style={styles.infoContent}>
               <Text style={styles.infoLabel}>Phone</Text>
               <Text style={styles.infoValue}>{profile.phone}</Text>
             </View>
           </View>
-          
+
           <View style={styles.infoItem}>
             <Shield size={20} color="#10B981" strokeWidth={2} />
             <View style={styles.infoContent}>

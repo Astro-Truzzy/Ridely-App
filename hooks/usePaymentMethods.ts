@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -78,51 +79,38 @@ function rowToDisplay(row: PaymentMethodRow): PaymentMethodDisplay {
 
 export function usePaymentMethods() {
   const { user, userType } = useAuth();
-  const [methods, setMethods] = useState<PaymentMethodDisplay[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
   const placeholderInsertedRef = useRef(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
-  const fetchMethods = useCallback(async () => {
-    if (!user?.id) {
-      setMethods([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
+  const query = useQuery({
+    queryKey: ['payment_methods', user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
       // payment_methods may not be in generated Database types; use untyped client so the query runs
-      const query = (supabase as any)
+      const q = (supabase as any)
         .from('payment_methods')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', user!.id)
         .order('is_default', { ascending: false })
         .order('created_at', { ascending: true });
       const timeoutMs = 15000;
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Request timed out. Check your connection and try again.')), timeoutMs)
       );
-      const { data, error: e } = await Promise.race([query, timeoutPromise]);
-
-      if (e) throw e;
+      const { data, error } = await Promise.race([q, timeoutPromise]);
+      if (error) throw error;
       const deduped = dedupeMethods((data ?? []) as PaymentMethodRow[]);
-      setMethods(deduped.map(rowToDisplay));
-    } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : 'Failed to load payment methods. Ensure the payment_methods table exists (run the migration) and you are signed in.';
-      setError(message);
-      setMethods([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.id]);
+      return deduped.map(rowToDisplay);
+    },
+  });
 
-  useEffect(() => {
-    fetchMethods();
-  }, [fetchMethods]);
+  const methods = query.data ?? [];
+
+  const invalidate = useCallback(
+    () => qc.invalidateQueries({ queryKey: ['payment_methods', user?.id] }),
+    [qc, user?.id]
+  );
 
   const setDefault = useCallback(
     async (id: string) => {
@@ -134,12 +122,13 @@ export function usePaymentMethods() {
           .eq('id', id)
           .eq('user_id', user.id);
         if (e) throw e;
-        await fetchMethods();
+        setMutationError(null);
+        await invalidate();
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to set default');
+        setMutationError(err instanceof Error ? err.message : 'Failed to set default');
       }
     },
-    [user?.id, fetchMethods]
+    [user?.id, invalidate]
   );
 
   const remove = useCallback(
@@ -152,12 +141,13 @@ export function usePaymentMethods() {
           .eq('id', id)
           .eq('user_id', user.id);
         if (e) throw e;
-        await fetchMethods();
+        setMutationError(null);
+        await invalidate();
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to remove');
+        setMutationError(err instanceof Error ? err.message : 'Failed to remove');
       }
     },
-    [user?.id, fetchMethods]
+    [user?.id, invalidate]
   );
 
   const addPlaceholderMethodsIfEmpty = useCallback(async () => {
@@ -172,7 +162,7 @@ export function usePaymentMethods() {
         .eq('label', 'Cash on Delivery')
         .limit(1);
       if (existing && existing.length > 0) {
-        await fetchMethods();
+        await invalidate();
         return;
       }
       await (supabase as any).from('payment_methods').insert({
@@ -181,17 +171,22 @@ export function usePaymentMethods() {
         label: 'Cash on Delivery',
         is_default: true,
       });
-      await fetchMethods();
+      await invalidate();
     } catch {
       placeholderInsertedRef.current = false;
     }
-  }, [user?.id, userType, methods.length, fetchMethods]);
+  }, [user?.id, userType, methods.length, invalidate]);
+
+  const { refetch: rqRefetch } = query;
+  const refetch = useCallback(async () => {
+    await rqRefetch();
+  }, [rqRefetch]);
 
   return {
     methods,
-    loading,
-    error,
-    refetch: fetchMethods,
+    loading: query.isLoading,
+    error: (query.error ? (query.error as Error).message : null) ?? mutationError,
+    refetch,
     setDefault,
     remove,
     addPlaceholderMethodsIfEmpty,

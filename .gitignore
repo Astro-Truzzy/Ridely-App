@@ -14,11 +14,14 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+android/local.properties
+android/**/local.properties
 
 # metro
 .metro-health-check*
 
 # debug
+.cursor/
 npm-debug.*
 yarn-debug.*
 yarn-error.*

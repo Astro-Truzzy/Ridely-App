@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,12 +7,13 @@ import {
   ScrollView,
   Switch,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import Animated from 'react-native-reanimated';
-import { ArrowLeft, User, Phone, Mail, Car, Shield, FileText, Settings, LogOut, CreditCard as Edit3, CircleCheck as CheckCircle, Clock, ChevronRight } from 'lucide-react-native';
-import { router, type Href } from 'expo-router';
+import { ArrowLeft, User, Phone, Mail, Car, Shield, FileText, Settings, LogOut, CreditCard as Edit3, CircleCheck as CheckCircle, Clock, ChevronRight, Lock, XCircle } from 'lucide-react-native';
+import { router, type Href, useFocusEffect } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
@@ -25,31 +26,33 @@ interface RiderProfile {
   name: string;
   email: string;
   phone: string;
+  avatarUrl: string | null;
   rating: number;
   totalDeliveries: number;
   memberSince: string;
   vehicleType: string;
   plateNumber: string;
-  licenseStatus: 'verified' | 'pending' | 'expired';
-  insuranceStatus: 'verified' | 'pending' | 'expired';
-  backgroundCheck: 'verified' | 'pending' | 'failed';
+  verificationStatus: 'not_submitted' | 'pending' | 'verified' | 'rejected';
 }
 
 function riderRowToProfile(row: any, authEmail?: string | null): RiderProfile {
   const createdAt = row?.created_at ? new Date(row.created_at) : new Date();
   const memberSince = createdAt.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  const rawStatus = row?.account_verification_status;
   return {
     name: row?.full_name ?? 'Rider',
     email: authEmail ?? row?.email ?? '—',
     phone: row?.phone ?? '—',
+    avatarUrl: row?.avatar_url ?? null,
     rating: typeof row?.rating === 'number' ? row.rating : 0,
     totalDeliveries: typeof row?.total_deliveries === 'number' ? row.total_deliveries : 0,
     memberSince,
     vehicleType: row?.vehicle_type ?? '—',
     plateNumber: row?.plate_number ?? '—',
-    licenseStatus: (row?.license_status === 'verified' || row?.license_status === 'pending' || row?.license_status === 'expired') ? row.license_status : 'pending',
-    insuranceStatus: (row?.insurance_status === 'verified' || row?.insurance_status === 'pending' || row?.insurance_status === 'expired') ? row.insurance_status : 'pending',
-    backgroundCheck: (row?.background_check === 'verified' || row?.background_check === 'pending' || row?.background_check === 'failed') ? row.background_check : 'pending',
+    verificationStatus:
+      rawStatus === 'pending' || rawStatus === 'verified' || rawStatus === 'rejected'
+        ? rawStatus
+        : 'not_submitted',
   };
 }
 
@@ -68,6 +71,12 @@ export default function RiderProfileScreen() {
     const avail = (userProfile as { is_available?: boolean } | null)?.is_available;
     if (typeof avail === 'boolean') setIsAvailable(avail);
   }, [userProfile]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshProfile();
+    }, [refreshProfile])
+  );
 
   const handleAvailabilityToggle = async (value: boolean) => {
     if (!user?.id) return;
@@ -100,6 +109,12 @@ export default function RiderProfileScreen() {
       onPress: () => router.push('/(rider)/apply-verification' as Href),
     },
     {
+      icon: Lock,
+      title: 'Withdrawal PIN',
+      subtitle: 'Set or change your 4-digit payout PIN',
+      onPress: () => router.push('/(rider)/withdrawal-pin' as Href),
+    },
+    {
       icon: Settings,
       title: 'Settings',
       subtitle: 'App preferences and notifications',
@@ -112,10 +127,10 @@ export default function RiderProfileScreen() {
       case 'verified':
         return <CheckCircle size={16} color="#10B981" strokeWidth={2} />;
       case 'pending':
-        return <Clock size={16} color="#FFC947" strokeWidth={2} />;
-      case 'expired':
-      case 'failed':
-        return <Shield size={16} color="#EF4444" strokeWidth={2} />;
+      case 'not_submitted':
+        return <Clock size={16} color={status === 'not_submitted' ? '#6B7280' : '#FFC947'} strokeWidth={2} />;
+      case 'rejected':
+        return <XCircle size={16} color="#EF4444" strokeWidth={2} />;
       default:
         return null;
     }
@@ -127,11 +142,25 @@ export default function RiderProfileScreen() {
         return '#10B981';
       case 'pending':
         return '#FFC947';
-      case 'expired':
-      case 'failed':
+      case 'not_submitted':
+        return '#6B7280';
+      case 'rejected':
         return '#EF4444';
       default:
         return '#6B7280';
+    }
+  };
+
+  const getStatusLabel = (status: RiderProfile['verificationStatus']) => {
+    switch (status) {
+      case 'verified':
+        return 'Verified';
+      case 'pending':
+        return 'Under review';
+      case 'rejected':
+        return 'Rejected';
+      default:
+        return 'Not submitted';
     }
   };
 
@@ -194,11 +223,15 @@ export default function RiderProfileScreen() {
           style={[styles.profileCard, { backgroundColor: theme.colors.surface }, theme.shadows.large]}
         >
           <View style={styles.profileHeader}>
-            <View style={[styles.avatar, { backgroundColor: theme.colors.primary }]}>
-              <Text style={styles.avatarText}>
-                {profile.name.split(' ').map(n => n[0]).join('')}
-              </Text>
-            </View>
+            {profile.avatarUrl ? (
+              <Image source={{ uri: profile.avatarUrl }} style={styles.avatar} />
+            ) : (
+              <View style={[styles.avatar, { backgroundColor: theme.colors.primary }]}>
+                <Text style={styles.avatarText}>
+                  {profile.name.split(' ').map((n) => n[0]).join('')}
+                </Text>
+              </View>
+            )}
             <View style={styles.profileInfo}>
               <Text style={[styles.name, { color: theme.colors.text }]}>{profile.name}</Text>
               <Text style={[styles.email, { color: theme.colors.textSecondary }]}>{profile.email}</Text>
@@ -265,39 +298,36 @@ export default function RiderProfileScreen() {
           entering={enterCard(2)}
           style={[styles.verificationCard, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}
         >
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Verification Status</Text>
-          
-          <View style={styles.verificationList}>
-            <View style={styles.verificationItem}>
-              <View style={styles.verificationInfo}>
-                {getStatusIcon(profile.licenseStatus)}
-                <Text style={[styles.verificationLabel, { color: theme.colors.text }]}>Driver's License</Text>
-              </View>
-              <Text style={[styles.verificationStatus, { color: getStatusColor(profile.licenseStatus) }]}>
-                {profile.licenseStatus.charAt(0).toUpperCase() + profile.licenseStatus.slice(1)}
-              </Text>
+          <View style={styles.verificationHeader}>
+            <View style={styles.verificationTitleWrap}>
+              <Shield size={20} color={theme.colors.primary} strokeWidth={2} />
+              <Text style={[styles.sectionTitle, { color: theme.colors.text, marginBottom: 0 }]}>Verification Status</Text>
             </View>
-            
-            <View style={styles.verificationItem}>
-              <View style={styles.verificationInfo}>
-                {getStatusIcon(profile.insuranceStatus)}
-                <Text style={[styles.verificationLabel, { color: theme.colors.text }]}>Vehicle Insurance</Text>
-              </View>
-              <Text style={[styles.verificationStatus, { color: getStatusColor(profile.insuranceStatus) }]}>
-                {profile.insuranceStatus.charAt(0).toUpperCase() + profile.insuranceStatus.slice(1)}
-              </Text>
-            </View>
-            
-            <View style={styles.verificationItem}>
-              <View style={styles.verificationInfo}>
-                {getStatusIcon(profile.backgroundCheck)}
-                <Text style={[styles.verificationLabel, { color: theme.colors.text }]}>Background Check</Text>
-              </View>
-              <Text style={[styles.verificationStatus, { color: getStatusColor(profile.backgroundCheck) }]}>
-                {profile.backgroundCheck.charAt(0).toUpperCase() + profile.backgroundCheck.slice(1)}
+            <View style={[styles.statusPill, { backgroundColor: `${getStatusColor(profile.verificationStatus)}20` }]}>
+              {getStatusIcon(profile.verificationStatus)}
+              <Text style={[styles.statusPillText, { color: getStatusColor(profile.verificationStatus) }]}>
+                {getStatusLabel(profile.verificationStatus)}
               </Text>
             </View>
           </View>
+          <Text style={[styles.verificationMessage, { color: theme.colors.textSecondary }]}>
+            {profile.verificationStatus === 'verified'
+              ? 'Your documents have been approved. You can accept delivery requests.'
+              : profile.verificationStatus === 'rejected'
+                ? 'Your application was rejected. Open Documents to see details and re-upload.'
+                : profile.verificationStatus === 'pending'
+                  ? 'Your documents are being reviewed by our team.'
+                  : 'Upload the required documents to start accepting delivery requests.'}
+          </Text>
+          <AnimatedPressable
+            style={[styles.verificationLink, { backgroundColor: `${theme.colors.primary}10` }]}
+            onPress={() => router.push('/(rider)/apply-verification' as Href)}
+          >
+            <FileText size={16} color={theme.colors.primary} strokeWidth={2} />
+            <Text style={[styles.verificationLinkText, { color: theme.colors.primary }]}>
+              {profile.verificationStatus === 'not_submitted' ? 'Apply for verification' : 'View documents'}
+            </Text>
+          </AnimatedPressable>
         </Animated.View>
 
         {/* Profile Actions */}
@@ -487,25 +517,45 @@ const styles = StyleSheet.create({
     padding: 20,
     marginBottom: 20,
   },
-  verificationList: {
-    gap: 16,
-  },
-  verificationItem: {
+  verificationHeader: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    marginBottom: 8,
   },
-  verificationInfo: {
+  verificationTitleWrap: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
-  verificationLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginLeft: 12,
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
   },
-  verificationStatus: {
+  statusPillText: {
     fontSize: 12,
+    fontWeight: '700',
+  },
+  verificationMessage: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 4,
+    marginBottom: 16,
+  },
+  verificationLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  verificationLinkText: {
+    fontSize: 14,
     fontWeight: '600',
   },
   actionsCard: {

@@ -16,6 +16,7 @@ import {
   User,
   MessageCircle,
   Star,
+  KeyRound,
 } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -24,6 +25,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useNotifications } from '@/contexts/NotificationsContext';
 import { useDeliveries } from '@/hooks/useDeliveries';
 import { useAutoCancelPendingDelivery } from '@/hooks/useAutoCancelPendingDelivery';
+import { supabase } from '@/lib/supabase';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 
 interface ActiveDelivery {
@@ -40,13 +42,14 @@ export default function HomeScreen() {
   const { theme, isDark } = useTheme();
   const { userProfile, user } = useAuth();
   const [userName, setUserName] = useState('');
-  const { deliveries } = useDeliveries();
+  const { deliveries, refetch: refetchDeliveries } = useDeliveries();
   const { unreadCount, refetchUnreadCount } = useNotifications();
 
   useFocusEffect(
     useCallback(() => {
       refetchUnreadCount();
-    }, [refetchUnreadCount])
+      refetchDeliveries();
+    }, [refetchUnreadCount, refetchDeliveries])
   );
 
   // Get active delivery: pending (searching), in transit, or picked up
@@ -59,6 +62,30 @@ export default function HomeScreen() {
       d.status === 'accepted'
   );
   const isSearchingForRider = activeDeliveryData?.status === 'pending' && !activeDeliveryData?.rider_id;
+  const [handoffCode, setHandoffCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!activeDeliveryData?.id) {
+      setHandoffCode(null);
+      return;
+    }
+    const needsCode =
+      activeDeliveryData.status === 'picked_up' ||
+      activeDeliveryData.status === 'in_transit' ||
+      activeDeliveryData.status === 'nearby';
+    if (!needsCode) {
+      setHandoffCode(null);
+      return;
+    }
+    (async () => {
+      const { data } = await (supabase as any)
+        .from('delivery_handoffs')
+        .select('code, verified')
+        .eq('delivery_id', activeDeliveryData.id)
+        .maybeSingle();
+      setHandoffCode(data && !data.verified ? data.code : null);
+    })();
+  }, [activeDeliveryData?.id, activeDeliveryData?.status]);
 
   // Trigger auto-cancel after 2 min when app is open and still "searching for rider"
   useAutoCancelPendingDelivery(
@@ -104,7 +131,7 @@ export default function HomeScreen() {
       title: 'Favorites',
       subtitle: 'Quick locations',
       color: '#10B981',
-      onPress: () => router.push('/favorites'),
+      onPress: () => router.push('/profile/saved-addresses'),
     },
     {
       icon: MessageCircle,
@@ -225,6 +252,14 @@ export default function HomeScreen() {
             <Text style={[styles.trackText, { color: theme.colors.primary }]}>
               Tap to track live →
             </Text>
+            {handoffCode ? (
+              <View style={[styles.handoffRow, { backgroundColor: `${theme.colors.primary}18` }]}>
+                <KeyRound size={16} color={theme.colors.primary} strokeWidth={2} />
+                <Text style={[styles.handoffText, { color: theme.colors.primary }]}>
+                  Handoff code: <Text style={styles.handoffCode}>{handoffCode}</Text>
+                </Text>
+              </View>
+            ) : null}
           </TouchableOpacity>
         )}
 
@@ -432,6 +467,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  handoffRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+    padding: 10,
+    borderRadius: 10,
+  },
+  handoffText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  handoffCode: {
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 3,
   },
   section: {
     paddingHorizontal: 20,

@@ -153,7 +153,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         email,
         password,
         options: {
-          emailRedirectTo: undefined, // Disable email confirmation for now
+          emailRedirectTo:
+            process.env.EXPO_PUBLIC_WEB_URL?.replace(/\/$/, '') ||
+            'Ridely://auth/callback',
           data: {
             fullName: userData.fullName,
             phone: userData.phone,
@@ -161,7 +163,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
           },
         },
       });
-
       if (error) {
         // Handle various cases where user already exists
         const errorMessage = (error.message || '').toLowerCase();
@@ -180,8 +181,45 @@ export function AuthProvider({ children }: AuthProviderProps) {
           errorString === 'user_already_registered';
         
         if (isExistingAccount) {
+          const { data: existingSignInData, error: existingSignInError } =
+            await supabase.auth.signInWithPassword({ email, password });
+
+          if (existingSignInError || !existingSignInData?.user || !existingSignInData?.session) {
+            setLoading(false);
+            throw new Error(
+              'ACCOUNT_EXISTS: An account with this email already exists. Please sign in instead.'
+            );
+          }
+
+          const existingUserId = existingSignInData.user.id;
+          const table: 'riders' | 'users' = userType === 'rider' ? 'riders' : 'users';
+          const { data: existingProfile, error: existingProfileError } = await supabase
+            .from(table)
+            .select('id')
+            .eq('id', existingUserId)
+            .maybeSingle();
+
+          if (!existingProfile && !existingProfileError) {
+            const recoveredProfile = {
+              id: existingUserId,
+              email: existingSignInData.user.email || email,
+              full_name: userData.fullName,
+              phone: userData.phone,
+            };
+            const { error: recoveredProfileInsertError } = await supabase
+              .from(table)
+              .insert([recoveredProfile] as any);
+            if (recoveredProfileInsertError) {
+              setLoading(false);
+              throw recoveredProfileInsertError;
+            }
+          }
+
+          await loadUserProfile(existingUserId);
+          setSession(existingSignInData.session);
+          setUser(existingSignInData.user);
           setLoading(false);
-          throw new Error('ACCOUNT_EXISTS: An account with this email already exists. Please sign in instead.');
+          return;
         }
         
         // Handle other errors
@@ -236,35 +274,55 @@ export function AuthProvider({ children }: AuthProviderProps) {
       };
 
       const table: 'riders' | 'users' = userType === 'rider' ? 'riders' : 'users';
-      const { error: profileError } = await supabase
+      const { data: existingProfileById, error: existingProfileByIdError } = await supabase
         .from(table)
-        .insert([profileData] as any);
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle();
+      if (!existingProfileById) {
+        const { error: profileError } = await supabase
+          .from(table)
+          .insert([profileData] as any);
 
-      if (profileError) {
-        console.error('Profile creation error:', profileError);
+        if (profileError) {
+          console.error('Profile creation error:', profileError);
 
-        // Handle RLS policy violation (42501)
-        if (profileError.code === '42501') {
-          // Clean up the auth user we just created
-          await supabase.auth.signOut();
-          throw new Error(
-            'Failed to create profile due to security policy. Please contact support.'
-          );
+          // Handle RLS policy violation (42501)
+          if (profileError.code === '42501') {
+            // Clean up the auth user we just created
+            await supabase.auth.signOut();
+            throw new Error(
+              'Failed to create profile due to security policy. Please contact support.'
+            );
+          }
+
+          // Handle duplicate email constraint error
+          if (profileError.code === '23505') {
+            const { data: conflictingEmailRow, error: conflictingEmailRowError } = await supabase
+              .from(table)
+              .select('id,email')
+              .eq('email', email)
+              .maybeSingle();
+            const { data: currentUserRow, error: currentUserRowError } = await supabase
+              .from(table)
+              .select('id,email')
+              .eq('id', userId)
+              .maybeSingle();
+
+            // If conflict row belongs to this same just-created auth user, treat as success.
+            if (conflictingEmailRow?.id === userId && currentUserRow?.id === userId) {
+            } else {
+              // This is a duplicate key error from another account/profile
+              await supabase.auth.signOut();
+              throw new Error(
+                'An account with this email already exists. Please try signing in instead.'
+              );
+            }
+          } else {
+            throw profileError;
+          }
         }
-
-        // Handle duplicate email constraint error
-        if (profileError.code === '23505') {
-          // This is a duplicate key error
-          // First, try to clean up the auth user we just created
-          await supabase.auth.signOut();
-
-          // Then throw a more user-friendly error
-          throw new Error(
-            'An account with this email already exists. Please try signing in instead.'
-          );
-        }
-
-        throw profileError;
+      } else {
       }
 
       // Load the newly created profile
@@ -312,7 +370,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const signIn = async (email: string, password: string) => {
-    console.log('Attempting to sign in with email:', email);
     setLoading(true);
 
     try {
@@ -326,8 +383,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setLoading(false);
         throw error;
       }
-
-      console.log('Sign in successful, session:', data.session);
 
       // Explicitly set the session and user data
       setSession(data.session);

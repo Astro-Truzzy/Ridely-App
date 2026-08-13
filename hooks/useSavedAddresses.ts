@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -14,55 +15,42 @@ export interface SavedAddress {
 
 export function useSavedAddresses() {
   const { user } = useAuth();
-  const [addresses, setAddresses] = useState<SavedAddress[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
+  const queryKey = ['saved_addresses', user?.id];
 
-  const fetchAddresses = useCallback(async () => {
-    if (!user?.id) {
-      setAddresses([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const { data, error: e } = await supabase
+  const query = useQuery({
+    queryKey,
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
         .from('saved_addresses')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', user!.id)
         .order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as SavedAddress[];
+    },
+  });
 
-      if (e) throw e;
-      setAddresses((data ?? []) as SavedAddress[]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load saved addresses');
-      setAddresses([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.id]);
-
-  useEffect(() => {
-    fetchAddresses();
-  }, [fetchAddresses]);
+  const invalidate = useCallback(
+    () => qc.invalidateQueries({ queryKey: ['saved_addresses', user?.id] }),
+    [qc, user?.id]
+  );
 
   const add = useCallback(
     async (params: { label: string; address: string; latitude: number; longitude: number }) => {
       if (!user?.id) throw new Error('Not authenticated');
-      const { error: e } = await (supabase as any)
-        .from('saved_addresses')
-        .insert({
-          user_id: user.id,
-          label: params.label.trim(),
-          address: params.address.trim(),
-          latitude: params.latitude,
-          longitude: params.longitude,
-        });
+      const { error: e } = await (supabase as any).from('saved_addresses').insert({
+        user_id: user.id,
+        label: params.label.trim(),
+        address: params.address.trim(),
+        latitude: params.latitude,
+        longitude: params.longitude,
+      });
       if (e) throw e;
-      await fetchAddresses();
+      await invalidate();
     },
-    [user?.id, fetchAddresses]
+    [user?.id, invalidate]
   );
 
   const remove = useCallback(
@@ -70,10 +58,22 @@ export function useSavedAddresses() {
       if (!user?.id) return;
       const { error: e } = await supabase.from('saved_addresses').delete().eq('id', id).eq('user_id', user.id);
       if (e) throw e;
-      await fetchAddresses();
+      await invalidate();
     },
-    [user?.id, fetchAddresses]
+    [user?.id, invalidate]
   );
 
-  return { addresses, loading, error, refetch: fetchAddresses, add, remove };
+  const { refetch: rqRefetch } = query;
+  const refetch = useCallback(async () => {
+    await rqRefetch();
+  }, [rqRefetch]);
+
+  return {
+    addresses: query.data ?? [],
+    loading: query.isLoading,
+    error: query.error ? (query.error as Error).message : null,
+    refetch,
+    add,
+    remove,
+  };
 }

@@ -16,6 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useAlert } from '@/contexts/AlertContext';
 import { usePaymentMethods } from '@/hooks/usePaymentMethods';
 import { useWallet } from '@/hooks/useWallet';
+import { useTransactions } from '@/hooks/useTransactions';
 import { consumePendingPayment, type PaymentIntent } from '@/lib/paymentWebViewState';
 import { verifyPaystackTransaction } from '@/lib/paystack';
 import { supabase } from '@/lib/supabase';
@@ -35,10 +36,12 @@ export default function PaymentWebViewScreen() {
   const { showAlert } = useAlert();
   const { refetch: refetchPaymentMethods } = usePaymentMethods();
   const { refetch: refetchWallet } = useWallet();
+  const { refetch: refetchTransactions } = useTransactions();
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
   const [intent, setIntent] = useState<PaymentIntent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
 
   useEffect(() => {
     const pending = consumePendingPayment();
@@ -101,13 +104,35 @@ export default function PaymentWebViewScreen() {
       if (intent === 'add_card') {
         await saveCardFromVerification(reference);
       } else if (intent === 'fund_wallet') {
+        setVerifying(true);
+        let credited = false;
+        for (let i = 0; i < 6; i += 1) {
+          const { data } = await (supabase as any)
+            .from('transactions')
+            .select('id, status')
+            .eq('reference', reference)
+            .maybeSingle();
+          if (data?.id) {
+            credited = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
         await refetchWallet();
-        showAlert('Wallet funded', 'Your wallet has been credited. The webhook will update your balance shortly.', [
+        await refetchTransactions();
+        setVerifying(false);
+        showAlert(
+          credited ? 'Wallet funded' : 'Payment received',
+          credited
+            ? 'Your wallet has been credited successfully.'
+            : 'Your payment is successful and wallet credit is processing. Pull to refresh shortly.',
+          [
           { text: 'OK', onPress: () => router.back() },
-        ]);
+          ]
+        );
       }
     },
-    [intent, saveCardFromVerification, refetchWallet]
+    [intent, saveCardFromVerification, refetchWallet, refetchTransactions]
   );
 
   const onNavigationStateChange = useCallback(
@@ -171,6 +196,14 @@ export default function PaymentWebViewScreen() {
         </Text>
         <View style={styles.placeholder} />
       </View>
+      {verifying ? (
+        <View style={[styles.pendingBanner, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
+          <ActivityIndicator size="small" color={theme.colors.primary} />
+          <Text style={[styles.pendingText, { color: theme.colors.textSecondary }]}>
+            Confirming wallet credit...
+          </Text>
+        </View>
+      ) : null}
       <WebView
         source={{ uri: paymentUrl }}
         style={styles.webview}
@@ -207,6 +240,18 @@ const styles = StyleSheet.create({
   retryButton: { marginTop: 24, paddingVertical: 14, paddingHorizontal: 24, borderRadius: 14 },
   retryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
   webview: { flex: 1 },
+  pendingBanner: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
+  pendingText: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
   webviewLoading: {
     position: 'absolute',
     left: 0,

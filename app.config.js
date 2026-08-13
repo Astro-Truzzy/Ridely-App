@@ -6,7 +6,7 @@ const iosMapsKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_API_KEY || '';
 export default {
   expo: {
     name: 'Ridely',
-    slug: 'Ridely',
+    slug: 'ridely',
     version: '1.0.0',
     orientation: 'portrait',
     icon: './assets/images/icon.png',
@@ -18,10 +18,58 @@ export default {
       'expo-router',
       'expo-font',
       'expo-web-browser',
+      'expo-dev-client',
+      [
+        'expo-image-picker',
+        {
+          photosPermission: 'Allow Ridely to access your photos to share pictures.',
+          cameraPermission: 'Allow Ridely to use your camera to take pictures.',
+        },
+      ],
+      [
+        'expo-notifications',
+        {
+          icon: './assets/images/icon.png',
+          color: '#174AFF',
+          sounds: [],
+          mode: 'production',
+        },
+      ],
+      [
+        '@livekit/react-native-expo-plugin',
+        {
+          android: { audioType: 'communication' },
+          ios: { enableMultitaskingCameraAccess: false },
+        },
+      ],
+      [
+        '@config-plugins/react-native-webrtc',
+        {
+          cameraPermission: 'Ridely does not use the camera for calls.',
+          microphonePermission: 'Allow Ridely to use your microphone for voice calls with your rider or customer.',
+        },
+      ],
+      [
+        '@sentry/react-native/expo',
+        {
+          url: 'https://sentry.io/',
+          organization: process.env.SENTRY_ORG || 'williams-group',
+          project: process.env.SENTRY_PROJECT || 'android',
+          disableAutoUpload: process.env.SENTRY_DISABLE_AUTO_UPLOAD === 'true',
+        },
+      ],
     ],
     experiments: { typedRoutes: true },
     android: {
       package: 'com.deliveryapp.ridely',
+      permissions: [
+        'android.permission.RECORD_AUDIO',
+        'android.permission.MODIFY_AUDIO_SETTINGS',
+        'android.permission.BLUETOOTH',
+        'android.permission.BLUETOOTH_CONNECT',
+        'android.permission.FOREGROUND_SERVICE',
+        'android.permission.FOREGROUND_SERVICE_MICROPHONE',
+      ],
       config: {
         googleMaps: { apiKey: androidMapsKey },
       },
@@ -29,6 +77,11 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.deliveryapp.ridely',
+      infoPlist: {
+        NSMicrophoneUsageDescription:
+          'Allow Ridely to use your microphone for voice calls with your rider or customer.',
+        UIBackgroundModes: ['audio'],
+      },
       config: {
         googleMapsApiKey: iosMapsKey,
       },

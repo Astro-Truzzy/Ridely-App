@@ -29,7 +29,6 @@ import { useDeliveries } from '@/hooks/useDeliveries';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePaymentMethods, type PaymentMethodDisplay } from '@/hooks/usePaymentMethods';
 import { useWallet } from '@/hooks/useWallet';
-import { supabase } from '@/lib/supabase';
 import {
   initializePaystackTransaction,
   verifyPaystackTransaction,
@@ -141,58 +140,27 @@ export default function ConfirmationScreen() {
     else setSelectedPayment(paymentMethods[0]?.id ?? PAYSTACK_NEW_CARD_OPTION_ID);
   }, [paymentMethods, savedMethods, selectedPayment]);
 
-  const completeBooking = useCallback(async () => {
+  const completeBooking = useCallback(async (opts: {
+    payment_method: 'cash' | 'card';
+    payment_reference?: string | null;
+  }) => {
     if (!user) return;
-    const deliveryData = {
-      user_id: user.id,
+    await createDelivery({
       pickup_address: pickupAddress,
       dropoff_address: dropoffAddress,
+      pickup_lat: pickupLat != null ? parseFloat(pickupLat) : null,
+      pickup_lng: pickupLon != null ? parseFloat(pickupLon) : null,
+      dropoff_lat: dropoffLat != null ? parseFloat(dropoffLat) : null,
+      dropoff_lng: dropoffLon != null ? parseFloat(dropoffLon) : null,
       parcel_size: size as 'small' | 'medium' | 'large',
       total_cost: parseFloat(price),
       distance: parseFloat(distance),
       estimated_time: '25-35 mins',
       delivery_time: deliveryTime as 'now' | 'scheduled',
       scheduled_time: deliveryTime === 'scheduled' && scheduledTime ? scheduledTime : null,
-    };
-    const newDelivery = await createDelivery(deliveryData) as { id: string } | null;
-    if (user && pickupLat != null && pickupLon != null && newDelivery?.id) {
-      try {
-        // @ts-expect-error - find_nearby_riders RPC args not in generated types
-        const { data: nearbyRiders } = (await supabase.rpc('find_nearby_riders', {
-          pickup_lat: parseFloat(pickupLat),
-          pickup_lng: parseFloat(pickupLon),
-          radius: 5000,
-        })) as { data: { id: string }[] | null };
-        if (Array.isArray(nearbyRiders) && nearbyRiders.length > 0) {
-          const notifications = nearbyRiders.map((r: { id: string }) => ({
-            user_id: user.id,
-            rider_id: r.id,
-            type: 'job_request',
-            title: 'New delivery request',
-            message: `Pickup: ${pickupAddress?.split(',')[0] ?? 'See details'} → Dropoff nearby. Tap to view.`,
-            read: false,
-            actionable: true,
-            delivery_id: newDelivery.id,
-          }));
-          // @ts-expect-error - notifications table insert not in generated types
-          await supabase.from('notifications').insert(notifications);
-          // Send push notifications to riders
-          const pushBody = {
-            riderIds: nearbyRiders.map((r: { id: string }) => r.id),
-            title: 'New delivery request',
-            body: `Pickup: ${pickupAddress?.split(',')[0] ?? 'See details'} → Dropoff nearby. Tap to accept or decline.`,
-            data: { type: 'job_request', deliveryId: newDelivery.id },
-          };
-          try {
-            await supabase.functions.invoke('send-push', { body: pushBody });
-          } catch (pushErr) {
-            console.warn('Push send failed (riders may still get in-app notification):', pushErr);
-          }
-        }
-      } catch (rpcErr) {
-        console.warn('Proximity match / notify failed (booking still succeeded):', rpcErr);
-      }
-    }
+      payment_method: opts.payment_method,
+      payment_reference: opts.payment_reference ?? null,
+    });
     showAlert(
       'Booking Confirmed! 🎉',
       'Your delivery has been booked successfully. You will receive a notification when a rider accepts your request.',
@@ -201,7 +169,7 @@ export default function ConfirmationScreen() {
         { text: 'Go to Home', onPress: () => router.replace('/(tabs)') },
       ]
     );
-  }, [user, pickupAddress, dropoffAddress, size, price, distance, deliveryTime, scheduledTime, pickupLat, pickupLon, createDelivery]);
+  }, [user, pickupAddress, dropoffAddress, size, price, distance, deliveryTime, scheduledTime, pickupLat, pickupLon, dropoffLat, dropoffLon, createDelivery, showAlert]);
 
   const startNewCardPayment = useCallback(async () => {
     const email = user?.email || userProfile?.email || '';
@@ -219,9 +187,11 @@ export default function ConfirmationScreen() {
       const { authorization_url } = await initializePaystackTransaction({
         amountInKobo: amountKobo,
         email,
-        metadata: user?.id
-          ? { source: 'ridely_booking', user_id: user.id }
-          : { source: 'ridely_booking' },
+        metadata: {
+          source: 'ridely_booking',
+          intent: 'booking',
+          ...(user?.id ? { user_id: user.id } : {}),
+        },
       });
       setPaystackAuthUrl(authorization_url);
     } catch (e) {
@@ -259,7 +229,7 @@ export default function ConfirmationScreen() {
     if (selected.type === 'cash') {
       setIsBooking(true);
       try {
-        await completeBooking();
+        await completeBooking({ payment_method: 'cash' });
       } catch (error: unknown) {
         console.error('Error creating delivery:', error);
         showAlert(
@@ -303,13 +273,21 @@ export default function ConfirmationScreen() {
           paymentMethodId: savedCard.id,
           authorizationCode: savedCard.gatewayPaymentMethodId,
           reference: `ridely_booking_${user.id}_${Date.now()}`,
+          metadata: {
+            intent: 'booking',
+            source: 'ridely_booking',
+            user_id: user.id,
+          },
         });
-        if (!chargeResult.success) {
+        if (!chargeResult.success || !chargeResult.reference) {
           showAlert('Payment failed', chargeResult.error || 'Could not charge your saved card.');
           return;
         }
         setIsBooking(true);
-        await completeBooking();
+        await completeBooking({
+          payment_method: 'card',
+          payment_reference: chargeResult.reference,
+        });
       } catch (e) {
         showAlert(
           'Payment error',
@@ -350,7 +328,10 @@ export default function ConfirmationScreen() {
       closePaystackWebView();
       setIsBooking(true);
       try {
-        await completeBooking();
+        await completeBooking({
+          payment_method: 'card',
+          payment_reference: success,
+        });
       } catch (e) {
         showAlert('Booking Failed', e instanceof Error ? e.message : 'Could not complete booking.');
       } finally {

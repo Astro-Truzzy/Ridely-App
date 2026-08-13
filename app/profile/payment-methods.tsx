@@ -183,7 +183,7 @@ export default function PaymentMethodsScreen() {
                       </View>
 
                       <View style={styles.paymentInfo}>
-                        <Text style={styles.paymentLabel}>{method.label}</Text>
+                        <Text style={[styles.paymentLabel, { color: theme.colors.text }]}>{method.label}</Text>
                         <Text style={[styles.paymentDetails, { color: theme.colors.textSecondary }]}>
                           {method.type === 'wallet' && walletBalance !== null
                             ? `Balance: ₦${Number(walletBalance).toFixed(2)}`

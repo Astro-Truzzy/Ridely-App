@@ -82,7 +82,10 @@ export default function AddCardScreen() {
         metadata: user?.id ? { user_id: user.id, intent: 'add_card' } : undefined,
       });
       setPendingPayment(authorization_url, 'add_card');
-      router.push('/profile/payment-webview');
+      // Replace (not push) so closing the webview returns to the payment
+      // methods list rather than this launcher screen, which would otherwise
+      // show a false "Could not load payment form" message.
+      router.replace('/profile/payment-webview');
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Could not load payment form.';
       setLoadError(

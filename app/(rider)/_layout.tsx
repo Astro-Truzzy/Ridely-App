@@ -27,6 +27,8 @@ export default function RiderLayout() {
       <Stack.Screen name="job-details" />
       <Stack.Screen name="active-delivery" />
       <Stack.Screen name="earnings" />
+      <Stack.Screen name="payout" />
+      <Stack.Screen name="withdrawal-pin" />
       <Stack.Screen name="profile" />
       <Stack.Screen name="edit-profile" />
       <Stack.Screen name="vehicle-information" />
