@@ -9,3 +9,13 @@ supabase/.temp/
 .env
 .env.*
 !.env.example
+
+# Native build outputs — EAS rebuilds these on its servers
+android/build/
+android/app/build/
+android/app/.cxx/
+android/.gradle/
+android/.kotlin/
+android/local.properties
+ios/build/
+ios/Pods/

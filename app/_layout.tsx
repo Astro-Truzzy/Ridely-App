@@ -1,4 +1,6 @@
+import 'react-native-url-polyfill/auto';
 import '@/lib/livekitSetup';
+import '@/lib/cryptoPolyfill';
 import { initSentry, Sentry } from '@/lib/sentry';
 import { Stack } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
