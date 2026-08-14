@@ -14,6 +14,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNotifications } from '@/contexts/NotificationsContext';
 import { useAlert } from '@/contexts/AlertContext';
+import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { supabase } from '@/lib/supabase';
 
 interface Notification {
@@ -31,7 +32,8 @@ export default function NotificationsScreen() {
   const { theme, isDark } = useTheme();
   const { user, userProfile } = useAuth();
   const { refetchUnreadCount, decrementUnreadCount, clearUnreadCount } = useNotifications();
-  const { showAlert } = useAlert();
+  const { showAlert, showToast } = useAlert();
+  const { receiptNotifications } = useAppSettings();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -52,6 +54,7 @@ export default function NotificationsScreen() {
           },
           (payload) => {
             if (payload.new && payload.new.rider_id == null) {
+              if (payload.new.type === 'payment' && !receiptNotifications) return;
               const newNotification: Notification = {
                 id: payload.new.id,
                 type: payload.new.type,
@@ -117,7 +120,9 @@ export default function NotificationsScreen() {
       
       if (error) throw error;
       
-      const formattedNotifications: Notification[] = (data ?? []).map((item: { id: string; type: string; title: string; message: string; created_at: string; read: boolean; actionable?: boolean }) => ({
+      const formattedNotifications: Notification[] = (data ?? [])
+        .filter((item: { type: string }) => receiptNotifications || item.type !== 'payment')
+        .map((item: { id: string; type: string; title: string; message: string; created_at: string; read: boolean; actionable?: boolean }) => ({
         id: item.id,
         type: item.type,
         title: item.title,
@@ -256,7 +261,7 @@ export default function NotificationsScreen() {
         return restored;
       });
       await refetchUnreadCount();
-      showAlert('Error', 'Could not delete notification. Please try again.');
+      showToast('Could not delete notification. Please try again.', 'error');
     }
   };
 
@@ -284,7 +289,7 @@ export default function NotificationsScreen() {
       console.error('Error clearing notifications:', error);
       setNotifications(previous);
       await refetchUnreadCount();
-      showAlert('Error', 'Could not clear notifications. Please try again.');
+      showToast('Could not clear notifications. Please try again.', 'error');
     }
   };
 
@@ -342,7 +347,12 @@ export default function NotificationsScreen() {
               !notification.read && { borderLeftWidth: 4, borderLeftColor: theme.colors.primary },
               theme.shadows.small
             ]}
-            onPress={() => markAsRead(notification.id)}>
+            onPress={() => {
+              markAsRead(notification.id);
+              if (notification.type === 'payment') {
+                router.push('/profile/wallet');
+              }
+            }}>
             
             <View style={styles.notificationHeader}>
               <View style={[styles.iconContainer, { backgroundColor: getNotificationColor(notification.type) }]}>
@@ -375,7 +385,16 @@ export default function NotificationsScreen() {
 
             {notification.actionable && (
               <View style={styles.actionContainer}>
-                {notification.type === 'delivery_update' ? (
+                {notification.type === 'payment' ? (
+                  <TouchableOpacity
+                    style={[styles.actionButton, { backgroundColor: theme.colors.primary }]}
+                    onPress={() => {
+                      markAsRead(notification.id);
+                      router.push('/profile/wallet');
+                    }}>
+                    <Text style={styles.actionText}>View receipt</Text>
+                  </TouchableOpacity>
+                ) : notification.type === 'delivery_update' ? (
                   <TouchableOpacity
                     style={[styles.actionButton, { backgroundColor: theme.colors.primary }]}
                     onPress={() => {
@@ -423,9 +442,9 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },

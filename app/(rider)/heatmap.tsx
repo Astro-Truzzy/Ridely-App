@@ -188,14 +188,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: { fontSize: 20, fontWeight: '700' },
-  placeholder: { width: 40 },
+  placeholder: { width: 44 },
   statsRow: {
     flexDirection: 'row',
     gap: 12,

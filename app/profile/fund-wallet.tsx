@@ -20,6 +20,7 @@ import { getPaystackCallbackPath, initializePaystackTransaction } from '@/lib/pa
 import { setPendingPayment } from '@/lib/paymentWebViewState';
 import { supabase } from '@/lib/supabase';
 import { useWallet } from '@/hooks/useWallet';
+import { TestPaymentsBanner } from '@/components/TestPaymentsBanner';
 
 const MIN_NAIRA = 100; // ₦100 minimum
 const MAX_NAIRA = 1_000_000;
@@ -28,7 +29,7 @@ export default function FundWalletScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
   const { user, userProfile } = useAuth();
-  const { showAlert } = useAlert();
+  const { showToast } = useAlert();
   const { refetch: refetchWallet } = useWallet();
   const [amount, setAmount] = useState('');
   const [promoCode, setPromoCode] = useState('');
@@ -40,7 +41,7 @@ export default function FundWalletScreen() {
   const handleFund = useCallback(async () => {
     const email = user?.email || userProfile?.email || '';
     if (!email) {
-      showAlert('Error', 'Your account email is required to fund your wallet.');
+      setError('Your account email is required to fund your wallet.');
       return;
     }
     const naira = Number.parseFloat(amount.replace(/,/g, ''));
@@ -97,10 +98,7 @@ export default function FundWalletScreen() {
         setPromoError(result.error);
         return;
       }
-      showAlert(
-        'Promo redeemed',
-        result?.message ?? `₦${result?.credited ?? 0} added to your wallet`
-      );
+      showToast(result?.message ?? `₦${result?.credited ?? 0} added to your wallet`);
       setPromoCode('');
       await refetchWallet();
     } catch (e) {
@@ -108,7 +106,7 @@ export default function FundWalletScreen() {
     } finally {
       setPromoLoading(false);
     }
-  }, [promoCode, showAlert, refetchWallet]);
+  }, [promoCode, showToast, refetchWallet]);
 
   return (
     <SafeAreaView
@@ -135,6 +133,8 @@ export default function FundWalletScreen() {
         <Text style={[styles.title, { color: theme.colors.text }]}>Fund wallet</Text>
         <View style={styles.placeholder} />
       </View>
+
+      <TestPaymentsBanner />
 
       <KeyboardAvoidingView
         style={styles.content}
@@ -241,14 +241,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: { fontSize: 20, fontWeight: '700' },
-  placeholder: { width: 40 },
+  placeholder: { width: 44 },
   content: { flex: 1, padding: 24 },
   label: { fontSize: 14, marginBottom: 8 },
   input: {

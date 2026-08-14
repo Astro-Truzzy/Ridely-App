@@ -7,16 +7,20 @@ import {
   TextInput,
   Pressable,
   KeyboardAvoidingView,
-  Platform
+  Platform,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, Mail, Package, Send } from 'lucide-react-native';
 import { router } from 'expo-router';
-import * as Linking from 'expo-linking';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAlert } from '@/contexts/AlertContext';
 import { supabase } from '@/lib/supabase';
+import { getAuthRedirectUrl } from '@/lib/authRedirect';
+import { FormError } from '@/components/FormError';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -26,49 +30,44 @@ import Animated, {
 export default function ForgotPasswordScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
-  const { showAlert } = useAlert();
+  const { showToast } = useAlert();
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const handleResetPassword = async () => {
     const trimmedEmail = email.trim();
 
     if (!trimmedEmail) {
-      showAlert('Error', 'Please enter your email address');
+      setFormError('Please enter your email address');
       return;
     }
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-      showAlert('Error', 'Please enter a valid email address');
+      setFormError('Please enter a valid email address');
       return;
     }
 
+    setFormError(null);
     setIsLoading(true);
 
     try {
-      const redirectTo = Linking.createURL('/reset-password');
-      const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
-        redirectTo,
-      });
+      const { error } = await supabase.auth.resetPasswordForEmail(
+        trimmedEmail,
+        {
+          redirectTo: getAuthRedirectUrl('reset-password'),
+        },
+      );
 
       if (error) throw error;
 
-      showAlert(
-        'Reset Link Sent',
-        "If an account exists for that email, we've sent a password reset link. Please check your inbox (and spam folder) and follow the instructions.",
-        [
-          {
-            text: 'OK',
-            onPress: () => router.back(),
-          },
-        ]
-      );
+      showToast("If an account exists for that email, we've sent a reset link.");
+      router.back();
     } catch (err) {
-      showAlert(
-        'Error',
+      setFormError(
         err instanceof Error
           ? err.message
-          : 'Something went wrong while sending the reset link. Please try again.'
+          : 'Could not send the reset link. Please try again.',
       );
     } finally {
       setIsLoading(false);
@@ -105,9 +104,9 @@ export default function ForgotPasswordScreen() {
       paddingBottom: 20,
     },
     backButton: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 44,
+    height: 44,
+    borderRadius: 22,
       backgroundColor: theme.colors.surface,
       justifyContent: 'center',
       alignItems: 'center',
@@ -215,7 +214,7 @@ export default function ForgotPasswordScreen() {
             style={styles.backButton}
             onPress={() => router.back()}
           >
-           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
+            <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
           </TouchableOpacity>
         </View>
 
@@ -250,13 +249,17 @@ export default function ForgotPasswordScreen() {
                   placeholder="Enter your email"
                   placeholderTextColor={theme.colors.textTertiary}
                   value={email}
-                  onChangeText={setEmail}
+                  onChangeText={(t) => {
+                    setEmail(t);
+                    setFormError(null);
+                  }}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
                   editable={!isLoading}
                 />
               </View>
+              <FormError message={formError} />
             </View>
 
             <Pressable

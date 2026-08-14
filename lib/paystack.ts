@@ -5,6 +5,7 @@
 
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import { formatWithdrawalPinError } from '@/lib/pinError';
 
 /** User JWT headers for authenticated Paystack edge functions. */
 async function getUserAuthHeaders(): Promise<Record<string, string>> {
@@ -24,6 +25,15 @@ async function getFunctionErrorMessage(error: unknown): Promise<string> {
   if (error instanceof FunctionsHttpError && error.context) {
     try {
       const body = await error.context.json();
+      if (
+        body &&
+        (body.attempts_left != null ||
+          body.locked_until ||
+          body.pin_locked ||
+          body.locked)
+      ) {
+        return formatWithdrawalPinError(body);
+      }
       if (body?.error) return String(body.error);
       if (body?.message) return String(body.message);
       if (body?.msg) return String(body.msg);
@@ -251,14 +261,24 @@ export async function withdrawFromWallet(params: {
       return { success: false, error: await getFunctionErrorMessage(error) };
     }
 
-    const result = data as WithdrawResult;
+    const result = data as WithdrawResult & {
+      attempts_left?: number;
+      locked_until?: string | null;
+      pin_locked?: boolean;
+      locked?: boolean;
+    };
+    if (!result?.success) {
+      return {
+        success: false,
+        error: result ? formatWithdrawalPinError(result) : 'Withdrawal failed',
+      };
+    }
     return {
-      success: !!result?.success,
-      amount: result?.amount,
-      account_name: result?.account_name,
-      status: result?.status,
-      message: result?.message,
-      error: result?.success ? undefined : result?.error || 'Withdrawal failed',
+      success: true,
+      amount: result.amount,
+      account_name: result.account_name,
+      status: result.status,
+      message: result.message,
     };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : 'Withdrawal failed' };
@@ -297,14 +317,24 @@ export async function requestRiderPayout(params: {
       return { success: false, error: await getFunctionErrorMessage(error) };
     }
 
-    const result = data as RiderPayoutResult;
+    const result = data as RiderPayoutResult & {
+      attempts_left?: number;
+      locked_until?: string | null;
+      pin_locked?: boolean;
+      locked?: boolean;
+    };
+    if (!result?.success) {
+      return {
+        success: false,
+        error: result ? formatWithdrawalPinError(result) : 'Payout failed',
+      };
+    }
     return {
-      success: !!result?.success,
-      amount: result?.amount,
-      account_name: result?.account_name,
-      status: result?.status,
-      message: result?.message,
-      error: result?.success ? undefined : result?.error || 'Payout failed',
+      success: true,
+      amount: result.amount,
+      account_name: result.account_name,
+      status: result.status,
+      message: result.message,
     };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : 'Payout failed' };

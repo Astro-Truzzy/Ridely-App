@@ -6,14 +6,13 @@ import {
   Image,
   StyleSheet,
   TouchableOpacity,
-  PanResponder,
   Dimensions,
   ScrollView,
   Share,
   Linking,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import {
   ArrowLeft,
@@ -21,7 +20,6 @@ import {
   Phone,
   Package,
   User,
-  Star,
   Shield,
   MapPin,
   CreditCard,
@@ -32,7 +30,6 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import Constants from 'expo-constants';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useAuth } from '@/contexts/AuthContext';
 import { useAlert, type AlertButton } from '@/contexts/AlertContext';
 import { useVoiceCall } from '@/contexts/VoiceCallContext';
 import { useDeliveries, type Delivery } from '@/hooks/useDeliveries';
@@ -81,7 +78,9 @@ const PROGRESS_INDEX: Record<DisplayStatus, number> = {
   cancelled: -1,
 };
 
-function mapDeliveryToDisplayStatus(status: Delivery['status'] | undefined): DisplayStatus {
+function mapDeliveryToDisplayStatus(
+  status: Delivery['status'] | undefined,
+): DisplayStatus {
   switch (status) {
     case 'pending':
       return 'pending';
@@ -175,6 +174,11 @@ function DeliveryMapMarkers({
   );
 }
 
+function firstNameOnly(name: string): string {
+  const first = name.trim().split(/\s+/)[0];
+  return first || 'Rider';
+}
+
 function regionFromPoints(points: LatLng[]) {
   if (points.length === 0) return null;
   if (points.length === 1) {
@@ -197,34 +201,110 @@ function regionFromPoints(points: LatLng[]) {
 
 // Simplified map style: light background, soft roads/labels (lower contrast for readability).
 const SIMPLIFIED_MAP_STYLE = [
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#e8eaed' }] },
-  { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#f8f8f8' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#e5e5e5' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#d8d8d8' }] },
-  { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: '#e5e5e5' }] },
-  { featureType: 'road.local', elementType: 'geometry', stylers: [{ color: '#ebebeb' }] },
-  { featureType: 'poi.park', elementType: 'geometry.fill', stylers: [{ color: '#c8e6c9' }] },
-  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#a8a8a8' }] },
-  { featureType: 'poi', elementType: 'labels.icon', stylers: [{ visibility: 'simplified' }, { saturation: 0 }] },
-  { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#a8a8a8' }] },
-  { featureType: 'transit', elementType: 'geometry', stylers: [{ visibility: 'on' }] },
-  { featureType: 'transit.station', elementType: 'labels', stylers: [{ visibility: 'off' }] },
-  { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#e5e5e5' }] },
-  { featureType: 'administrative.land_parcel', elementType: 'labels', stylers: [{ visibility: 'off' }] },
-  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#a8a8a8' }] },
-  { featureType: 'road', elementType: 'labels.text.stroke', stylers: [{ color: '#fafafa' }] },
-  { featureType: 'administrative', elementType: 'labels.text.fill', stylers: [{ color: '#a8a8a8' }] },
+  {
+    featureType: 'water',
+    elementType: 'geometry',
+    stylers: [{ color: '#e8eaed' }],
+  },
+  {
+    featureType: 'landscape',
+    elementType: 'geometry',
+    stylers: [{ color: '#f8f8f8' }],
+  },
+  {
+    featureType: 'road',
+    elementType: 'geometry',
+    stylers: [{ color: '#e5e5e5' }],
+  },
+  {
+    featureType: 'road.highway',
+    elementType: 'geometry',
+    stylers: [{ color: '#d8d8d8' }],
+  },
+  {
+    featureType: 'road.arterial',
+    elementType: 'geometry',
+    stylers: [{ color: '#e5e5e5' }],
+  },
+  {
+    featureType: 'road.local',
+    elementType: 'geometry',
+    stylers: [{ color: '#ebebeb' }],
+  },
+  {
+    featureType: 'poi.park',
+    elementType: 'geometry.fill',
+    stylers: [{ color: '#c8e6c9' }],
+  },
+  {
+    featureType: 'poi.park',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#a8a8a8' }],
+  },
+  {
+    featureType: 'poi',
+    elementType: 'labels.icon',
+    stylers: [{ visibility: 'simplified' }, { saturation: 0 }],
+  },
+  {
+    featureType: 'poi',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#a8a8a8' }],
+  },
+  {
+    featureType: 'transit',
+    elementType: 'geometry',
+    stylers: [{ visibility: 'on' }],
+  },
+  {
+    featureType: 'transit.station',
+    elementType: 'labels',
+    stylers: [{ visibility: 'off' }],
+  },
+  {
+    featureType: 'administrative',
+    elementType: 'geometry.stroke',
+    stylers: [{ color: '#e5e5e5' }],
+  },
+  {
+    featureType: 'administrative.land_parcel',
+    elementType: 'labels',
+    stylers: [{ visibility: 'off' }],
+  },
+  {
+    featureType: 'road',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#a8a8a8' }],
+  },
+  {
+    featureType: 'road',
+    elementType: 'labels.text.stroke',
+    stylers: [{ color: '#fafafa' }],
+  },
+  {
+    featureType: 'administrative',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#a8a8a8' }],
+  },
 ];
 
 const ROUTE_LINE_COLOR = '#22C55E';
 
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
+function haversineMeters(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+) {
   const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
@@ -239,30 +319,34 @@ function getZoomForSpeed(speedKmh: number): number {
 export default function TrackingScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
-  const { user } = useAuth();
   const { showAlert } = useAlert();
   const { startCall } = useVoiceCall();
   const { deliveries } = useDeliveries();
   const params = useLocalSearchParams<{ deliveryId?: string }>();
-  
+
   // Get active delivery - from params or most recent non-completed (including pending "searching for rider")
   const activeDeliveryFromList = params.deliveryId
-    ? deliveries.find(d => d.id === params.deliveryId)
-    : deliveries.find(d =>
-        d.status !== 'delivered' &&
-        d.status !== 'cancelled' &&
-        d.status !== 'cancelled_no_rider' &&
-        d.status !== 'completed'
+    ? deliveries.find((d) => d.id === params.deliveryId)
+    : deliveries.find(
+        (d) =>
+          d.status !== 'delivered' &&
+          d.status !== 'cancelled' &&
+          d.status !== 'cancelled_no_rider' &&
+          d.status !== 'completed',
       );
 
-  const [localDelivery, setLocalDelivery] = useState<typeof activeDeliveryFromList>(activeDeliveryFromList);
+  const [localDelivery, setLocalDelivery] = useState<
+    typeof activeDeliveryFromList
+  >(activeDeliveryFromList);
   const activeDelivery = localDelivery ?? activeDeliveryFromList;
   const riderId = activeDelivery?.rider_id || null;
   const isSearchingForRider = activeDelivery && !riderId;
 
   // Trigger auto-cancel after 2 min when user is on tracking and still "searching for rider"
   useAutoCancelPendingDelivery(
-    activeDelivery?.status === 'pending' && !activeDelivery?.rider_id ? activeDelivery : null
+    activeDelivery?.status === 'pending' && !activeDelivery?.rider_id
+      ? activeDelivery
+      : null,
   );
 
   useEffect(() => {
@@ -283,8 +367,12 @@ export default function TrackingScreen() {
           filter: `id=eq.${deliveryId}`,
         },
         (payload: { new: Record<string, unknown> }) => {
-          setLocalDelivery((prev) => (prev ? { ...prev, ...payload.new } : (payload.new as unknown) as Delivery));
-        }
+          setLocalDelivery((prev) =>
+            prev
+              ? { ...prev, ...payload.new }
+              : (payload.new as unknown as Delivery),
+          );
+        },
       )
       .subscribe();
     return () => {
@@ -308,21 +396,28 @@ export default function TrackingScreen() {
     }
     import('react-native-maps')
       .then((maps) => {
-        if (mounted) setRNMaps({ default: maps.default as unknown as React.ComponentType<any>, Marker: maps.Marker as unknown as React.ComponentType<any>, Polyline: maps.Polyline as unknown as React.ComponentType<any> });
+        if (mounted)
+          setRNMaps({
+            default: maps.default as unknown as React.ComponentType<any>,
+            Marker: maps.Marker as unknown as React.ComponentType<any>,
+            Polyline: maps.Polyline as unknown as React.ComponentType<any>,
+          });
       })
       .catch(() => {
         if (mounted) setRNMaps(null);
       });
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const displayStatus = useMemo(
     () => mapDeliveryToDisplayStatus(activeDelivery?.status),
-    [activeDelivery?.status]
+    [activeDelivery?.status],
   );
   const progressIndex = useMemo(
     () => getProgressIndex(activeDelivery?.status),
-    [activeDelivery?.status]
+    [activeDelivery?.status],
   );
 
   const [rider, setRider] = useState<RiderInfo>({
@@ -335,25 +430,32 @@ export default function TrackingScreen() {
     currentLocation: '',
   });
   const [elapsedTime, setElapsedTime] = useState(0);
-  const [mapExpanded, setMapExpanded] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   // Real-time rider coordinates — null until we have a real GPS sample (never invent a city).
   const [riderCoords, setRiderCoords] = useState<LatLng | null>(null);
   const [isLive, setIsLive] = useState(false);
   const subscriptionRef = useRef<any | null>(null);
-  const [routeCoordinates, setRouteCoordinates] = useState<Array<{ latitude: number; longitude: number }>>([]);
-  const [pickupCoords, setPickupCoords] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [dropoffCoords, setDropoffCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [routeCoordinates, setRouteCoordinates] = useState<
+    Array<{ latitude: number; longitude: number }>
+  >([]);
+  const [pickupCoords, setPickupCoords] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [dropoffCoords, setDropoffCoords] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
   const [fallbackCoords, setFallbackCoords] = useState<LatLng | null>(null);
   const [followMode, setFollowMode] = useState(true);
   const [riderSpeedKmh, setRiderSpeedKmh] = useState(0);
   const [handoffCode, setHandoffCode] = useState<string | null>(null);
   const [proofPhotoUrl, setProofPhotoUrl] = useState<string | null>(null);
-  const lastRiderSampleRef = useRef<{ lat: number; lng: number; ts: number } | null>(null);
-  
-  // Draggable card state – top of map
-  const [cardPosition, setCardPosition] = useState({ x: 16, y: 16 });
-  const initialPosition = useRef({ x: 16, y: 16 });
-  
+  const lastRiderSampleRef = useRef<{
+    lat: number;
+    lng: number;
+    ts: number;
+  } | null>(null);
   const mapRef = useRef<any>(null);
 
   const handleRecenterMap = () => {
@@ -367,42 +469,16 @@ export default function TrackingScreen() {
         },
         zoom: getZoomForSpeed(riderSpeedKmh),
       },
-      { duration: 450 }
+      { duration: 450 },
     );
   };
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (_, gestureState) => {
-        // Store the initial position
-        initialPosition.current = { ...cardPosition };
-      },
-      onPanResponderMove: (_, gestureState) => {
-        // Calculate new position based on initial position and gesture movement
-        const newX = initialPosition.current.x + gestureState.dx;
-        const newY = initialPosition.current.y + gestureState.dy;
-        
-        // Update position
-        setCardPosition({
-          x: newX,
-          y: newY,
-        });
-      },
-      onPanResponderRelease: () => {
-        // Keep the card at the new position
-      },
-      onPanResponderTerminate: () => {
-        // Keep the card at the new position
-      },
-    })
-  ).current;
 
   const mapRegion = useMemo(
     () =>
       regionFromPoints(
-        [riderCoords, pickupCoords, dropoffCoords, fallbackCoords].filter((p): p is LatLng => !!p)
+        [riderCoords, pickupCoords, dropoffCoords, fallbackCoords].filter(
+          (p): p is LatLng => !!p,
+        ),
       ),
     [
       riderCoords?.latitude,
@@ -413,25 +489,39 @@ export default function TrackingScreen() {
       dropoffCoords?.longitude,
       fallbackCoords?.latitude,
       fallbackCoords?.longitude,
-    ]
+    ],
   );
   const speedKmhRounded = Math.max(0, Math.round(riderSpeedKmh));
 
   useEffect(() => {
-    if (!mapExpanded || !mapRef.current) return;
+    if (!mapRef.current) return;
     const fitPoints =
       routeCoordinates.length > 1
         ? routeCoordinates
-        : [riderCoords, pickupCoords, dropoffCoords].filter((p): p is LatLng => !!p);
+        : [riderCoords, pickupCoords, dropoffCoords].filter(
+            (p): p is LatLng => !!p,
+          );
     if (fitPoints.length < 2) return;
     mapRef.current.fitToCoordinates?.(fitPoints, {
-      edgePadding: { top: 90, right: 60, bottom: 320, left: 60 },
+      edgePadding: {
+        top: 90,
+        right: 60,
+        bottom: detailsOpen ? 420 : 280,
+        left: 60,
+      },
       animated: true,
     });
-  }, [mapExpanded, routeCoordinates.length, pickupCoords?.latitude, pickupCoords?.longitude, dropoffCoords?.latitude, dropoffCoords?.longitude]);
+  }, [
+    detailsOpen,
+    routeCoordinates.length,
+    pickupCoords?.latitude,
+    pickupCoords?.longitude,
+    dropoffCoords?.latitude,
+    dropoffCoords?.longitude,
+  ]);
 
   useEffect(() => {
-    if (!mapExpanded || !followMode || !mapRef.current || !riderCoords) return;
+    if (!followMode || !mapRef.current || !riderCoords) return;
     mapRef.current.animateCamera?.(
       {
         center: {
@@ -440,9 +530,14 @@ export default function TrackingScreen() {
         },
         zoom: getZoomForSpeed(riderSpeedKmh),
       },
-      { duration: 500 }
+      { duration: 500 },
     );
-  }, [mapExpanded, followMode, riderCoords?.latitude, riderCoords?.longitude, riderSpeedKmh]);
+  }, [
+    followMode,
+    riderCoords?.latitude,
+    riderCoords?.longitude,
+    riderSpeedKmh,
+  ]);
 
   // Fetch rider info when delivery is available
   useEffect(() => {
@@ -458,7 +553,13 @@ export default function TrackingScreen() {
 
         if (error) throw error;
 
-        const row = data as { full_name?: string; rating?: number; phone?: string; vehicle_type?: string | null; plate_number?: string | null } | null;
+        const row = data as {
+          full_name?: string;
+          rating?: number;
+          phone?: string;
+          vehicle_type?: string | null;
+          plate_number?: string | null;
+        } | null;
         if (row) {
           setRider({
             name: row.full_name || 'Rider',
@@ -487,7 +588,9 @@ export default function TrackingScreen() {
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const DEBOUNCE_MS = 500;
 
-    const handleLocationPayload = (payload: { new?: { latitude: number; longitude: number } }) => {
+    const handleLocationPayload = (payload: {
+      new?: { latitude: number; longitude: number };
+    }) => {
       if (!payload.new) return;
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
@@ -495,12 +598,21 @@ export default function TrackingScreen() {
         const now = Date.now();
         const prev = lastRiderSampleRef.current;
         if (prev) {
-          const meters = haversineMeters(prev.lat, prev.lng, next.latitude, next.longitude);
+          const meters = haversineMeters(
+            prev.lat,
+            prev.lng,
+            next.latitude,
+            next.longitude,
+          );
           const seconds = Math.max((now - prev.ts) / 1000, 1);
           const kmh = (meters / seconds) * 3.6;
           setRiderSpeedKmh((old) => old * 0.7 + Math.min(kmh, 120) * 0.3);
         }
-        lastRiderSampleRef.current = { lat: next.latitude, lng: next.longitude, ts: now };
+        lastRiderSampleRef.current = {
+          lat: next.latitude,
+          lng: next.longitude,
+          ts: now,
+        };
         setRiderCoords({
           latitude: next.latitude,
           longitude: next.longitude,
@@ -512,9 +624,15 @@ export default function TrackingScreen() {
 
     // Supabase RealtimeChannel types only expose 'system' in .on(); postgres_changes is supported at runtime
     type ChannelWithPostgres = Parameters<typeof supabase.removeChannel>[0] & {
-      on(ev: string, cfg: object, cb: (p: { new?: { latitude: number; longitude: number } }) => void): ChannelWithPostgres;
+      on(
+        ev: string,
+        cfg: object,
+        cb: (p: { new?: { latitude: number; longitude: number } }) => void,
+      ): ChannelWithPostgres;
     };
-    const channel = (supabase.channel(`rider-location:${riderId}`) as ChannelWithPostgres)
+    const channel = (
+      supabase.channel(`rider-location:${riderId}`) as ChannelWithPostgres
+    )
       .on(
         'postgres_changes',
         {
@@ -523,7 +641,7 @@ export default function TrackingScreen() {
           table: 'rider_locations',
           filter: `rider_id=eq.${riderId}`,
         },
-        handleLocationPayload
+        handleLocationPayload,
       )
       .on(
         'postgres_changes',
@@ -533,7 +651,7 @@ export default function TrackingScreen() {
           table: 'rider_locations',
           filter: `rider_id=eq.${riderId}`,
         },
-        handleLocationPayload
+        handleLocationPayload,
       )
       .subscribe();
 
@@ -618,14 +736,14 @@ export default function TrackingScreen() {
         tasks.push(
           geocodeAddress(activeDelivery.pickup_address).then((pickup) => {
             if (!cancelled && pickup) setPickupCoords(pickup);
-          })
+          }),
         );
       }
       if (!hasDropoffDb && activeDelivery.dropoff_address) {
         tasks.push(
           geocodeAddress(activeDelivery.dropoff_address).then((dropoff) => {
             if (!cancelled && dropoff) setDropoffCoords(dropoff);
-          })
+          }),
         );
       }
       await Promise.all(tasks);
@@ -651,11 +769,15 @@ export default function TrackingScreen() {
       try {
         const { data, error } = await (supabase as any)
           .from('deliveries')
-          .select('pickup_address, dropoff_address, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, share_token, status, rider_id')
+          .select(
+            'pickup_address, dropoff_address, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, share_token, status, rider_id',
+          )
           .eq('id', deliveryId)
           .maybeSingle();
         if (cancelled || error || !data) return;
-        setLocalDelivery((prev) => (prev ? { ...prev, ...data } : (data as Delivery)));
+        setLocalDelivery((prev) =>
+          prev ? { ...prev, ...data } : (data as Delivery),
+        );
       } catch (err) {
         console.warn('[tracking] delivery coords fetch failed', err);
       }
@@ -729,7 +851,9 @@ export default function TrackingScreen() {
       return;
     }
     (async () => {
-      const url = await getDeliveryProofSignedUrl(activeDelivery.proof_photo_path!);
+      const url = await getDeliveryProofSignedUrl(
+        activeDelivery.proof_photo_path!,
+      );
       setProofPhotoUrl(url);
     })();
   }, [activeDelivery?.proof_photo_path, activeDelivery?.status]);
@@ -756,18 +880,20 @@ export default function TrackingScreen() {
         currentRider.latitude,
         currentRider.longitude,
         currentDrop.latitude,
-        currentDrop.longitude
+        currentDrop.longitude,
       );
       if (!result) return;
       setRouteCoordinates(result.coordinates);
       const mins = Math.round(result.durationSeconds / 60);
-      const etaText = mins < 1 ? '< 1 min' : mins === 1 ? '1 min' : `${mins} mins`;
+      const etaText =
+        mins < 1 ? '< 1 min' : mins === 1 ? '1 min' : `${mins} mins`;
       setRider((prev) => ({ ...prev, estimatedArrival: etaText }));
     };
 
     const now = Date.now();
     const timeSinceLastFetch = now - lastRouteFetchRef.current;
-    const isFirstFetch = timeSinceLastFetch > ROUTE_DEBOUNCE_MS || lastRouteFetchRef.current === 0;
+    const isFirstFetch =
+      timeSinceLastFetch > ROUTE_DEBOUNCE_MS || lastRouteFetchRef.current === 0;
 
     if (isFirstFetch) {
       lastRouteFetchRef.current = now;
@@ -778,16 +904,24 @@ export default function TrackingScreen() {
     }
 
     if (routeFetchRef.current) clearTimeout(routeFetchRef.current);
-    routeFetchRef.current = setTimeout(() => {
-      routeFetchRef.current = null;
-      lastRouteFetchRef.current = Date.now();
-      fetchRouteAndEta();
-    }, Math.max(0, ROUTE_DEBOUNCE_MS - timeSinceLastFetch));
+    routeFetchRef.current = setTimeout(
+      () => {
+        routeFetchRef.current = null;
+        lastRouteFetchRef.current = Date.now();
+        fetchRouteAndEta();
+      },
+      Math.max(0, ROUTE_DEBOUNCE_MS - timeSinceLastFetch),
+    );
 
     return () => {
       if (routeFetchRef.current) clearTimeout(routeFetchRef.current);
     };
-  }, [dropoffCoords?.latitude, dropoffCoords?.longitude, riderCoords?.latitude, riderCoords?.longitude]);
+  }, [
+    dropoffCoords?.latitude,
+    dropoffCoords?.longitude,
+    riderCoords?.latitude,
+    riderCoords?.longitude,
+  ]);
 
   useEffect(() => {
     if (!activeDelivery?.created_at) {
@@ -861,7 +995,8 @@ export default function TrackingScreen() {
       return;
     }
 
-    const riderName = rider.name && rider.name !== 'Loading...' ? rider.name : 'Rider';
+    const riderName =
+      rider.name && rider.name !== 'Loading...' ? rider.name : 'Rider';
     const buttons: AlertButton[] = [
       {
         text: 'In-App Call',
@@ -881,7 +1016,11 @@ export default function TrackingScreen() {
     }
 
     buttons.push({ text: 'Cancel', style: 'cancel' });
-    showAlert('Call Rider', `Choose how you want to call ${riderName}`, buttons);
+    showAlert(
+      'Call Rider',
+      `Choose how you want to call ${riderName}`,
+      buttons,
+    );
   };
 
   const handleMessage = () => {
@@ -914,587 +1053,525 @@ export default function TrackingScreen() {
     } catch (_) {}
   };
 
+  const riderFirst =
+    rider.name && rider.name !== 'Loading...'
+      ? firstNameOnly(rider.name)
+      : 'Rider';
+  const canContact = !!riderId && !isSearchingForRider;
+  const primaryAction: 'call' | 'chat' | 'share' = !canContact
+    ? 'share'
+    : displayStatus === 'delivered' ||
+        displayStatus === 'completed' ||
+        displayStatus === 'cancelled'
+      ? 'chat'
+      : 'call';
+
+  const runPrimaryAction = () => {
+    if (primaryAction === 'call') handleCall();
+    else if (primaryAction === 'chat') handleMessage();
+    else void handleShareTracking();
+  };
+
+  const primaryLabel =
+    primaryAction === 'call'
+      ? `Call ${riderFirst}`
+      : primaryAction === 'chat'
+        ? `Chat with ${riderFirst}`
+        : 'Share tracking';
+  const PrimaryIcon =
+    primaryAction === 'call'
+      ? Phone
+      : primaryAction === 'chat'
+        ? MessageCircle
+        : Share2;
+  const statusTitle = isSearchingForRider
+    ? 'Finding your rider'
+    : getStatusText(displayStatus);
+  const etaLabel = isSearchingForRider
+    ? 'ETA —'
+    : rider.estimatedArrival && rider.estimatedArrival !== 'Calculating...'
+      ? `ETA ${rider.estimatedArrival}`
+      : 'ETA calculating…';
+  const sheetMaxHeight = Math.round(
+    Dimensions.get('window').height * (detailsOpen ? 0.72 : 0.42),
+  );
+
   return (
-    <SafeAreaView
+    <View
       style={[styles.container, { backgroundColor: theme.colors.background }]}
-      edges={['left', 'right', 'bottom']}
     >
       <StatusBar style="light" />
-      {/* Header - extends under status bar; content padded by insets.top */}
+
       <View
         style={[
-          styles.header,
+          styles.mapFill,
+          { backgroundColor: isDark ? theme.colors.card : '#E5E7EB' },
+        ]}
+      >
+        {RNMaps && mapRegion ? (
+          <RNMaps.default
+            ref={mapRef}
+            style={StyleSheet.absoluteFill}
+            mapType="standard"
+            customMapStyle={SIMPLIFIED_MAP_STYLE}
+            initialRegion={mapRegion}
+            loadingEnabled
+            moveOnMarkerPress={false}
+            toolbarEnabled={false}
+            onPanDrag={() => setFollowMode(false)}
+            onTouchStart={() => {
+              if (followMode) setFollowMode(false);
+            }}
+          >
+            {routeCoordinates.length > 0 && (
+              <RNMaps.Polyline
+                coordinates={routeCoordinates}
+                strokeColor={ROUTE_LINE_COLOR}
+                strokeWidth={4}
+                lineCap="round"
+                lineJoin="round"
+              />
+            )}
+            <DeliveryMapMarkers
+              Marker={RNMaps.Marker}
+              pickupCoords={pickupCoords}
+              dropoffCoords={dropoffCoords}
+              riderCoords={riderCoords}
+            />
+          </RNMaps.default>
+        ) : (
+          <View style={styles.mapFallback}>
+            {RNMaps ? (
+              <>
+                <ActivityIndicator size="large" color={theme.colors.primary} />
+                <Text
+                  style={{ color: theme.colors.textSecondary, marginTop: 12 }}
+                >
+                  Locating delivery…
+                </Text>
+              </>
+            ) : (
+              <Text style={{ color: theme.colors.textSecondary }}>
+                Map requires a development build
+              </Text>
+            )}
+          </View>
+        )}
+
+        <View style={[styles.mapChrome, { paddingTop: insets.top + 8 }]}>
+          <TouchableOpacity
+            style={[styles.roundBtn, { backgroundColor: 'rgba(0,0,0,0.55)' }]}
+            onPress={() => router.back()}
+          >
+            <ArrowLeft size={22} color="#FFFFFF" strokeWidth={2} />
+          </TouchableOpacity>
+          {riderId ? (
+            <View style={[styles.livePill, isLive && styles.livePillActive]}>
+              <View style={[styles.liveDot, isLive && styles.liveDotActive]} />
+              <Text style={styles.liveText}>
+                {isLive ? 'Live' : 'Connecting…'}
+              </Text>
+            </View>
+          ) : (
+            <View />
+          )}
+          <TouchableOpacity
+            style={[
+              styles.roundBtn,
+              {
+                backgroundColor: followMode
+                  ? theme.colors.primary
+                  : 'rgba(0,0,0,0.55)',
+              },
+            ]}
+            onPress={handleRecenterMap}
+          >
+            <Crosshair size={20} color="#FFFFFF" strokeWidth={2} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View
+        style={[
+          styles.sheet,
           {
-            backgroundColor: theme.colors.primary,
-            paddingTop: 16 + insets.top,
+            backgroundColor: theme.colors.card,
+            maxHeight: sheetMaxHeight,
+            height: detailsOpen ? sheetMaxHeight : undefined,
+            paddingBottom: Math.max(insets.bottom, 12),
+            ...theme.shadows.large,
           },
         ]}
       >
         <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <ArrowLeft size={24} color="#FFFFFF" strokeWidth={2} />
-        </TouchableOpacity>
-        <View style={styles.headerTitleRow}>
-          <Text style={styles.title}>Track Delivery</Text>
-          {riderId && (
-            <View style={[styles.liveBadge, isLive && styles.liveBadgeActive]}>
-              <View style={[styles.liveDot, isLive && styles.liveDotActive]} />
-              <Text style={styles.liveText}>{isLive ? 'Live' : 'Connecting…'}</Text>
-            </View>
-          )}
-        </View>
-        <View style={styles.placeholder} />
-      </View>
-
-      <ScrollView style={{ flex: 1 }}>
-        {/* Map Area with Preview and Tap-to-Expand */}
-        <TouchableOpacity
-          style={[styles.mapContainer, { backgroundColor: isDark ? theme.colors.card : '#E5E7EB' }]}
+          style={styles.sheetHandleHit}
+          onPress={() => setDetailsOpen((open) => !open)}
           activeOpacity={0.8}
-          onPress={() => setMapExpanded(true)}
         >
-          {RNMaps && mapRegion ? (
-            <RNMaps.default
-              style={styles.map}
-              mapType="standard"
-              customMapStyle={SIMPLIFIED_MAP_STYLE}
-              region={mapRegion}
-              loadingEnabled
-              moveOnMarkerPress={false}
-              toolbarEnabled={false}
-              scrollEnabled={false}
-              zoomEnabled={false}
-              rotateEnabled={false}
-              pitchEnabled={false}
-              pointerEvents="none"
-            >
-              {routeCoordinates.length > 0 && (
-                <RNMaps.Polyline
-                  coordinates={routeCoordinates}
-                  strokeColor={ROUTE_LINE_COLOR}
-                  strokeWidth={4}
-                  lineCap="round"
-                  lineJoin="round"
-                />
-              )}
-              <DeliveryMapMarkers
-                Marker={RNMaps.Marker}
-                pickupCoords={pickupCoords}
-                dropoffCoords={dropoffCoords}
-                riderCoords={riderCoords}
-              />
-            </RNMaps.default>
-          ) : (
-            <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.surface }]}>
-              {RNMaps ? (
-                <>
-                  <ActivityIndicator size="large" color={theme.colors.primary} />
-                  <Text style={{ color: theme.colors.textSecondary, marginTop: 12 }}>
-                    Locating delivery…
-                  </Text>
-                </>
-              ) : (
-                <Text style={{ color: theme.colors.textSecondary }}>Map requires a development build</Text>
-              )}
-            </View>
-          )}
+          <View
+            style={[
+              styles.sheetHandle,
+              { backgroundColor: theme.colors.border },
+            ]}
+          />
         </TouchableOpacity>
 
-        {/* Draggable Status Card - Moved outside map container */}
-        {!mapExpanded && (
-          <TouchableOpacity 
+        <View style={styles.leadRow}>
+          <View style={styles.leadCopy}>
+            <View style={styles.statusDotRow}>
+              <View
+                style={[
+                  styles.statusDot,
+                  { backgroundColor: getStatusColor(displayStatus) },
+                ]}
+              />
+              <Text
+                style={[styles.statusTitle, { color: theme.colors.text }]}
+                numberOfLines={1}
+              >
+                {statusTitle}
+              </Text>
+            </View>
+            <Text style={[styles.etaText, { color: theme.colors.primary }]}>
+              {etaLabel}
+            </Text>
+          </View>
+          <Text style={[styles.elapsed, { color: theme.colors.textTertiary }]}>
+            {formatTime(elapsedTime)}
+          </Text>
+        </View>
+
+        <View style={styles.actionRow}>
+          <TouchableOpacity
             style={[
-              styles.statusCard,
+              styles.primaryAction,
               {
-                position: 'absolute',
-                left: cardPosition.x,
-                top: cardPosition.y,
-                zIndex: 100,
-                width: 200,
-                backgroundColor: theme.colors.card,
-                shadowColor: isDark ? '#000' : '#000',
-                ...theme.shadows.large,
-              }
+                backgroundColor:
+                  primaryAction === 'call'
+                    ? theme.colors.success
+                    : theme.colors.primary,
+                opacity: primaryAction !== 'share' && !canContact ? 0.5 : 1,
+              },
             ]}
-            {...panResponder.panHandlers}
-            activeOpacity={1}
+            onPress={runPrimaryAction}
+            disabled={primaryAction !== 'share' && !canContact}
           >
-            <View style={styles.statusHeader}>
-              <View style={styles.statusIndicator}>
+            <PrimaryIcon size={20} color="#FFFFFF" strokeWidth={2} />
+            <Text style={styles.primaryActionText}>{primaryLabel}</Text>
+          </TouchableOpacity>
+
+          {primaryAction !== 'call' ? (
+            <TouchableOpacity
+              style={[
+                styles.secondaryAction,
+                {
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+              onPress={handleCall}
+              disabled={!canContact}
+            >
+              <Phone
+                size={20}
+                color={
+                  canContact ? theme.colors.text : theme.colors.textTertiary
+                }
+                strokeWidth={2}
+              />
+            </TouchableOpacity>
+          ) : null}
+          {primaryAction !== 'chat' ? (
+            <TouchableOpacity
+              style={[
+                styles.secondaryAction,
+                {
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+              onPress={handleMessage}
+              disabled={!canContact}
+            >
+              <MessageCircle
+                size={20}
+                color={
+                  canContact ? theme.colors.text : theme.colors.textTertiary
+                }
+                strokeWidth={2}
+              />
+            </TouchableOpacity>
+          ) : null}
+          {primaryAction !== 'share' ? (
+            <TouchableOpacity
+              style={[
+                styles.secondaryAction,
+                {
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+              onPress={handleShareTracking}
+            >
+              <Share2 size={20} color={theme.colors.text} strokeWidth={2} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        <TouchableOpacity
+          onPress={() => setDetailsOpen((open) => !open)}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.detailsToggle, { color: theme.colors.primary }]}>
+            {detailsOpen ? 'Hide details' : 'Delivery details'}
+          </Text>
+        </TouchableOpacity>
+
+        {detailsOpen ? (
+          <ScrollView
+            style={styles.detailsScroll}
+            contentContainerStyle={styles.detailsContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <View
+              style={[
+                styles.detailCard,
+                { backgroundColor: theme.colors.surface },
+              ]}
+            >
+              <View style={styles.riderHeader}>
                 <View
                   style={[
-                    styles.statusDot,
-                    { backgroundColor: getStatusColor(displayStatus) },
+                    styles.riderAvatar,
+                    { backgroundColor: theme.colors.primary },
                   ]}
-                />
-                <Text style={[styles.statusText, { color: theme.colors.textSecondary }]}>
-                  {isSearchingForRider ? 'Searching for rider…' : getStatusText(displayStatus)}
-                </Text>
-              </View>
-              <Text style={[styles.elapsedTime, { color: theme.colors.primary }]}>{formatTime(elapsedTime)}</Text>
-            </View>
-            <Text style={[styles.estimatedArrival, { color: theme.colors.textTertiary }]}>
-              Estimated arrival: {isSearchingForRider ? '—' : rider.estimatedArrival}
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Rider Info Card - hidden when map is fullscreen */}
-        {!mapExpanded && (
-        <View style={[styles.riderCard, {
-          backgroundColor: theme.colors.card,
-          ...theme.shadows.medium,
-        }]}>
-          <View style={styles.riderHeader}>
-            <View style={[styles.riderAvatar, { backgroundColor: theme.colors.primary }]}>
-              <User size={24} color="#FFFFFF" strokeWidth={2} />
-            </View>
-            <View style={styles.riderInfo}>
-              <Text style={[styles.riderName, { color: theme.colors.text }]}>
-                {isSearchingForRider ? 'Searching for rider…' : rider.name}
-              </Text>
-              {!isSearchingForRider && (
-                <View style={styles.riderRating}>
-                  <Star size={16} color="#FFC947" fill="#FFC947" strokeWidth={2} />
-                  <Text style={[styles.ratingText, { color: theme.colors.textSecondary }]}>{rider.rating}</Text>
+                >
+                  <User size={22} color="#FFFFFF" strokeWidth={2} />
                 </View>
-              )}
-            </View>
-            <View style={styles.actionButtons}>
-              <TouchableOpacity
-                style={[styles.messageButton, { backgroundColor: isDark ? theme.colors.surface : '#F0F2FF' }]}
-                onPress={handleMessage}
-                disabled={isSearchingForRider}
-              >
-                <MessageCircle size={20} color={theme.colors.primary} strokeWidth={2} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.callButton, { backgroundColor: theme.colors.success }]}
-                onPress={handleCall}
-                disabled={isSearchingForRider}
-              >
-                <Phone size={20} color="#FFFFFF" strokeWidth={2} />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={styles.riderDetails}>
-            <View style={styles.detailItem}>
-              <Text style={[styles.detailLabel, { color: theme.colors.textTertiary }]}>{'Vehicle:'}</Text>
-              <Text style={[styles.detailValue, { color: theme.colors.textSecondary }]}>{rider.vehicle}</Text>
-            </View>
-            <View style={styles.detailItem}>
-              <Text style={[styles.detailLabel, { color: theme.colors.textTertiary }]}>{'Plate:'}</Text>
-              <Text style={[styles.detailValue, { color: theme.colors.textSecondary }]}>{rider.plateNumber}</Text>
-            </View>
-            <View style={styles.detailItem}>
-              <Text style={[styles.detailLabel, { color: theme.colors.textTertiary }]}>{'Location:'}</Text>
-              <Text style={[styles.detailValue, { color: theme.colors.textSecondary }]}>{rider.currentLocation}</Text>
-            </View>
-          </View>
-        </View>
-        )}
-
-        {/* Quick action buttons + info cards - hidden when map fullscreen */}
-        {!mapExpanded && (
-        <View style={styles.quickActionsSection}>
-          <View style={styles.quickActionsRow}>
-            <TouchableOpacity
-              style={[styles.quickActionCard, { backgroundColor: isDark ? theme.colors.surface : '#F0F2FF' }]}
-              onPress={() => {}}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.quickActionIconWrap, { backgroundColor: theme.colors.primary }]}>
-                <User size={22} color="#FFFFFF" strokeWidth={2} />
-                <View style={styles.verifiedBadge}>
-                  <Star size={10} color="#FFFFFF" fill="#FFFFFF" strokeWidth={2} />
-                </View>
-              </View>
-              <Text style={[styles.quickActionLabel, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-                {isSearchingForRider ? '…' : rider.name.split(' ')[0]}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.quickActionCard, { backgroundColor: isDark ? theme.colors.surface : '#F0F2FF' }]}
-              onPress={handleMessage}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.quickActionIconWrap, { backgroundColor: theme.colors.primary }]}>
-                <MessageCircle size={22} color="#FFFFFF" strokeWidth={2} />
-              </View>
-              <Text style={[styles.quickActionLabel, { color: theme.colors.textSecondary }]}>Chat</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.quickActionCard, { backgroundColor: isDark ? theme.colors.surface : '#F0F2FF' }]}
-              onPress={handleCall}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.quickActionIconWrap, { backgroundColor: theme.colors.success }]}>
-                <Phone size={22} color="#FFFFFF" strokeWidth={2} />
-              </View>
-              <Text style={[styles.quickActionLabel, { color: theme.colors.textSecondary }]}>Call</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.quickActionCard, { backgroundColor: isDark ? theme.colors.surface : '#F0F2FF' }]}
-              onPress={handleShareTracking}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.quickActionIconWrap, { backgroundColor: theme.colors.accent ?? '#FFC947' }]}>
-                <Share2 size={22} color="#FFFFFF" strokeWidth={2} />
-              </View>
-              <Text style={[styles.quickActionLabel, { color: theme.colors.textSecondary }]}>Share</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.quickActionCard, { backgroundColor: isDark ? theme.colors.surface : '#F0F2FF' }]}
-              onPress={() => router.push('/support')}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.quickActionIconWrap, { backgroundColor: isDark ? theme.colors.border : '#6B7280' }]}>
-                <Shield size={22} color="#FFFFFF" strokeWidth={2} />
-              </View>
-              <Text style={[styles.quickActionLabel, { color: theme.colors.textSecondary }]}>Safety</Text>
-            </TouchableOpacity>
-          </View>
-
-          {handoffCode && (
-            <View style={[styles.handoffCard, { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary }]}>
-              <KeyRound size={22} color="#FFFFFF" strokeWidth={2} />
-              <View style={styles.handoffContent}>
-                <Text style={styles.handoffLabel}>Handoff code — share with rider at delivery</Text>
-                <Text style={styles.handoffCode}>{handoffCode}</Text>
-              </View>
-            </View>
-          )}
-
-          {proofPhotoUrl && (
-            <View style={[styles.infoCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, flexDirection: 'column', alignItems: 'stretch' }]}>
-              <Text style={[styles.infoCardSubtitle, { color: theme.colors.text, fontWeight: '700', marginBottom: 8 }]}>
-                Proof of delivery
-              </Text>
-              <Image source={{ uri: proofPhotoUrl }} style={styles.proofImage} resizeMode="cover" />
-            </View>
-          )}
-
-          <TouchableOpacity
-            style={[styles.infoCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
-            onPress={() => {}}
-            activeOpacity={0.8}
-          >
-            <MapPin size={20} color={theme.colors.primary} strokeWidth={2} />
-            <View style={styles.infoCardContent}>
-              <Text style={[styles.infoCardTitle, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-                {activeDelivery?.dropoff_address || 'Dropoff address'}
-              </Text>
-              <Text style={[styles.infoCardSubtitle, { color: theme.colors.textTertiary }]}>Delivery destination</Text>
-            </View>
-            <ArrowLeft size={18} color={theme.colors.textTertiary} strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
-          </TouchableOpacity>
-
-          <View style={[styles.infoCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-            <CreditCard size={20} color={theme.colors.primary} strokeWidth={2} />
-            <View style={styles.infoCardContent}>
-              <Text style={[styles.infoCardTitle, { color: theme.colors.textSecondary }]}>
-                ₦{activeDelivery?.total_cost != null ? Number(activeDelivery.total_cost).toLocaleString('en-NG') : '—'}
-              </Text>
-              <Text style={[styles.infoCardSubtitle, { color: theme.colors.textTertiary }]}>Delivery fee</Text>
-            </View>
-          </View>
-        </View>
-        )}
-
-        {/* Delivery Steps - hidden when map is fullscreen */}
-        {!mapExpanded && (
-        <View style={[styles.stepsContainer, { 
-          backgroundColor: theme.colors.card,
-          ...theme.shadows.medium,
-        }]}>
-          <Text style={[styles.stepsTitle, { color: theme.colors.textSecondary }]}>{'Delivery Progress'}</Text>
-
-          {displayStatus === 'cancelled' ? (
-            <Text style={[styles.stepText, { color: theme.colors.error }]}>
-              This delivery was cancelled.
-            </Text>
-          ) : (
-            DELIVERY_PROGRESS_STEPS.map((step, index) => {
-              const isCompleted = progressIndex > index;
-              const isCurrent = progressIndex === index;
-
-              return (
-                <View key={step.status} style={styles.stepItem}>
-                  <View
-                    style={[
-                      styles.stepIndicator,
-                      isCompleted && [styles.completedStep, { backgroundColor: theme.colors.success }],
-                      isCurrent && [styles.currentStep, { backgroundColor: theme.colors.primary }],
-                      !isCompleted && !isCurrent && { backgroundColor: isDark ? theme.colors.border : '#E5E7EB' },
-                    ]}
+                <View style={styles.riderInfo}>
+                  <Text
+                    style={[styles.riderName, { color: theme.colors.text }]}
                   >
-                    {isCompleted ? (
-                      <Text style={styles.stepCheckmark}>✓</Text>
-                    ) : (
-                      <Text style={[styles.stepNumber, { color: isDark ? theme.colors.textSecondary : '#9CA3AF' }]}>
-                        {index + 1}
-                      </Text>
-                    )}
-                  </View>
+                    {isSearchingForRider ? 'Looking for a rider…' : rider.name}
+                  </Text>
+                  {!isSearchingForRider ? (
+                    <Text
+                      style={[
+                        styles.riderMeta,
+                        { color: theme.colors.textSecondary },
+                      ]}
+                    >
+                      {rider.vehicle}
+                      {rider.plateNumber ? ` · ${rider.plateNumber}` : ''}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+            </View>
+
+            {handoffCode ? (
+              <View
+                style={[
+                  styles.handoffCard,
+                  { backgroundColor: theme.colors.primary },
+                ]}
+              >
+                <KeyRound size={22} color="#FFFFFF" strokeWidth={2} />
+                <View style={styles.handoffContent}>
+                  <Text style={styles.handoffLabel}>
+                    Handoff code — share with rider
+                  </Text>
+                  <Text style={styles.handoffCode}>{handoffCode}</Text>
+                </View>
+              </View>
+            ) : null}
+
+            <View
+              style={[
+                styles.detailCard,
+                { backgroundColor: theme.colors.surface },
+              ]}
+            >
+              <View style={styles.addressRow}>
+                <MapPin
+                  size={18}
+                  color={theme.colors.primary}
+                  strokeWidth={2}
+                />
+                <View style={styles.infoCardContent}>
+                  <Text
+                    style={[styles.infoCardTitle, { color: theme.colors.text }]}
+                    numberOfLines={2}
+                  >
+                    {activeDelivery?.dropoff_address || 'Dropoff address'}
+                  </Text>
                   <Text
                     style={[
-                      styles.stepText,
-                      { color: theme.colors.textSecondary },
-                      isCompleted && { color: theme.colors.text },
-                      isCurrent && { color: theme.colors.text, fontWeight: '600' },
+                      styles.infoCardSubtitle,
+                      { color: theme.colors.textTertiary },
                     ]}
                   >
-                    {step.text}
+                    {activeDelivery?.pickup_address
+                      ? `From ${activeDelivery.pickup_address}`
+                      : 'Delivery destination'}
                   </Text>
                 </View>
-              );
-            })
-          )}
-        </View>
-        )}
-
-        {/* Rider confirms delivery via handoff code — customers wait for that */}
-        {!mapExpanded &&
-          displayStatus !== 'delivered' &&
-          displayStatus !== 'completed' &&
-          displayStatus !== 'cancelled' &&
-          activeDelivery?.rider_id && (
-          <View style={[styles.bottomContainer, { 
-            backgroundColor: theme.colors.card,
-            borderTopColor: theme.colors.border
-          }]}>
-            <View style={[styles.deliveredButton, { backgroundColor: theme.colors.border, opacity: 0.95 }]}>
-              <Package size={20} color={theme.colors.text} strokeWidth={2} />
-              <Text style={[styles.deliveredText, { color: theme.colors.text }]}>
-                Waiting for rider to confirm delivery
-              </Text>
-            </View>
-          </View>
-        )}
-      </ScrollView>
-
-      {/* Fullscreen Map - outside ScrollView so it covers entire screen */}
-      {mapExpanded && (
-        <View style={[StyleSheet.absoluteFill, { zIndex: 1000 }]}>
-          {RNMaps && mapRegion ? (
-            <RNMaps.default
-              ref={mapRef}
-              style={{ flex: 1 }}
-              mapType="standard"
-              customMapStyle={SIMPLIFIED_MAP_STYLE}
-              initialRegion={mapRegion}
-              loadingEnabled
-              moveOnMarkerPress={false}
-              toolbarEnabled={false}
-              onPanDrag={() => setFollowMode(false)}
-              onTouchStart={() => {
-                if (followMode) setFollowMode(false);
-              }}
-            >
-              {routeCoordinates.length > 0 && (
-                <RNMaps.Polyline
-                  coordinates={routeCoordinates}
-                  strokeColor={ROUTE_LINE_COLOR}
-                  strokeWidth={4}
-                  lineCap="round"
-                  lineJoin="round"
+              </View>
+              <View
+                style={[styles.feeRow, { borderTopColor: theme.colors.border }]}
+              >
+                <CreditCard
+                  size={18}
+                  color={theme.colors.primary}
+                  strokeWidth={2}
                 />
-              )}
-              <DeliveryMapMarkers
-                Marker={RNMaps.Marker}
-                pickupCoords={pickupCoords}
-                dropoffCoords={dropoffCoords}
-                riderCoords={riderCoords}
-              />
-            </RNMaps.default>
-          ) : (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.surface }}>
-              <Text style={{ color: theme.colors.textSecondary }}>
-                {RNMaps ? 'Locating delivery…' : 'Map requires a development build'}
-              </Text>
-            </View>
-          )}
-          <View style={{ position: 'absolute', top: 40, right: 20, flexDirection: 'row', gap: 10, zIndex: 10 }}>
-            <TouchableOpacity
-              style={{
-                backgroundColor: theme.colors.card,
-                borderRadius: 24,
-                width: 48,
-                height: 48,
-                alignItems: 'center',
-                justifyContent: 'center',
-                ...theme.shadows.medium,
-              }}
-              onPress={handleRecenterMap}
-              accessibilityLabel="Recenter map on rider"
-            >
-              <Crosshair size={24} color={theme.colors.text} strokeWidth={2} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={{
-                backgroundColor: followMode ? theme.colors.primary : theme.colors.card,
-                borderRadius: 20,
-                paddingHorizontal: 14,
-                paddingVertical: 10,
-                alignItems: 'center',
-                justifyContent: 'center',
-                ...theme.shadows.medium,
-              }}
-              onPress={() => {
-                const next = !followMode;
-                setFollowMode(next);
-                if (next) {
-                  handleRecenterMap();
-                }
-              }}
-            >
-              <Text style={{ color: followMode ? '#FFFFFF' : theme.colors.text, fontWeight: '600' }}>
-                Follow
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={{
-                backgroundColor: theme.colors.card,
-                borderRadius: 20,
-                paddingHorizontal: 16,
-                paddingVertical: 10,
-                alignItems: 'center',
-                justifyContent: 'center',
-                ...theme.shadows.medium,
-              }}
-              onPress={() => setMapExpanded(false)}
-            >
-              <Text style={{ color: theme.colors.text }}>Close</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Live indicator pill */}
-          <View
-            style={{
-              position: 'absolute',
-              bottom: 240 + insets.bottom,
-              left: 16,
-              flexDirection: 'row',
-              alignItems: 'center',
-              backgroundColor: isDark ? 'rgba(0,0,0,0.75)' : 'rgba(255,255,255,0.92)',
-              paddingHorizontal: 12,
-              paddingVertical: 8,
-              borderRadius: 20,
-              zIndex: 10,
-              ...theme.shadows.small,
-            }}
-          >
-            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: isLive ? '#4ADE80' : theme.colors.textTertiary, marginRight: 8 }} />
-            <Text style={{ fontSize: 13, fontWeight: '600', color: theme.colors.text }}>
-              {isLive ? 'Live location' : 'Connecting…'}
-            </Text>
-          </View>
-          <View
-            style={{
-              position: 'absolute',
-              bottom: 200 + insets.bottom,
-              left: 16,
-              flexDirection: 'row',
-              alignItems: 'center',
-              backgroundColor: followMode ? `${theme.colors.primary}E6` : (isDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.92)'),
-              paddingHorizontal: 12,
-              paddingVertical: 8,
-              borderRadius: 20,
-              zIndex: 10,
-              ...theme.shadows.small,
-            }}
-          >
-            <Text style={{ fontSize: 12, fontWeight: '700', color: followMode ? '#FFFFFF' : theme.colors.text }}>
-              {followMode ? 'FOLLOWING' : 'FREE PAN'}
-            </Text>
-            <Text style={{ fontSize: 12, marginLeft: 8, color: followMode ? 'rgba(255,255,255,0.9)' : theme.colors.textSecondary }}>
-              {speedKmhRounded} km/h
-            </Text>
-          </View>
-
-          {/* Bottom info cards - status, rider, quick actions */}
-          <View
-            style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              bottom: 0,
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-              backgroundColor: theme.colors.card,
-              paddingTop: 20,
-              paddingHorizontal: 20,
-              paddingBottom: 28 + insets.bottom,
-              zIndex: 10,
-              ...theme.shadows.large,
-            }}
-          >
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <View>
-                <Text style={{ fontSize: 18, fontWeight: '700', color: theme.colors.textSecondary }}>
-                  {getStatusText(displayStatus)}
-                </Text>
-                <Text style={{ fontSize: 13, color: theme.colors.textTertiary, marginTop: 2 }}>
-                  ETA {rider.estimatedArrival}
-                </Text>
-              </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Elapsed</Text>
-                <Text style={{ fontSize: 15, fontWeight: '700', color: theme.colors.primary }}>
-                  {formatTime(elapsedTime)}
+                <Text
+                  style={[
+                    styles.infoCardTitle,
+                    { color: theme.colors.text, marginLeft: 10 },
+                  ]}
+                >
+                  ₦
+                  {activeDelivery?.total_cost != null
+                    ? Number(activeDelivery.total_cost).toLocaleString('en-NG')
+                    : '—'}
                 </Text>
               </View>
             </View>
+
+            {proofPhotoUrl ? (
+              <View
+                style={[
+                  styles.detailCard,
+                  { backgroundColor: theme.colors.surface },
+                ]}
+              >
+                <Text style={[styles.stepsTitle, { color: theme.colors.text }]}>
+                  Proof of delivery
+                </Text>
+                <Image
+                  source={{ uri: proofPhotoUrl }}
+                  style={styles.proofImage}
+                  resizeMode="cover"
+                />
+              </View>
+            ) : null}
+
             <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                marginBottom: 20,
-                paddingVertical: 10,
-                paddingHorizontal: 12,
-                borderRadius: 12,
-                backgroundColor: theme.colors.background,
-              }}
+              style={[
+                styles.detailCard,
+                { backgroundColor: theme.colors.surface },
+              ]}
             >
-              <Text style={{ fontSize: 14, color: theme.colors.textSecondary }} numberOfLines={1}>
-                <Text style={{ fontWeight: '600' }}>{rider.name}</Text>
-                {' · '}{rider.vehicle}
-                {rider.plateNumber ? ` · ${rider.plateNumber}` : ''}
+              <Text style={[styles.stepsTitle, { color: theme.colors.text }]}>
+                Progress
               </Text>
+              {displayStatus === 'cancelled' ? (
+                <Text style={[styles.stepText, { color: theme.colors.error }]}>
+                  This delivery was cancelled.
+                </Text>
+              ) : (
+                DELIVERY_PROGRESS_STEPS.map((step, index) => {
+                  const isCompleted = progressIndex > index;
+                  const isCurrent = progressIndex === index;
+                  return (
+                    <View key={step.status} style={styles.stepItem}>
+                      <View
+                        style={[
+                          styles.stepIndicator,
+                          isCompleted && {
+                            backgroundColor: theme.colors.success,
+                          },
+                          isCurrent && {
+                            backgroundColor: theme.colors.primary,
+                          },
+                          !isCompleted &&
+                            !isCurrent && {
+                              backgroundColor: theme.colors.border,
+                            },
+                        ]}
+                      >
+                        {isCompleted ? (
+                          <Text style={styles.stepCheckmark}>✓</Text>
+                        ) : (
+                          <Text
+                            style={[
+                              styles.stepNumber,
+                              { color: theme.colors.textSecondary },
+                            ]}
+                          >
+                            {index + 1}
+                          </Text>
+                        )}
+                      </View>
+                      <Text
+                        style={[
+                          styles.stepText,
+                          {
+                            color:
+                              isCurrent || isCompleted
+                                ? theme.colors.text
+                                : theme.colors.textSecondary,
+                          },
+                          isCurrent && { fontWeight: '600' },
+                        ]}
+                      >
+                        {step.text}
+                      </Text>
+                    </View>
+                  );
+                })
+              )}
             </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center' }}>
-              <TouchableOpacity onPress={() => {}} style={{ alignItems: 'center', width: 64 }}>
-                <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: theme.colors.primary, justifyContent: 'center', alignItems: 'center', marginBottom: 6 }}>
-                  <User size={24} color="#FFFFFF" strokeWidth={2} />
-                </View>
-                <Text style={{ fontSize: 12, fontWeight: '600', color: theme.colors.textSecondary }}>Rider</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleMessage} style={{ alignItems: 'center', width: 64 }}>
-                <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: isDark ? theme.colors.surface : '#F0F2FF', justifyContent: 'center', alignItems: 'center', marginBottom: 6 }}>
-                  <MessageCircle size={24} color={theme.colors.primary} strokeWidth={2} />
-                </View>
-                <Text style={{ fontSize: 12, fontWeight: '600', color: theme.colors.textSecondary }}>Chat</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleCall} style={{ alignItems: 'center', width: 64 }}>
-                <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: theme.colors.success, justifyContent: 'center', alignItems: 'center', marginBottom: 6 }}>
-                  <Phone size={24} color="#FFFFFF" strokeWidth={2} />
-                </View>
-                <Text style={{ fontSize: 12, fontWeight: '600', color: theme.colors.textSecondary }}>Call</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => router.push('/support')} style={{ alignItems: 'center', width: 64 }}>
-                <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: isDark ? theme.colors.surface : '#F0F2FF', justifyContent: 'center', alignItems: 'center', marginBottom: 6 }}>
-                  <Shield size={24} color={theme.colors.primary} strokeWidth={2} />
-                </View>
-                <Text style={{ fontSize: 12, fontWeight: '600', color: theme.colors.textSecondary }}>Support</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      )}
-    </SafeAreaView>
+
+            {displayStatus !== 'delivered' &&
+            displayStatus !== 'completed' &&
+            displayStatus !== 'cancelled' &&
+            activeDelivery?.rider_id ? (
+              <View
+                style={[
+                  styles.waitingRow,
+                  { backgroundColor: theme.colors.surface },
+                ]}
+              >
+                <Package
+                  size={18}
+                  color={theme.colors.textSecondary}
+                  strokeWidth={2}
+                />
+                <Text
+                  style={[
+                    styles.waitingText,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  Waiting for rider to confirm delivery
+                </Text>
+              </View>
+            ) : null}
+
+            <TouchableOpacity
+              style={[styles.supportLink, { borderColor: theme.colors.border }]}
+              onPress={() => router.push('/support')}
+            >
+              <Shield
+                size={16}
+                color={theme.colors.textSecondary}
+                strokeWidth={2}
+              />
+              <Text
+                style={[
+                  styles.supportLinkText,
+                  { color: theme.colors.textSecondary },
+                ]}
+              >
+                Safety & support
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+        ) : null}
+      </View>
+    </View>
   );
 }
 
@@ -1502,43 +1579,42 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 20,
+  mapFill: {
+    flex: 1,
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  mapFallback: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  headerTitleRow: {
+  mapChrome: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'space-between',
   },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#FFFFFF',
+  roundBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  liveBadge: {
+  livePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
-  liveBadgeActive: {
-    backgroundColor: 'rgba(255,255,255,0.25)',
+  livePillActive: {
+    backgroundColor: 'rgba(0,0,0,0.55)',
   },
   liveDot: {
     width: 6,
@@ -1554,168 +1630,128 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
   },
-  placeholder: {
+  sheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 4,
+  },
+  sheetHandleHit: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  sheetHandle: {
     width: 40,
+    height: 4,
+    borderRadius: 2,
   },
-  mapContainer: {
-    height: 280,
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 16,
-    margin: 16,
-  },
-  map: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 16,
-    padding:   10,
-  },
-  statusCard: {
-    borderRadius: 10,
-    padding: 10,
-  },
-  statusHeader: {
+  leadRow: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
+    gap: 12,
   },
-  statusIndicator: {
+  leadCopy: {
+    flex: 1,
+  },
+  statusDotRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
   statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
   },
-  statusText: {
+  statusTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    flex: 1,
+  },
+  etaText: {
+    marginTop: 6,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  elapsed: {
     fontSize: 13,
     fontWeight: '600',
+    marginTop: 4,
   },
-  elapsedTime: {
-    fontSize: 12,
-    fontWeight: '600',
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 16,
   },
-  estimatedArrival: {
-    fontSize: 11,
-  },
-  riderCard: {
-    margin: 20,
+  primaryAction: {
+    flex: 1,
+    height: 52,
     borderRadius: 16,
-    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  primaryActionText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  secondaryAction: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailsToggle: {
+    marginTop: 14,
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  detailsScroll: {
+    marginTop: 12,
+    flex: 1,
+  },
+  detailsContent: {
+    paddingBottom: 8,
+    gap: 12,
+  },
+  detailCard: {
+    borderRadius: 16,
+    padding: 16,
   },
   riderHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
   },
   riderAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: 12,
   },
   riderInfo: {
     flex: 1,
   },
   riderName: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
-    marginBottom: 4,
   },
-  riderRating: {
+  riderMeta: {
+    fontSize: 13,
+    marginTop: 2,
+  },
+  addressRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-  },
-  ratingText: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 4,
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  messageButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  callButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  riderDetails: {
-    gap: 8,
-  },
-  detailItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  detailLabel: {
-    fontSize: 14,
-  },
-  detailValue: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  quickActionsSection: {
-    marginHorizontal: 20,
-    marginBottom: 16,
-    gap: 12,
-  },
-  quickActionsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     gap: 10,
-  },
-  quickActionCard: {
-    flex: 1,
-    borderRadius: 14,
-    padding: 12,
-    alignItems: 'center',
-    minWidth: 0,
-  },
-  quickActionIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-    position: 'relative',
-  },
-  verifiedBadge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#10B981',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  quickActionLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  infoCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 12,
   },
   infoCardContent: {
     flex: 1,
@@ -1729,70 +1765,74 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
   },
-  stepsContainer: {
-    margin: 20,
-    marginTop: 0,
-    borderRadius: 16,
-    padding: 20,
+  feeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
   },
   stepsTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
-    marginBottom: 20,
+    marginBottom: 12,
   },
   stepItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   stepIndicator: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
-  },
-  completedStep: {
-    backgroundColor: '#10B981',
-  },
-  currentStep: {
-    backgroundColor: '#5A47FF',
+    marginRight: 12,
   },
   stepCheckmark: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
   },
   stepNumber: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
   },
   stepText: {
     fontSize: 14,
     flex: 1,
   },
-  bottomContainer: {
-    padding: 20,
-  },
-  deliveredButton: {
+  waitingRow: {
     flexDirection: 'row',
-    paddingVertical: 16,
-    borderRadius: 16,
+    alignItems: 'center',
+    gap: 10,
+    padding: 14,
+    borderRadius: 14,
+  },
+  waitingText: {
+    fontSize: 14,
+    fontWeight: '500',
+    flex: 1,
+  },
+  supportLink: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
   },
-  deliveredText: {
-    fontSize: 16,
+  supportLinkText: {
+    fontSize: 13,
     fontWeight: '600',
-    marginLeft: 8,
   },
   handoffCard: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
     borderRadius: 14,
-    marginBottom: 12,
     gap: 14,
   },
   handoffContent: { flex: 1 },

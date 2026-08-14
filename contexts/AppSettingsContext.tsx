@@ -8,6 +8,7 @@ interface AppSettingsState {
   pushNotifications: boolean;
   emailNotifications: boolean;
   smsNotifications: boolean;
+  receiptNotifications: boolean;
 }
 
 const defaults: AppSettingsState = {
@@ -15,6 +16,7 @@ const defaults: AppSettingsState = {
   pushNotifications: true,
   emailNotifications: true,
   smsNotifications: false,
+  receiptNotifications: true,
 };
 
 interface AppSettingsContextType extends AppSettingsState {
@@ -22,6 +24,7 @@ interface AppSettingsContextType extends AppSettingsState {
   setPushNotifications: (value: boolean) => Promise<void>;
   setEmailNotifications: (value: boolean) => Promise<void>;
   setSmsNotifications: (value: boolean) => Promise<void>;
+  setReceiptNotifications: (value: boolean) => Promise<void>;
   isLoading: boolean;
 }
 
@@ -44,6 +47,11 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
             ...(typeof parsed.pushNotifications === 'boolean' && { pushNotifications: parsed.pushNotifications }),
             ...(typeof parsed.emailNotifications === 'boolean' && { emailNotifications: parsed.emailNotifications }),
             ...(typeof parsed.smsNotifications === 'boolean' && { smsNotifications: parsed.smsNotifications }),
+            ...(typeof parsed.receiptNotifications === 'boolean'
+              ? { receiptNotifications: parsed.receiptNotifications }
+              : typeof parsed.emailNotifications === 'boolean'
+                ? { receiptNotifications: parsed.emailNotifications }
+                : {}),
           }));
         }
       } catch {
@@ -63,37 +71,19 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const setAnimations = useCallback(async (value: boolean) => {
+  const patch = useCallback((partial: Partial<AppSettingsState>) => {
     setState((prev) => {
-      const next = { ...prev, animations: value };
+      const next = { ...prev, ...partial };
       persist(next);
       return next;
     });
   }, [persist]);
 
-  const setPushNotifications = useCallback(async (value: boolean) => {
-    setState((prev) => {
-      const next = { ...prev, pushNotifications: value };
-      persist(next);
-      return next;
-    });
-  }, [persist]);
-
-  const setEmailNotifications = useCallback(async (value: boolean) => {
-    setState((prev) => {
-      const next = { ...prev, emailNotifications: value };
-      persist(next);
-      return next;
-    });
-  }, [persist]);
-
-  const setSmsNotifications = useCallback(async (value: boolean) => {
-    setState((prev) => {
-      const next = { ...prev, smsNotifications: value };
-      persist(next);
-      return next;
-    });
-  }, [persist]);
+  const setAnimations = useCallback(async (value: boolean) => { patch({ animations: value }); }, [patch]);
+  const setPushNotifications = useCallback(async (value: boolean) => { patch({ pushNotifications: value }); }, [patch]);
+  const setEmailNotifications = useCallback(async (value: boolean) => { patch({ emailNotifications: value }); }, [patch]);
+  const setSmsNotifications = useCallback(async (value: boolean) => { patch({ smsNotifications: value }); }, [patch]);
+  const setReceiptNotifications = useCallback(async (value: boolean) => { patch({ receiptNotifications: value }); }, [patch]);
 
   const value: AppSettingsContextType = {
     ...state,
@@ -101,6 +91,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
     setPushNotifications,
     setEmailNotifications,
     setSmsNotifications,
+    setReceiptNotifications,
     isLoading,
   };
 
@@ -120,6 +111,7 @@ export function useAppSettings(): AppSettingsContextType {
       setPushNotifications: async () => {},
       setEmailNotifications: async () => {},
       setSmsNotifications: async () => {},
+      setReceiptNotifications: async () => {},
       isLoading: false,
     };
   }

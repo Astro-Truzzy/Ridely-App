@@ -51,27 +51,44 @@ export function useAddressAutocomplete() {
         signal
       );
 
-      if (!data) {
-        throw new Error('Failed to fetch address suggestions');
-      }
-
-      // Only apply results if this response is still for the current query (avoid race)
       if (lastQueryRef.current !== trimmed) {
         return;
       }
 
-      if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
-        throw new Error(data.error_message || 'Places request failed');
+      let formatted: AddressSuggestion[] = [];
+      if (data && (data.status === 'OK' || data.status === 'ZERO_RESULTS')) {
+        formatted = (data.predictions || []).map((p: { place_id: string; description: string }) => ({
+          display_name: p.description.replace(/, Nigeria$/, '').trim(),
+          lat: '',
+          lon: '',
+          place_id: p.place_id,
+          address: {},
+        }));
       }
 
-      const predictions = data.predictions || [];
-      const formatted: AddressSuggestion[] = predictions.map((p: { place_id: string; description: string }) => ({
-        display_name: p.description.replace(/, Nigeria$/, '').trim(),
-        lat: '',
-        lon: '',
-        place_id: p.place_id,
-        address: {},
-      }));
+      // Geocoding still works when Places Autocomplete is denied or empty.
+      if (formatted.length === 0) {
+        const geo = await googleMapsRequest(
+          'geocode/json',
+          { address: trimmed, components: 'country:NG' },
+          signal
+        );
+        if (lastQueryRef.current !== trimmed) {
+          return;
+        }
+        formatted = (geo?.results || []).slice(0, 6).map((r: {
+          place_id?: string;
+          formatted_address?: string;
+          geometry?: { location?: { lat?: number; lng?: number } };
+        }) => ({
+          display_name: (r.formatted_address || trimmed).replace(/, Nigeria$/, '').trim(),
+          lat: r.geometry?.location?.lat != null ? String(r.geometry.location.lat) : '',
+          lon: r.geometry?.location?.lng != null ? String(r.geometry.location.lng) : '',
+          place_id: r.place_id || `${r.geometry?.location?.lat},${r.geometry?.location?.lng}`,
+          address: {},
+        }));
+      }
+
       setSuggestions(formatted);
     } catch (error) {
       if ((error as Error).name === 'AbortError') return;
@@ -83,7 +100,9 @@ export function useAddressAutocomplete() {
       if (lastQueryRef.current === trimmed) {
         setLoading(false);
       }
-      abortControllerRef.current = null;
+      if (abortControllerRef.current?.signal === signal) {
+        abortControllerRef.current = null;
+      }
     }
   };
 

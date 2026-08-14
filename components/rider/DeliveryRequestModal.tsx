@@ -8,19 +8,24 @@ import {
   Pressable,
   ActivityIndicator,
   Dimensions,
+  Vibration,
 } from 'react-native';
-import { MapPin, Package, DollarSign, Clock, X } from 'lucide-react-native';
+import { MapPin, Navigation } from 'lucide-react-native';
 import { router } from 'expo-router';
+import * as Location from 'expo-location';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDeliveries } from '@/hooks/useDeliveries';
 import { useAvailableJobCacheVersion, getCachedAvailableJob, type AvailableJob } from '@/hooks/useAvailableJobs';
 import { rejectDelivery } from '@/lib/deliveryRejections';
 import { withRetry } from '@/lib/retry';
+import { tapLight, notifyWarning, notifySuccess, tapMedium } from '@/lib/haptics';
 import { supabase } from '@/lib/supabase';
 
 const { width } = Dimensions.get('window');
-const CARD_WIDTH = Math.min(width - 40, 380);
+const CARD_WIDTH = Math.min(width - 32, 400);
+const OFFER_SECONDS = 25;
+const RIDER_CUT = 0.85;
 
 interface DeliveryRequestModalProps {
   visible: boolean;
@@ -38,6 +43,8 @@ interface DeliveryDetails {
   estimated_time: string;
   status: string;
   rider_id: string | null;
+  pickup_lat?: number | null;
+  pickup_lng?: number | null;
   users?: { full_name?: string } | null;
 }
 
@@ -51,10 +58,13 @@ const DELIVERY_SELECT = `
   estimated_time,
   status,
   rider_id,
+  pickup_lat,
+  pickup_lng,
   users:user_id ( full_name )
 `;
 
 function jobToDeliveryDetails(job: AvailableJob): DeliveryDetails {
+  const row = job as AvailableJob & { pickup_lat?: number | null; pickup_lng?: number | null };
   return {
     id: job.id,
     pickup_address: job.pickup_address,
@@ -65,8 +75,25 @@ function jobToDeliveryDetails(job: AvailableJob): DeliveryDetails {
     estimated_time: job.estimated_time,
     status: job.status ?? 'pending',
     rider_id: job.rider_id ?? null,
+    pickup_lat: row.pickup_lat ?? null,
+    pickup_lng: row.pickup_lng ?? null,
     users: job.users ?? null,
   };
+}
+
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatKm(km: number) {
+  if (km < 0.1) return `${Math.round(km * 1000)} m`;
+  return `${km.toFixed(km < 10 ? 1 : 0)} km`;
 }
 
 export function DeliveryRequestModal({ visible, deliveryId, onClose }: DeliveryRequestModalProps) {
@@ -77,10 +104,20 @@ export function DeliveryRequestModal({ visible, deliveryId, onClose }: DeliveryR
   const [delivery, setDelivery] = useState<DeliveryDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(OFFER_SECONDS);
+  const [pickupKm, setPickupKm] = useState<number | null>(null);
   const fetchIdRef = useRef(0);
+  const closedRef = useRef(false);
 
   const prefetchedJob =
     visible && deliveryId ? getCachedAvailableJob(deliveryId) ?? null : null;
+
+  useEffect(() => {
+    closedRef.current = false;
+    setSecondsLeft(OFFER_SECONDS);
+    setPickupKm(null);
+    setAccepting(false);
+  }, [visible, deliveryId]);
 
   useEffect(() => {
     if (!visible || !deliveryId) {
@@ -123,11 +160,75 @@ export function DeliveryRequestModal({ visible, deliveryId, onClose }: DeliveryR
     })();
   }, [visible, deliveryId, prefetchedJob]);
 
+  useEffect(() => {
+    if (!visible || !delivery) return;
+    let cancelled = false;
+    (async () => {
+      const plat = Number(delivery.pickup_lat);
+      const plng = Number(delivery.pickup_lng);
+      if (!Number.isFinite(plat) || !Number.isFinite(plng)) return;
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted' || cancelled) return;
+        const loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (cancelled) return;
+        setPickupKm(
+          haversineKm(loc.coords.latitude, loc.coords.longitude, plat, plng)
+        );
+      } catch {
+        // Trip distance still shown as fallback.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, delivery?.id, delivery?.pickup_lat, delivery?.pickup_lng]);
+
+  const handleReject = async () => {
+    if (closedRef.current) return;
+    closedRef.current = true;
+    if (deliveryId && user?.id) {
+      try {
+        await rejectDelivery(user.id, deliveryId);
+      } catch {}
+    }
+    onClose();
+  };
+
+  useEffect(() => {
+    if (!visible || !delivery || accepting) return;
+    const timer = setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          notifyWarning();
+          void handleReject();
+          return 0;
+        }
+        if (prev <= 6) {
+          notifyWarning();
+          Vibration.vibrate(80);
+        } else {
+          tapLight();
+          Vibration.vibrate(30);
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+    // handleReject is stable enough for the offer lifetime
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, delivery?.id, accepting]);
+
   const handleAccept = async () => {
-    if (!deliveryId || !user || !delivery) return;
+    if (!deliveryId || !user || !delivery || closedRef.current) return;
     setAccepting(true);
+    tapMedium();
     try {
       await acceptDelivery(deliveryId);
+      notifySuccess();
       const jobData = {
         id: delivery.id,
         reward: delivery.total_cost,
@@ -137,45 +238,46 @@ export function DeliveryRequestModal({ visible, deliveryId, onClose }: DeliveryR
         distance: delivery.distance,
         estimatedTime: delivery.estimated_time,
         senderName: (delivery.users as { full_name?: string } | null)?.full_name ?? 'Customer',
-        pickupCoords: null,
+        pickupCoords:
+          delivery.pickup_lat != null && delivery.pickup_lng != null
+            ? { latitude: Number(delivery.pickup_lat), longitude: Number(delivery.pickup_lng) }
+            : null,
         dropoffCoords: null,
       };
+      closedRef.current = true;
       onClose();
       router.replace({
         pathname: '/(rider)/active-delivery',
         params: { jobId: delivery.id, jobData: JSON.stringify(jobData) },
       });
-    } catch (err) {
+    } catch {
       setAccepting(false);
       onClose();
       router.push('/(rider)/dashboard');
     }
   };
 
-  const handleReject = async () => {
-    // Server-side rejection: hides this job from the rider across devices while
-    // keeping it available to other riders.
-    if (deliveryId && user?.id) {
-      try {
-        await rejectDelivery(user.id, deliveryId);
-      } catch {}
-    }
-    onClose();
-  };
-
-  const parcelLabel = delivery?.parcel_size
-    ? `${String(delivery.parcel_size).charAt(0).toUpperCase()}${String(delivery.parcel_size).slice(1)}`
-    : '—';
+  const offerOpen = delivery && delivery.status === 'pending' && !delivery.rider_id;
+  const netFare = delivery ? Number(delivery.total_cost) * RIDER_CUT : 0;
+  const countdownUrgent = secondsLeft <= 5;
+  const pickupLabel =
+    pickupKm != null
+      ? `${formatKm(pickupKm)} to pickup`
+      : delivery
+        ? `${delivery.distance} km trip`
+        : '';
 
   return (
     <Modal
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={onClose}
+      onRequestClose={() => {
+        if (!accepting) void handleReject();
+      }}
       statusBarTranslucent
     >
-      <Pressable style={styles.overlay} onPress={onClose}>
+      <Pressable style={styles.overlay}>
         <Pressable
           style={[
             styles.card,
@@ -184,82 +286,92 @@ export function DeliveryRequestModal({ visible, deliveryId, onClose }: DeliveryR
           ]}
           onPress={(e) => e.stopPropagation()}
         >
-          <View style={styles.header}>
-            <Text style={[styles.title, { color: theme.colors.text }]}>New delivery request</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={12} style={styles.closeBtn}>
-              <X size={22} color={theme.colors.textSecondary} strokeWidth={2} />
-            </TouchableOpacity>
-          </View>
-
           {loading ? (
             <View style={styles.loadingWrap}>
               <ActivityIndicator size="large" color={theme.colors.primary} />
-              <Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>Loading details…</Text>
+              <Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>
+                Incoming job…
+              </Text>
             </View>
-          ) : delivery && delivery.status === 'pending' && !delivery.rider_id ? (
+          ) : offerOpen ? (
             <>
-              <View style={[styles.detailRow, { borderBottomColor: theme.colors.border }]}>
-                <MapPin size={18} color={theme.colors.success} strokeWidth={2} />
-                <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Pickup</Text>
-                <Text style={[styles.detailValue, { color: theme.colors.text }]} numberOfLines={2}>
-                  {delivery.pickup_address}
+              <View style={styles.countdownWrap}>
+                <Text
+                  style={[
+                    styles.countdown,
+                    { color: countdownUrgent ? theme.colors.error : theme.colors.primary },
+                  ]}
+                >
+                  {secondsLeft}
+                </Text>
+                <Text style={[styles.countdownLabel, { color: theme.colors.textSecondary }]}>
+                  seconds to accept
                 </Text>
               </View>
-              <View style={[styles.detailRow, { borderBottomColor: theme.colors.border }]}>
-                <MapPin size={18} color={theme.colors.error} strokeWidth={2} />
-                <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Dropoff</Text>
-                <Text style={[styles.detailValue, { color: theme.colors.text }]} numberOfLines={2}>
-                  {delivery.dropoff_address}
-                </Text>
-              </View>
-              <View style={styles.metaRow}>
-                <View style={styles.metaItem}>
-                  <Package size={16} color={theme.colors.primary} strokeWidth={2} />
-                  <Text style={[styles.metaText, { color: theme.colors.text }]}>{parcelLabel}</Text>
-                </View>
-                <View style={styles.metaItem}>
-                  <DollarSign size={16} color={theme.colors.success} strokeWidth={2} />
-                  <Text style={[styles.metaText, { color: theme.colors.success }]}>₦{Number(delivery.total_cost).toLocaleString('en-NG')}</Text>
-                </View>
-                <View style={styles.metaItem}>
-                  <Clock size={16} color={theme.colors.textSecondary} strokeWidth={2} />
-                  <Text style={[styles.metaText, { color: theme.colors.textSecondary }]}>~{delivery.estimated_time}</Text>
-                </View>
-              </View>
-              <Text style={[styles.distanceText, { color: theme.colors.textSecondary }]}>
-                {delivery.distance} km
+
+              <Text style={[styles.fare, { color: theme.colors.text }]}>
+                ₦{netFare.toLocaleString('en-NG', { maximumFractionDigits: 0 })}
+              </Text>
+              <Text style={[styles.fareHint, { color: theme.colors.textTertiary }]}>
+                Your cut · ₦{Number(delivery.total_cost).toLocaleString('en-NG')} fare
               </Text>
 
-              <View style={[styles.actions, { borderTopColor: theme.colors.border }]}>
-                <TouchableOpacity
-                  style={[styles.btn, styles.rejectBtn, { borderColor: theme.colors.error }]}
-                  onPress={handleReject}
-                  disabled={accepting}
-                >
-                  <X size={20} color={theme.colors.error} strokeWidth={2} />
-                  <Text style={[styles.rejectBtnText, { color: theme.colors.error }]}>Reject</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.btn, styles.acceptBtn, { backgroundColor: theme.colors.primary }]}
-                  onPress={handleAccept}
-                  disabled={accepting}
-                >
-                  {accepting ? (
-                    <ActivityIndicator size="small" color="#FFF" />
-                  ) : (
-                    <>
-                      <Text style={styles.acceptBtnText}>Accept</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
+              <View style={[styles.pickupChip, { backgroundColor: theme.colors.background }]}>
+                <Navigation size={16} color={theme.colors.primary} strokeWidth={2} />
+                <Text style={[styles.pickupChipText, { color: theme.colors.text }]}>{pickupLabel}</Text>
               </View>
+
+              <View style={styles.addressBlock}>
+                <View style={styles.addressRow}>
+                  <MapPin size={16} color={theme.colors.success} strokeWidth={2} />
+                  <Text style={[styles.addressText, { color: theme.colors.text }]} numberOfLines={2}>
+                    {delivery.pickup_address}
+                  </Text>
+                </View>
+                <View style={styles.addressRow}>
+                  <MapPin size={16} color={theme.colors.error} strokeWidth={2} />
+                  <Text style={[styles.addressText, { color: theme.colors.text }]} numberOfLines={2}>
+                    {delivery.dropoff_address}
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.acceptBtn,
+                  { backgroundColor: theme.colors.success },
+                ]}
+                onPress={handleAccept}
+                disabled={accepting}
+                activeOpacity={0.9}
+              >
+                {accepting ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <Text style={styles.acceptBtnText}>Accept</Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.declineBtn}
+                onPress={handleReject}
+                disabled={accepting}
+                hitSlop={8}
+              >
+                <Text style={[styles.declineBtnText, { color: theme.colors.textTertiary }]}>
+                  Decline
+                </Text>
+              </TouchableOpacity>
             </>
           ) : (
             <View style={styles.loadingWrap}>
               <Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>
                 This delivery is no longer available.
               </Text>
-              <TouchableOpacity style={[styles.dismissBtn, { backgroundColor: theme.colors.primary }]} onPress={onClose}>
+              <TouchableOpacity
+                style={[styles.dismissBtn, { backgroundColor: theme.colors.primary }]}
+                onPress={onClose}
+              >
                 <Text style={styles.dismissBtnText}>OK</Text>
               </TouchableOpacity>
             </View>
@@ -273,41 +385,28 @@ export function DeliveryRequestModal({ visible, deliveryId, onClose }: DeliveryR
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    padding: 20,
+    padding: 16,
+    paddingBottom: 28,
   },
   card: {
     width: CARD_WIDTH,
-    borderRadius: 16,
+    borderRadius: 24,
     borderWidth: 1,
-    overflow: 'hidden',
-    maxHeight: '85%',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
+    paddingHorizontal: 22,
     paddingTop: 20,
-    paddingBottom: 12,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    flex: 1,
-  },
-  closeBtn: {
-    padding: 4,
+    paddingBottom: 16,
   },
   loadingWrap: {
-    padding: 24,
+    padding: 28,
     alignItems: 'center',
   },
   loadingText: {
     fontSize: 15,
     marginTop: 12,
+    textAlign: 'center',
   },
   dismissBtn: {
     marginTop: 16,
@@ -320,71 +419,79 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    gap: 10,
+  countdownWrap: {
+    alignItems: 'center',
+    marginBottom: 8,
   },
-  detailLabel: {
-    fontSize: 12,
+  countdown: {
+    fontSize: 56,
+    fontWeight: '800',
+    letterSpacing: -1,
+    lineHeight: 62,
+  },
+  countdownLabel: {
+    fontSize: 13,
     fontWeight: '600',
-    width: 52,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
-  detailValue: {
-    flex: 1,
-    fontSize: 14,
+  fare: {
+    fontSize: 36,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginTop: 4,
   },
-  metaRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    gap: 16,
+  fareHint: {
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 2,
   },
-  metaItem: {
+  pickupChip: {
+    alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    marginTop: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
   },
-  metaText: {
+  pickupChipText: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
   },
-  distanceText: {
-    fontSize: 13,
-    paddingHorizontal: 20,
-    paddingTop: 4,
-    paddingBottom: 16,
+  addressBlock: {
+    marginTop: 16,
+    gap: 10,
+    marginBottom: 20,
   },
-  actions: {
+  addressRow: {
     flexDirection: 'row',
-    borderTopWidth: 1,
-    padding: 16,
-    gap: 12,
-  },
-  btn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 12,
+    alignItems: 'flex-start',
     gap: 8,
   },
-  rejectBtn: {
-    borderWidth: 2,
+  addressText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
   },
-  rejectBtnText: {
-    fontSize: 16,
-    fontWeight: '600',
+  acceptBtn: {
+    height: 64,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  acceptBtn: {},
   acceptBtnText: {
     color: '#FFF',
-    fontSize: 16,
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  declineBtn: {
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  declineBtnText: {
+    fontSize: 15,
     fontWeight: '600',
   },
 });

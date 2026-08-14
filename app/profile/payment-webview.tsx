@@ -20,6 +20,7 @@ import { useTransactions } from '@/hooks/useTransactions';
 import { consumePendingPayment, type PaymentIntent } from '@/lib/paymentWebViewState';
 import { verifyPaystackTransaction } from '@/lib/paystack';
 import { supabase } from '@/lib/supabase';
+import { TestPaymentsBanner } from '@/components/TestPaymentsBanner';
 
 interface PaystackAuthorization {
   authorization_code: string;
@@ -33,7 +34,7 @@ export default function PaymentWebViewScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
   const { user } = useAuth();
-  const { showAlert } = useAlert();
+  const { showToast } = useAlert();
   const { refetch: refetchPaymentMethods } = usePaymentMethods();
   const { refetch: refetchWallet } = useWallet();
   const { refetch: refetchTransactions } = useTransactions();
@@ -59,17 +60,17 @@ export default function PaymentWebViewScreen() {
     async (reference: string) => {
       const result = await verifyPaystackTransaction(reference);
       if (!result.success || !result.data) {
-        showAlert('Payment failed', result.error || 'Could not verify payment.');
+        showToast(result.error || 'Could not verify payment.', 'error');
         return;
       }
       const auth = (result.data as { authorization?: PaystackAuthorization }).authorization;
       if (!auth?.authorization_code || !auth?.last4) {
-        showAlert('Error', 'Card details not returned. Please try again.');
+        showToast('Card details not returned. Please try again.', 'error');
         return;
       }
       const userId = user?.id;
       if (!userId) {
-        showAlert('Error', 'You must be logged in to save a card.');
+        showToast('You must be logged in to save a card.', 'error');
         return;
       }
       const brand = (auth.brand || 'card').toLowerCase();
@@ -88,13 +89,12 @@ export default function PaymentWebViewScreen() {
           is_default: false,
         });
       if (insertError) {
-        showAlert('Error', insertError.message || 'Could not save card.');
+        showToast(insertError.message || 'Could not save card.', 'error');
         return;
       }
       await refetchPaymentMethods();
-      showAlert('Card added', 'Your card has been saved. You can use it when booking.', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      showToast('Card saved. You can use it when booking.');
+      router.back();
     },
     [user?.id, refetchPaymentMethods]
   );
@@ -121,15 +121,12 @@ export default function PaymentWebViewScreen() {
         await refetchWallet();
         await refetchTransactions();
         setVerifying(false);
-        showAlert(
-          credited ? 'Wallet funded' : 'Payment received',
+        showToast(
           credited
-            ? 'Your wallet has been credited successfully.'
-            : 'Your payment is successful and wallet credit is processing. Pull to refresh shortly.',
-          [
-          { text: 'OK', onPress: () => router.back() },
-          ]
+            ? 'Wallet credited.'
+            : 'Payment received. Wallet credit is processing — pull to refresh shortly.'
         );
+        router.back();
       }
     },
     [intent, saveCardFromVerification, refetchWallet, refetchTransactions]
@@ -196,6 +193,7 @@ export default function PaymentWebViewScreen() {
         </Text>
         <View style={styles.placeholder} />
       </View>
+      <TestPaymentsBanner />
       {verifying ? (
         <View style={[styles.pendingBanner, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
           <ActivityIndicator size="small" color={theme.colors.primary} />
@@ -231,9 +229,9 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     borderBottomWidth: 1,
   },
-  closeBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
+  closeBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
   title: { fontSize: 20, fontWeight: '700' },
-  placeholder: { width: 40 },
+  placeholder: { width: 44 },
   loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   loadingText: { fontSize: 16, marginTop: 16, textAlign: 'center' },
   errorMessage: { fontSize: 15, marginTop: 16, textAlign: 'center', paddingHorizontal: 24 },

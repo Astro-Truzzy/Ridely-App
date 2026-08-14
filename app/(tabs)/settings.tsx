@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -9,16 +9,17 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Bell, Moon, Globe, Zap, CircleHelp as HelpCircle, FileText, Shield, LogOut, ChevronRight, Smartphone, Mail, MessageSquare, Sun, Monitor, FlaskConical } from 'lucide-react-native';
+import { Bell, Moon, Globe, Zap, CircleHelp as HelpCircle, FileText, Shield, LogOut, ChevronRight, Smartphone, Receipt, MessageSquare, Sun, Monitor, FlaskConical } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme, ThemeMode } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAlert } from '@/contexts/AlertContext';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useAppSettings } from '@/contexts/AppSettingsContext';
 
 interface SettingsState {
   pushNotifications: boolean;
-  emailNotifications: boolean;
+  receiptNotifications: boolean;
   smsNotifications: boolean;
   animations: boolean;
   language: string;
@@ -28,23 +29,32 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { theme, themeMode, setThemeMode, isDark } = useTheme();
   const { signOut, loading, user } = useAuth();
-  const { showAlert } = useAlert();
+  const { showAlert, showToast } = useAlert();
   const { languageName } = useLanguage();
-  const [settings, setSettings] = useState<SettingsState>({
-    pushNotifications: true,
-    emailNotifications: true,
-    smsNotifications: false,
-    animations: true,
-    language: languageName,
-  });
+  const {
+    animations,
+    setAnimations,
+    pushNotifications,
+    setPushNotifications,
+    receiptNotifications,
+    setReceiptNotifications,
+    smsNotifications,
+    setSmsNotifications,
+  } = useAppSettings();
 
-  const toggleSetting = (key: keyof SettingsState) => {
-    if (typeof settings[key] === 'boolean') {
-      setSettings(prev => ({
-        ...prev,
-        [key]: !prev[key],
-      }));
-    }
+  const getNotificationValue = (key: keyof SettingsState) => {
+    if (key === 'pushNotifications') return pushNotifications;
+    if (key === 'receiptNotifications') return receiptNotifications;
+    if (key === 'smsNotifications') return smsNotifications;
+    if (key === 'animations') return animations;
+    return false;
+  };
+
+  const setNotificationValue = (key: keyof SettingsState, value: boolean) => {
+    if (key === 'pushNotifications') setPushNotifications(value);
+    else if (key === 'receiptNotifications') setReceiptNotifications(value);
+    else if (key === 'smsNotifications') setSmsNotifications(value);
+    else if (key === 'animations') setAnimations(value);
   };
 
   const notificationSettings = [
@@ -55,10 +65,10 @@ export default function SettingsScreen() {
       icon: Smartphone,
     },
     {
-      key: 'emailNotifications' as keyof SettingsState,
-      title: 'Email Notifications',
-      subtitle: 'Booking confirmations and receipts',
-      icon: Mail,
+      key: 'receiptNotifications' as keyof SettingsState,
+      title: 'Receipts',
+      subtitle: 'Payment receipts in Wallet and notifications',
+      icon: Receipt,
     },
     {
       key: 'smsNotifications' as keyof SettingsState,
@@ -157,10 +167,7 @@ export default function SettingsScreen() {
               await signOut();
               // Navigation is handled by signOut function in AuthContext
             } catch (error: any) {
-              showAlert(
-                'Logout Failed',
-                error.message || 'An error occurred while logging out. Please try again.'
-              );
+              showToast(error.message || 'Could not log out. Please try again.', 'error');
             }
           },
         },
@@ -194,10 +201,10 @@ export default function SettingsScreen() {
                   <Text style={[styles.settingSubtitle, { color: theme.colors.textSecondary }]}>{setting.subtitle}</Text>
                 </View>
                 <Switch
-                  value={settings[setting.key] as boolean}
-                  onValueChange={() => toggleSetting(setting.key)}
+                  value={getNotificationValue(setting.key)}
+                  onValueChange={(v) => setNotificationValue(setting.key, v)}
                   trackColor={{ false: theme.colors.border, true: `${theme.colors.primary}50` }}
-                  thumbColor={settings[setting.key] ? theme.colors.primary : theme.colors.textTertiary}
+                  thumbColor={getNotificationValue(setting.key) ? theme.colors.primary : theme.colors.textTertiary}
                 />
               </View>
             ))}
@@ -246,10 +253,10 @@ export default function SettingsScreen() {
                   <Text style={[styles.settingSubtitle, { color: theme.colors.textSecondary }]}>{setting.subtitle}</Text>
                 </View>
                 <Switch
-                  value={settings[setting.key] as boolean}
-                  onValueChange={() => toggleSetting(setting.key)}
+                  value={getNotificationValue(setting.key)}
+                  onValueChange={(v) => setNotificationValue(setting.key, v)}
                   trackColor={{ false: theme.colors.border, true: `${theme.colors.primary}50` }}
-                  thumbColor={settings[setting.key] ? theme.colors.primary : theme.colors.textTertiary}
+                  thumbColor={getNotificationValue(setting.key) ? theme.colors.primary : theme.colors.textTertiary}
                 />
               </View>
             ))}

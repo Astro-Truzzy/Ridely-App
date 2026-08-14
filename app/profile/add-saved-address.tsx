@@ -16,16 +16,18 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useAlert } from '@/contexts/AlertContext';
 import { useSavedAddresses } from '@/hooks/useSavedAddresses';
 import { useAddressAutocomplete, type AddressSuggestion } from '@/hooks/useAddressAutocomplete';
+import { FormError } from '@/components/FormError';
 
 export default function AddSavedAddressScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
-  const { showAlert } = useAlert();
+  const { showToast } = useAlert();
   const { add } = useSavedAddresses();
   const [label, setLabel] = useState('');
   const [addressInput, setAddressInput] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const {
     suggestions,
@@ -51,7 +53,7 @@ export default function AddSavedAddressScreen() {
     if (typeof suggestion.place_id === 'string' && (!suggestion.lat || !suggestion.lon)) {
       const details = await getPlaceDetails(suggestion.place_id);
       if (!details) {
-        showAlert('Error', 'Could not get address details. Please try again.');
+        setFormError('Could not get address details. Please try again.');
         return;
       }
       resolved = details;
@@ -64,7 +66,7 @@ export default function AddSavedAddressScreen() {
     const lat = parseFloat(resolved.lat);
     const lon = parseFloat(resolved.lon);
     if (Number.isNaN(lat) || Number.isNaN(lon)) {
-      showAlert('Error', 'This address has no coordinates. Please choose a full address from the list.');
+      setFormError('This address has no coordinates. Please choose a full address from the list.');
       return;
     }
 
@@ -76,12 +78,10 @@ export default function AddSavedAddressScreen() {
         latitude: lat,
         longitude: lon,
       });
-      showAlert('Saved', 'Address added to your saved addresses.', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      showToast('Address saved.');
+      router.back();
     } catch (e) {
-      showAlert(
-        'Error',
+      setFormError(
         e instanceof Error ? e.message : 'Could not save. Make sure the saved_addresses table exists (run the migration).'
       );
     } finally {
@@ -166,6 +166,7 @@ export default function AddSavedAddressScreen() {
               </ScrollView>
             </View>
           )}
+          <FormError message={formError} />
           <Text style={[styles.hint, { color: theme.colors.textTertiary, marginTop: 8 }]}>
             Type at least 3 characters and select an address from the list to save it with coordinates.
           </Text>
@@ -192,14 +193,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: { fontSize: 20, fontWeight: '700' },
-  placeholder: { width: 40 },
+  placeholder: { width: 44 },
   scrollView: { flex: 1 },
   section: { paddingHorizontal: 20, marginBottom: 24 },
   label: { fontSize: 14, fontWeight: '600', marginBottom: 8, marginTop: 16 },
@@ -224,7 +225,9 @@ const styles = StyleSheet.create({
   suggestionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
+    paddingHorizontal: 14,
+    minHeight: 44,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     gap: 10,
   },

@@ -2,9 +2,7 @@
   "compilerOptions": {
     "strict": true,
     "paths": {
-      "@/*": [
-        "./*"
-      ]
+      "@/*": ["./*"]
     },
     "target": "esnext",
     "module": "NodeNext",
@@ -24,10 +22,6 @@
     "expo-env.d.ts",
     "types/**/*.d.ts"
   ],
-  "exclude": [
-    "node_modules",
-    "build",
-    "dist"
-  ],
+  "exclude": ["node_modules", "build", "dist"],
   "extends": "./node_modules/expo/tsconfig.base.json"
 }

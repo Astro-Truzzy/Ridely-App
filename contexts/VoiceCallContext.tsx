@@ -28,8 +28,9 @@ import {
   type PushNotificationData,
 } from '@/hooks/usePushNotifications';
 import { Phone, PhoneOff } from 'lucide-react-native';
+import { supabase } from '@/lib/supabase';
 
-type CallPhase = 'idle' | 'connecting' | 'connected' | 'incoming';
+export type CallPhase = 'idle' | 'connecting' | 'connected' | 'incoming';
 
 type IncomingCall = {
   deliveryId: string;
@@ -38,6 +39,7 @@ type IncomingCall = {
 
 interface VoiceCallContextValue {
   phase: CallPhase;
+  deliveryId: string | null;
   peerName: string;
   muted: boolean;
   startCall: (deliveryId: string, peerName: string) => Promise<void>;
@@ -164,7 +166,34 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
 
   const declineIncoming = useCallback(() => {
     setIncoming(null);
+    setPhase('idle');
   }, []);
+
+  useEffect(() => {
+    if (incoming) setPhase('incoming');
+  }, [incoming]);
+
+  useEffect(() => {
+    if (!deliveryId || !user?.id || phase === 'idle') return;
+
+    const channel = supabase.channel(`delivery-call-${deliveryId}`);
+    const send = (next: CallPhase) => {
+      channel.send({
+        type: 'broadcast',
+        event: 'call_state',
+        payload: { senderId: user.id, phase: next },
+      });
+    };
+
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') send(phase);
+    });
+
+    return () => {
+      send('idle');
+      supabase.removeChannel(channel);
+    };
+  }, [deliveryId, phase, user?.id]);
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
@@ -214,6 +243,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       phase,
+      deliveryId,
       peerName,
       muted,
       startCall,
@@ -223,7 +253,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       setConnected,
       toggleMute,
     }),
-    [phase, peerName, muted, startCall, hangUp, acceptIncoming, declineIncoming, setConnected, toggleMute]
+    [phase, deliveryId, peerName, muted, startCall, hangUp, acceptIncoming, declineIncoming, setConnected, toggleMute]
   );
 
   const showCallModal = Boolean(credentials) || Boolean(incoming);

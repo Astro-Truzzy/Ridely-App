@@ -2,7 +2,7 @@
 -- 4-digit withdrawal PIN (users + riders). Hash stored server-side only.
 -- =============================================================================
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 
 CREATE TABLE IF NOT EXISTS public.withdrawal_pins (
   user_id uuid PRIMARY KEY,
@@ -32,7 +32,7 @@ CREATE OR REPLACE FUNCTION public.withdrawal_pin_status(p_user_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_locked_until timestamptz;
@@ -67,7 +67,7 @@ CREATE OR REPLACE FUNCTION public.set_withdrawal_pin(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_existing public.withdrawal_pins%ROWTYPE;
@@ -119,7 +119,7 @@ CREATE OR REPLACE FUNCTION public.verify_withdrawal_pin(p_user_id uuid, p_pin te
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_row public.withdrawal_pins%ROWTYPE;

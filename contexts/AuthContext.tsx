@@ -7,6 +7,7 @@ import React, {
 } from 'react';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { getAuthRedirectUrl } from '@/lib/authRedirect';
 import { Session, User } from '@supabase/supabase-js';
 import { Alert } from 'react-native';
 
@@ -153,9 +154,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         email,
         password,
         options: {
-          emailRedirectTo:
-            process.env.EXPO_PUBLIC_WEB_URL?.replace(/\/$/, '') ||
-            'Ridely://auth/callback',
+          emailRedirectTo: getAuthRedirectUrl('callback'),
           data: {
             fullName: userData.fullName,
             phone: userData.phone,

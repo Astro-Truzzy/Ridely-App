@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   View,
   Text,
@@ -12,19 +18,37 @@ import {
   Modal,
   FlatList,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { ArrowLeft, ChevronDown, Search, X, CheckCircle } from 'lucide-react-native';
+import {
+  ArrowLeft,
+  ChevronDown,
+  Search,
+  X,
+  CheckCircle,
+} from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAlert } from '@/contexts/AlertContext';
-import { useEarnings } from '@/hooks/useEarnings';
+import {
+  useEarnings,
+  getPayoutWaitReasons,
+  MIN_PAYOUT_NAIRA,
+} from '@/hooks/useEarnings';
 import { useWithdrawalPin } from '@/hooks/useWithdrawalPin';
 import { WithdrawalPinModal } from '@/components/WithdrawalPinModal';
-import { fetchBanks, resolveBankAccount, requestRiderPayout, type Bank } from '@/lib/paystack';
+import {
+  fetchBanks,
+  resolveBankAccount,
+  requestRiderPayout,
+  type Bank,
+} from '@/lib/paystack';
 
-const MIN_NAIRA = 50;
+const MIN_NAIRA = MIN_PAYOUT_NAIRA;
 type BankWithRenderKey = Bank & { _renderKey: string };
 
 function createIdempotencyKey(): string {
@@ -34,17 +58,18 @@ function createIdempotencyKey(): string {
 export default function RiderPayoutScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
-  const { showAlert } = useAlert();
-  const { earnings, refetch: refetchEarnings } = useEarnings();
-  const { hasPin, loading: pinStatusLoading, refetch: refetchPin } = useWithdrawalPin();
-
-  const pendingPayout = useMemo(
-    () =>
-      earnings
-        .filter((e) => e.status !== 'paid')
-        .reduce((sum, e) => sum + Number(e.net_amount || 0), 0),
-    [earnings]
-  );
+  const { showAlert, showToast } = useAlert();
+  const {
+    availableAmount,
+    inTransitAmount,
+    hasBankOnFile,
+    refetch: refetchEarnings,
+  } = useEarnings();
+  const {
+    hasPin,
+    loading: pinStatusLoading,
+    refetch: refetchPin,
+  } = useWithdrawalPin();
 
   const [banks, setBanks] = useState<Bank[]>([]);
   const [banksLoading, setBanksLoading] = useState(true);
@@ -60,11 +85,22 @@ export default function RiderPayoutScreen() {
   const [pinError, setPinError] = useState<string | null>(null);
   const idempotencyKeyRef = useRef<string>(createIdempotencyKey());
 
+  const waitReasons = getPayoutWaitReasons({
+    available: availableAmount,
+    inTransit: inTransitAmount,
+    hasPin,
+    hasBankOnFile: hasBankOnFile || !!selectedBank,
+  });
+  const pendingBlocked =
+    inTransitAmount > 0 ? 0 : waitReasons.length > 0 ? availableAmount : 0;
+  const availableReady =
+    pendingBlocked > 0 || inTransitAmount > 0 ? 0 : availableAmount;
+
   useFocusEffect(
     useCallback(() => {
       refetchPin();
       refetchEarnings();
-    }, [refetchPin, refetchEarnings])
+    }, [refetchPin, refetchEarnings]),
   );
 
   useEffect(() => {
@@ -74,7 +110,8 @@ export default function RiderPayoutScreen() {
         const list = await fetchBanks();
         if (mounted) setBanks(list);
       } catch (e) {
-        if (mounted) setError(e instanceof Error ? e.message : 'Could not load banks');
+        if (mounted)
+          setError(e instanceof Error ? e.message : 'Could not load banks');
       } finally {
         if (mounted) setBanksLoading(false);
       }
@@ -97,7 +134,8 @@ export default function RiderPayoutScreen() {
         });
         if (!cancelled) setAccountName(name);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Could not verify account');
+        if (!cancelled)
+          setError(e instanceof Error ? e.message : 'Could not verify account');
       } finally {
         if (!cancelled) setResolving(false);
       }
@@ -122,7 +160,7 @@ export default function RiderPayoutScreen() {
 
   const validateForm = (): boolean => {
     setError(null);
-    if (pendingPayout < MIN_NAIRA) {
+    if (availableAmount < MIN_NAIRA) {
       setError(`Minimum payout is ₦${MIN_NAIRA}`);
       return false;
     }
@@ -158,9 +196,8 @@ export default function RiderPayoutScreen() {
       setPinModalOpen(false);
       idempotencyKeyRef.current = createIdempotencyKey();
       await refetchEarnings();
-      showAlert('Payout started', result.message ?? 'Your payout is being processed.', [
-        { text: 'Done', onPress: () => router.back() },
-      ]);
+      showToast(result.message ?? 'Your payout is being processed.');
+      router.back();
     } catch (e) {
       setPinError(e instanceof Error ? e.message : 'Payout failed');
     } finally {
@@ -176,8 +213,11 @@ export default function RiderPayoutScreen() {
         'Set a 4-digit PIN before requesting a payout.',
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Set PIN', onPress: () => router.push('/(rider)/withdrawal-pin') },
-        ]
+          {
+            text: 'Set PIN',
+            onPress: () => router.push('/(rider)/withdrawal-pin'),
+          },
+        ],
       );
       return;
     }
@@ -202,39 +242,170 @@ export default function RiderPayoutScreen() {
         ]}
       >
         <TouchableOpacity
-          style={[styles.backButton, { backgroundColor: isDark ? theme.colors.card : '#F3F4F6' }]}
+          style={[
+            styles.backButton,
+            { backgroundColor: isDark ? theme.colors.card : '#F3F4F6' },
+          ]}
           onPress={() => router.back()}
         >
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
-        <Text style={[styles.title, { color: theme.colors.text }]}>Request payout</Text>
+        <Text style={[styles.title, { color: theme.colors.text }]}>
+          Request payout
+        </Text>
         <View style={styles.placeholder} />
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={{ padding: 24 }} keyboardShouldPersistTaps="handled">
-          <View style={[styles.balancePill, { backgroundColor: isDark ? theme.colors.surface : '#F0F2FF' }]}>
-            <Text style={[styles.balancePillLabel, { color: theme.colors.textSecondary }]}>Available payout</Text>
-            <Text style={[styles.balancePillValue, { color: theme.colors.text }]}>
-              ₦{pendingPayout.toLocaleString('en-NG', { minimumFractionDigits: 2 })}
-            </Text>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={{ padding: 24 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View
+            style={[
+              styles.balancePill,
+              {
+                backgroundColor: isDark ? theme.colors.surface : '#F0F2FF',
+                flexDirection: 'column',
+                alignItems: 'stretch',
+              },
+            ]}
+          >
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                marginBottom: 12,
+              }}
+            >
+              <Text
+                style={[
+                  styles.balancePillLabel,
+                  { color: theme.colors.textSecondary },
+                ]}
+              >
+                Available
+              </Text>
+              <Text
+                style={[styles.balancePillValue, { color: theme.colors.text }]}
+              >
+                ₦
+                {availableReady.toLocaleString('en-NG', {
+                  minimumFractionDigits: 2,
+                })}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={[
+                    styles.balancePillLabel,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  Pending
+                </Text>
+                <Text
+                  style={[
+                    styles.balancePillValue,
+                    { color: theme.colors.text, fontSize: 15 },
+                  ]}
+                >
+                  ₦
+                  {pendingBlocked.toLocaleString('en-NG', {
+                    minimumFractionDigits: 2,
+                  })}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={[
+                    styles.balancePillLabel,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  In transit
+                </Text>
+                <Text
+                  style={[
+                    styles.balancePillValue,
+                    { color: theme.colors.text, fontSize: 15 },
+                  ]}
+                >
+                  ₦
+                  {inTransitAmount.toLocaleString('en-NG', {
+                    minimumFractionDigits: 2,
+                  })}
+                </Text>
+              </View>
+            </View>
+            {waitReasons.length > 0 ? (
+              <View style={{ marginTop: 12 }}>
+                {waitReasons.map((reason) => (
+                  <Text
+                    key={reason}
+                    style={{
+                      color: theme.colors.textSecondary,
+                      fontSize: 13,
+                      lineHeight: 18,
+                    }}
+                  >
+                    {reason}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
           </View>
 
-          <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Bank</Text>
+          <Text style={[styles.label, { color: theme.colors.textSecondary }]}>
+            Bank
+          </Text>
           <TouchableOpacity
-            style={[styles.input, styles.selectInput, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+            style={[
+              styles.input,
+              styles.selectInput,
+              {
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+              },
+            ]}
             onPress={() => setPickerOpen(true)}
             disabled={banksLoading || submitting}
           >
-            <Text style={{ color: selectedBank ? theme.colors.text : theme.colors.textTertiary, fontSize: 16 }}>
-              {banksLoading ? 'Loading banks…' : selectedBank?.name ?? 'Select your bank'}
+            <Text
+              style={{
+                color: selectedBank
+                  ? theme.colors.text
+                  : theme.colors.textTertiary,
+                fontSize: 16,
+              }}
+            >
+              {banksLoading
+                ? 'Loading banks…'
+                : (selectedBank?.name ?? 'Select your bank')}
             </Text>
-            <ChevronDown size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+            <ChevronDown
+              size={20}
+              color={theme.colors.textSecondary}
+              strokeWidth={2}
+            />
           </TouchableOpacity>
 
-          <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Account number</Text>
+          <Text style={[styles.label, { color: theme.colors.textSecondary }]}>
+            Account number
+          </Text>
           <TextInput
-            style={[styles.input, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
+            style={[
+              styles.input,
+              {
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+                color: theme.colors.text,
+              },
+            ]}
             placeholder="10-digit account number"
             placeholderTextColor={theme.colors.textTertiary}
             value={accountNumber}
@@ -250,21 +421,45 @@ export default function RiderPayoutScreen() {
           {resolving ? (
             <View style={styles.resolveRow}>
               <ActivityIndicator size="small" color={theme.colors.primary} />
-              <Text style={[styles.resolveText, { color: theme.colors.textSecondary }]}>Verifying account…</Text>
+              <Text
+                style={[
+                  styles.resolveText,
+                  { color: theme.colors.textSecondary },
+                ]}
+              >
+                Verifying account…
+              </Text>
             </View>
           ) : accountName ? (
             <View style={styles.resolveRow}>
               <CheckCircle size={16} color="#10B981" strokeWidth={2} />
-              <Text style={[styles.resolveText, { color: '#10B981', fontWeight: '600' }]}>{accountName}</Text>
+              <Text
+                style={[
+                  styles.resolveText,
+                  { color: '#10B981', fontWeight: '600' },
+                ]}
+              >
+                {accountName}
+              </Text>
             </View>
           ) : null}
 
-          {error ? <Text style={[styles.errorText, { color: theme.colors.error }]}>{error}</Text> : null}
+          {error ? (
+            <Text style={[styles.errorText, { color: theme.colors.error }]}>
+              {error}
+            </Text>
+          ) : null}
 
           <TouchableOpacity
-            style={[styles.button, { backgroundColor: theme.colors.primary }, submitting && styles.buttonDisabled]}
+            style={[
+              styles.button,
+              { backgroundColor: theme.colors.primary },
+              submitting && styles.buttonDisabled,
+            ]}
             onPress={handleSubmit}
-            disabled={submitting || pendingPayout < MIN_NAIRA}
+            disabled={
+              submitting || availableAmount < MIN_NAIRA || inTransitAmount > 0
+            }
           >
             {submitting ? (
               <ActivityIndicator color="#fff" />
@@ -274,7 +469,8 @@ export default function RiderPayoutScreen() {
           </TouchableOpacity>
 
           <Text style={[styles.hint, { color: theme.colors.textTertiary }]}>
-            Minimum ₦{MIN_NAIRA}. You will be asked for your 4-digit withdrawal PIN.{' '}
+            Minimum ₦{MIN_NAIRA}. You will be asked for your 4-digit withdrawal
+            PIN.{' '}
             {!pinStatusLoading && !hasPin ? (
               <Text
                 style={{ color: theme.colors.primary, fontWeight: '600' }}
@@ -299,17 +495,44 @@ export default function RiderPayoutScreen() {
         onSubmit={processPayout}
       />
 
-      <Modal visible={pickerOpen} animationType="slide" transparent onRequestClose={() => setPickerOpen(false)}>
+      <Modal
+        visible={pickerOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setPickerOpen(false)}
+      >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: theme.colors.card, paddingBottom: insets.bottom + 16 }]}>
+          <View
+            style={[
+              styles.modalCard,
+              {
+                backgroundColor: theme.colors.card,
+                paddingBottom: insets.bottom + 16,
+              },
+            ]}
+          >
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Select bank</Text>
+              <Text style={[styles.modalTitle, { color: theme.colors.text }]}>
+                Select bank
+              </Text>
               <TouchableOpacity onPress={() => setPickerOpen(false)}>
                 <X size={24} color={theme.colors.text} strokeWidth={2} />
               </TouchableOpacity>
             </View>
-            <View style={[styles.searchBox, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-              <Search size={18} color={theme.colors.textSecondary} strokeWidth={2} />
+            <View
+              style={[
+                styles.searchBox,
+                {
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+            >
+              <Search
+                size={18}
+                color={theme.colors.textSecondary}
+                strokeWidth={2}
+              />
               <TextInput
                 style={[styles.searchInput, { color: theme.colors.text }]}
                 placeholder="Search banks"
@@ -326,7 +549,10 @@ export default function RiderPayoutScreen() {
               style={{ maxHeight: 380 }}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={[styles.bankRow, { borderBottomColor: theme.colors.border }]}
+                  style={[
+                    styles.bankRow,
+                    { borderBottomColor: theme.colors.border },
+                  ]}
                   onPress={() => {
                     setSelectedBank(item);
                     setPickerOpen(false);
@@ -334,7 +560,9 @@ export default function RiderPayoutScreen() {
                     setError(null);
                   }}
                 >
-                  <Text style={{ color: theme.colors.text, fontSize: 16 }}>{item.name}</Text>
+                  <Text style={{ color: theme.colors.text, fontSize: 16 }}>
+                    {item.name}
+                  </Text>
                 </TouchableOpacity>
               )}
             />
@@ -356,14 +584,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: { fontSize: 20, fontWeight: '700' },
-  placeholder: { width: 40 },
+  placeholder: { width: 44 },
   balancePill: {
     flexDirection: 'row',
     justifyContent: 'space-between',

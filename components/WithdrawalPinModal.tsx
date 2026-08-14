@@ -35,17 +35,28 @@ export function WithdrawalPinModal({
   const { theme } = useTheme();
   const [pin, setPin] = useState('');
   const inputRef = useRef<TextInput>(null);
+  const submittedPin = useRef<string | null>(null);
 
   useEffect(() => {
     if (visible) {
       setPin('');
+      submittedPin.current = null;
       const t = setTimeout(() => inputRef.current?.focus(), 200);
       return () => clearTimeout(t);
     }
   }, [visible]);
 
   useEffect(() => {
+    if (error) {
+      setPin('');
+      submittedPin.current = null;
+    }
+  }, [error]);
+
+  useEffect(() => {
     if (pin.length === 4 && isValidWithdrawalPin(pin) && !loading) {
+      if (submittedPin.current === pin) return;
+      submittedPin.current = pin;
       onSubmit(pin);
     }
   }, [pin, loading, onSubmit]);

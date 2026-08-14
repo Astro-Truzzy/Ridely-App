@@ -39,7 +39,7 @@ interface Booking {
 export default function BookingsScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
-  const { showAlert } = useAlert();
+  const { showAlert, showToast } = useAlert();
   const [activeTab, setActiveTab] = useState<'all' | 'active' | 'completed' | 'cancelled'>('all');
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [rateModalBooking, setRateModalBooking] = useState<Booking | null>(null);
@@ -125,7 +125,7 @@ export default function BookingsScreen() {
               notifySuccess();
             } catch (e) {
               notifyError();
-              showAlert('Error', 'Could not cancel delivery. Please try again.');
+              showToast('Could not cancel delivery. Please try again.', 'error');
             } finally {
               setCancellingId(null);
             }
@@ -233,7 +233,10 @@ export default function BookingsScreen() {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['left', 'right', 'bottom']}>
         <StatusBar style={isDark ? 'light' : 'dark'} />
-        <View style={{ paddingTop: insets.top + 20, paddingHorizontal: 20 }}>
+        <View style={{ paddingTop: insets.top + 20, paddingHorizontal: 20, paddingBottom: 16 }}>
+          <Text style={{ fontSize: 28, fontWeight: '700', color: theme.colors.text }}>Bookings</Text>
+        </View>
+        <View style={{ paddingHorizontal: 20 }}>
           <CardSkeletonList count={4} />
         </View>
       </SafeAreaView>
@@ -857,7 +860,7 @@ export default function BookingsScreen() {
                       notifySuccess();
                     } catch (e) {
                       notifyError();
-                      showAlert('Error', e instanceof Error ? e.message : 'Could not submit rating.');
+                      showToast(e instanceof Error ? e.message : 'Could not submit rating.', 'error');
                     } finally {
                       setSubmittingRating(false);
                     }

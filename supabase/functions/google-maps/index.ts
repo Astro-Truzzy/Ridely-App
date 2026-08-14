@@ -67,6 +67,40 @@ Deno.serve(async (req) => {
     }
     search.append('key', key);
 
+    if (path === 'place/autocomplete/json' && params?.input) {
+      const placesNew = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': key,
+          'X-Goog-FieldMask':
+            'suggestions.placePrediction.placeId,suggestions.placePrediction.text',
+        },
+        body: JSON.stringify({
+          input: String(params.input),
+          includedRegionCodes: ['ng'],
+        }),
+      });
+      const placesBody = await placesNew.json();
+      if (Array.isArray(placesBody?.suggestions)) {
+        const predictions = placesBody.suggestions
+          .map((s: { placePrediction?: { placeId?: string; text?: { text?: string } } }) => {
+            const placeId = s.placePrediction?.placeId;
+            const description = s.placePrediction?.text?.text;
+            if (!placeId || !description) return null;
+            return { place_id: placeId, description };
+          })
+          .filter(Boolean);
+        return new Response(
+          JSON.stringify({
+            status: predictions.length ? 'OK' : 'ZERO_RESULTS',
+            predictions,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+        );
+      }
+    }
+
     const url = `https://maps.googleapis.com/maps/api/${path}?${search.toString()}`;
     const res = await fetch(url, { method: 'GET', headers: { Accept: 'application/json' } });
     const data = await res.json();

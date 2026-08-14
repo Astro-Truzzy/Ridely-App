@@ -12,6 +12,25 @@ function json(payload: Record<string, unknown>, status = 200): Response {
   });
 }
 
+function parseRpcJson(data: unknown): Record<string, unknown> {
+  if (data == null) return {};
+  if (typeof data === 'string') {
+    try {
+      const parsed = JSON.parse(data) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return {};
+    }
+    return {};
+  }
+  if (typeof data === 'object' && !Array.isArray(data)) {
+    return data as Record<string, unknown>;
+  }
+  return {};
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -45,7 +64,8 @@ Deno.serve(async (req) => {
       console.error('withdrawal-pin status error', error);
       return json({ error: 'Could not load PIN status' }, 500);
     }
-    return json((data as Record<string, unknown>) ?? { has_pin: false });
+    const status = parseRpcJson(data);
+    return json(Object.keys(status).length ? status : { has_pin: false });
   }
 
   if (req.method !== 'POST') {
@@ -60,20 +80,25 @@ Deno.serve(async (req) => {
   }
 
   const pin = String(body.pin ?? '').trim();
-  const currentPin = body.current_pin != null ? String(body.current_pin).trim() : null;
+  const currentPin = body.current_pin != null ? String(body.current_pin).trim() : '';
 
-  const { data, error } = await admin.rpc('set_withdrawal_pin', {
+  const rpcArgs: { p_user_id: string; p_pin: string; p_current_pin?: string } = {
     p_user_id: userId,
     p_pin: pin,
-    p_current_pin: currentPin,
-  });
+  };
+  // Omit null current PIN so PostgREST can match the DEFAULT NULL signature.
+  if (currentPin) {
+    rpcArgs.p_current_pin = currentPin;
+  }
+
+  const { data, error } = await admin.rpc('set_withdrawal_pin', rpcArgs);
 
   if (error) {
     console.error('withdrawal-pin set error', error);
     return json({ error: 'Could not save PIN' }, 500);
   }
 
-  const result = data as { success?: boolean; error?: string };
+  const result = parseRpcJson(data);
   if (!result?.success) {
     return json({ error: result?.error ?? 'Could not save PIN' }, 400);
   }

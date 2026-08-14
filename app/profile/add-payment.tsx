@@ -20,14 +20,14 @@ export default function AddPaymentScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
   const { user } = useAuth();
-  const { showAlert } = useAlert();
+  const { showToast } = useAlert();
   const { methods, refetch } = usePaymentMethods();
   const hasCashOnDelivery = methods.some(m => m.type === 'cash' && m.label === 'Cash on Delivery');
 
   const addCashOnDelivery = async () => {
     if (!user?.id) return;
     if (hasCashOnDelivery) {
-      showAlert('Already added', 'Cash on Delivery is already in your payment methods.');
+      showToast('Cash on Delivery is already in your payment methods.', 'info');
       return;
     }
     try {
@@ -42,13 +42,12 @@ export default function AddPaymentScreen() {
         });
       if (error) throw error;
       await refetch();
-      showAlert('Added', 'Cash on Delivery added to your payment methods.', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      showToast('Cash on Delivery added.');
+      router.back();
     } catch (e) {
-      showAlert(
-        'Error',
-        'Could not add. Make sure the payment_methods table exists (run the migration).'
+      showToast(
+        'Could not add. Make sure the payment_methods table exists (run the migration).',
+        'error'
       );
     }
   };
@@ -154,14 +153,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: { fontSize: 20, fontWeight: '700' },
-  placeholder: { width: 40 },
+  placeholder: { width: 44 },
   scrollView: { flex: 1 },
   section: { padding: 20 },
   sectionTitle: { fontSize: 18, fontWeight: '700', marginBottom: 16 },

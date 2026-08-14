@@ -178,9 +178,9 @@ export default function RiderEditProfileScreen() {
       borderBottomColor: theme.colors.border,
     },
     backButton: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 44,
+    height: 44,
+    borderRadius: 22,
       backgroundColor: theme.colors.card,
       justifyContent: 'center',
       alignItems: 'center',

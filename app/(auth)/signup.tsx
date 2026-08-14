@@ -53,6 +53,7 @@ import {
   OAuthProvider,
   startOAuth,
 } from '@/lib/socialAuth';
+import { openEmailApp } from '@/lib/emailInbox';
 
 export default function SignupScreen() {
   const insets = useSafeAreaInsets();
@@ -85,7 +86,6 @@ export default function SignupScreen() {
     try {
       const result = await startOAuth(provider, { userType });
       if (result === 'cancel') {
-        showAlert('Social Signup', 'Sign-up was cancelled.');
         return;
       }
       router.replace('/');
@@ -94,7 +94,7 @@ export default function SignupScreen() {
         e instanceof Error
           ? e.message
           : 'Social signup could not be started. Check provider setup in Supabase.';
-      showAlert('Social Signup', msg);
+      setValidationErrors((prev) => ({ ...prev, form: msg }));
     } finally {
       setIsLoading(false);
     }
@@ -159,16 +159,26 @@ export default function SignupScreen() {
         userType,
       );
 
-      // If we get here without error, check if email confirmation is needed
-      // (signUp returns successfully when email confirmation is required)
-      // Show success message for email confirmation
+      const goToLogin = () =>
+        router.replace({
+          pathname: '/(auth)/login',
+          params: { email: formData.email.trim() },
+        });
+
       showAlert(
-        'Check Your Email 📧',
-        "We've sent you a confirmation email. Please check your inbox and click the confirmation link to activate your account. Once confirmed, you can sign in.",
+        'Check your email',
+        `We sent a confirmation link to ${formData.email.trim()}. Open your inbox, tap the link, then come back to sign in.`,
         [
           {
-            text: 'OK',
-            onPress: () => router.replace('/(auth)/login'),
+            text: 'Open email app',
+            onPress: () => {
+              void openEmailApp();
+              goToLogin();
+            },
+          },
+          {
+            text: 'Go to Sign In',
+            onPress: goToLogin,
           },
         ],
       );
@@ -194,28 +204,39 @@ export default function SignupScreen() {
             ],
           );
         } else if (error.message.includes('EMAIL_CONFIRMATION_REQUIRED')) {
-          // This shouldn't happen anymore, but handle it just in case
+          const goToLogin = () =>
+            router.replace({
+              pathname: '/(auth)/login',
+              params: { email: formData.email.trim() },
+            });
           showAlert(
-            'Check Your Email 📧',
-            "We've sent you a confirmation email. Please check your inbox and click the confirmation link to activate your account. Then you can sign in.",
+            'Check your email',
+            `We sent a confirmation link to ${formData.email.trim()}. Open your inbox, tap the link, then come back to sign in.`,
             [
               {
-                text: 'OK',
-                onPress: () => router.replace('/(auth)/login'),
+                text: 'Open email app',
+                onPress: () => {
+                  void openEmailApp();
+                  goToLogin();
+                },
+              },
+              {
+                text: 'Go to Sign In',
+                onPress: goToLogin,
               },
             ],
           );
         } else {
-          // Generic error - show user-friendly message
-          const errorMsg =
-            error.message || 'An unexpected error occurred. Please try again.';
-          showAlert('Signup Failed', errorMsg);
+          setValidationErrors((prev) => ({
+            ...prev,
+            form: error.message || 'An unexpected error occurred. Please try again.',
+          }));
         }
       } else {
-        showAlert(
-          'Signup Failed',
-          'An unexpected error occurred. Please try again.',
-        );
+        setValidationErrors((prev) => ({
+          ...prev,
+          form: 'An unexpected error occurred. Please try again.',
+        }));
       }
 
       setIsLoading(false);
@@ -895,6 +916,15 @@ export default function SignupScreen() {
                   )}
                 </View>
 
+                {getFieldError('form') ? (
+                  <Animated.View entering={FadeInDown} style={styles.errorContainer}>
+                    <AlertCircle size={14} color={theme.colors.error} />
+                    <Text style={[styles.errorText, { color: theme.colors.error }]}>
+                      {getFieldError('form')}
+                    </Text>
+                  </Animated.View>
+                ) : null}
+
                 <Pressable
                   onPressIn={() => (scale.value = 0.95)}
                   onPressOut={() => (scale.value = 1)}
@@ -918,98 +948,89 @@ export default function SignupScreen() {
                 </Pressable>
               </View>
 
-              {/* Divider */}
-              <View style={styles.divider}>
-                <View
-                  style={[
-                    styles.dividerLine,
-                    { backgroundColor: theme.colors.border },
-                  ]}
-                />
-                <Text
-                  style={[
-                    styles.dividerText,
-                    { color: theme.colors.textSecondary },
-                  ]}
-                >
-                  Or sign up with
-                </Text>
-                <View
-                  style={[
-                    styles.dividerLine,
-                    { backgroundColor: theme.colors.border },
-                  ]}
-                />
-              </View>
-
-              {/* Social Signup */}
               {enabledProviders.length > 0 ? (
-                <View style={styles.socialContainer}>
-                  {enabledProviders.includes('google') ? (
-                    <TouchableOpacity
-                      activeOpacity={0.7}
+                <>
+                  <View style={styles.divider}>
+                    <View
                       style={[
-                        styles.socialButton,
-                        {
-                          backgroundColor: theme.colors.surface,
-                          borderColor: theme.colors.border,
-                          ...theme.shadows?.small,
-                        },
+                        styles.dividerLine,
+                        { backgroundColor: theme.colors.border },
                       ]}
-                      onPress={() => handleSocialSignup('google')}
-                    >
-                      <View style={styles.socialIconWrapper}>
-                        <GoogleLogo size={26} />
-                      </View>
-                    </TouchableOpacity>
-                  ) : null}
-                  {enabledProviders.includes('facebook') ? (
-                    <TouchableOpacity
-                      activeOpacity={0.7}
+                    />
+                    <Text
                       style={[
-                        styles.socialButton,
-                        {
-                          backgroundColor: theme.colors.surface,
-                          borderColor: theme.colors.border,
-                          ...theme.shadows?.small,
-                        },
+                        styles.dividerText,
+                        { color: theme.colors.textSecondary },
                       ]}
-                      onPress={() => handleSocialSignup('facebook')}
                     >
-                      <View style={styles.socialIconWrapper}>
-                        <FacebookLogo size={26} color={theme.colors.text} />
-                      </View>
-                    </TouchableOpacity>
-                  ) : null}
-                  {enabledProviders.includes('apple') ? (
-                    <TouchableOpacity
-                      activeOpacity={0.7}
+                      Or sign up with
+                    </Text>
+                    <View
                       style={[
-                        styles.socialButton,
-                        {
-                          backgroundColor: theme.colors.surface,
-                          borderColor: theme.colors.border,
-                          ...theme.shadows?.small,
-                        },
+                        styles.dividerLine,
+                        { backgroundColor: theme.colors.border },
                       ]}
-                      onPress={() => handleSocialSignup('apple')}
-                    >
-                      <View style={styles.socialIconWrapper}>
-                        <AppleLogo size={26} color={theme.colors.text} />
-                      </View>
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-              ) : (
-                <Text
-                  style={[
-                    styles.socialDisabledText,
-                    { color: theme.colors.textSecondary },
-                  ]}
-                >
-                  Social sign-up is currently unavailable.
-                </Text>
-              )}
+                    />
+                  </View>
+
+                  <View style={styles.socialContainer}>
+                    {enabledProviders.includes('google') ? (
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        style={[
+                          styles.socialButton,
+                          {
+                            backgroundColor: theme.colors.surface,
+                            borderColor: theme.colors.border,
+                            ...theme.shadows?.small,
+                          },
+                        ]}
+                        onPress={() => handleSocialSignup('google')}
+                      >
+                        <View style={styles.socialIconWrapper}>
+                          <GoogleLogo size={26} />
+                        </View>
+                      </TouchableOpacity>
+                    ) : null}
+                    {enabledProviders.includes('facebook') ? (
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        style={[
+                          styles.socialButton,
+                          {
+                            backgroundColor: theme.colors.surface,
+                            borderColor: theme.colors.border,
+                            ...theme.shadows?.small,
+                          },
+                        ]}
+                        onPress={() => handleSocialSignup('facebook')}
+                      >
+                        <View style={styles.socialIconWrapper}>
+                          <FacebookLogo size={26} color={theme.colors.text} />
+                        </View>
+                      </TouchableOpacity>
+                    ) : null}
+                    {enabledProviders.includes('apple') ? (
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        style={[
+                          styles.socialButton,
+                          {
+                            backgroundColor: theme.colors.surface,
+                            borderColor: theme.colors.border,
+                            ...theme.shadows?.small,
+                          },
+                        ]}
+                        onPress={() => handleSocialSignup('apple')}
+                      >
+                        <View style={styles.socialIconWrapper}>
+                          <AppleLogo size={26} color={theme.colors.text} />
+                        </View>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                </>
+              ) : null}
             </View>
           </ScrollView>
 
@@ -1046,9 +1067,9 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1168,6 +1189,8 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   socialButton: {
+    minWidth: 44,
+    minHeight: 44,
     width: 64,
     height: 64,
     borderRadius: 32,

@@ -25,6 +25,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useNotifications } from '@/contexts/NotificationsContext';
 import { useDeliveries } from '@/hooks/useDeliveries';
 import { useAutoCancelPendingDelivery } from '@/hooks/useAutoCancelPendingDelivery';
+import { CardSkeletonList } from '@/components/Skeleton';
 import { supabase } from '@/lib/supabase';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 
@@ -42,7 +43,7 @@ export default function HomeScreen() {
   const { theme, isDark } = useTheme();
   const { userProfile, user } = useAuth();
   const [userName, setUserName] = useState('');
-  const { deliveries, refetch: refetchDeliveries } = useDeliveries();
+  const { deliveries, loading: deliveriesLoading, refetch: refetchDeliveries } = useDeliveries();
   const { unreadCount, refetchUnreadCount } = useNotifications();
 
   useFocusEffect(
@@ -324,7 +325,10 @@ export default function HomeScreen() {
               </Text>
             </TouchableOpacity>
           </View>
-          {recentDeliveries.map((delivery) => (
+          {deliveriesLoading ? (
+            <CardSkeletonList count={3} />
+          ) : (
+          recentDeliveries.map((delivery) => (
             <TouchableOpacity
               key={delivery.id}
               style={[
@@ -367,7 +371,8 @@ export default function HomeScreen() {
                 </Text>
               </Animated.View>
             </TouchableOpacity>
-          ))}
+          ))
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>

@@ -31,6 +31,7 @@ export function useDeliveryChat(deliveryId: string | null) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [peerTyping, setPeerTyping] = useState(false);
+  const [peerCallPhase, setPeerCallPhase] = useState<'idle' | 'connecting' | 'connected' | 'incoming'>('idle');
 
   const typingChannelRef = useRef<RealtimeChannel | null>(null);
   const peerTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -139,12 +140,31 @@ export function useDeliveryChat(deliveryId: string | null) {
 
     typingChannelRef.current = typingChannel;
 
+    const callChannel = supabase
+      .channel(`delivery-call-${deliveryId}`)
+      .on(
+        'broadcast',
+        { event: 'call_state' },
+        (payload: { payload?: { senderId?: string; phase?: string } }) => {
+          if (!mountedRef.current) return;
+          if (payload.payload?.senderId === user.id) return;
+          const next = payload.payload?.phase;
+          if (next === 'connecting' || next === 'connected' || next === 'incoming' || next === 'idle') {
+            setPeerCallPhase(next);
+            if (next !== 'idle') setPeerTyping(false);
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
       mountedRef.current = false;
       if (peerTypingTimerRef.current) clearTimeout(peerTypingTimerRef.current);
       typingChannelRef.current = null;
+      setPeerCallPhase('idle');
       supabase.removeChannel(messagesChannel);
       supabase.removeChannel(typingChannel);
+      supabase.removeChannel(callChannel);
     };
   }, [deliveryId, user?.id, resolveImageUrl]);
 
@@ -284,6 +304,7 @@ export function useDeliveryChat(deliveryId: string | null) {
     loading,
     sending,
     peerTyping,
+    peerCallPhase,
     sendText,
     sendImage,
     retryMessage,

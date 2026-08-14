@@ -36,11 +36,11 @@ export default function NotificationsScreen() {
   const { theme, isDark } = useTheme();
   const { user } = useAuth();
   const { refetchUnreadCount, decrementUnreadCount, clearUnreadCount } = useNotifications();
-  const { showAlert } = useAlert();
+  const { showAlert, showToast } = useAlert();
   const { deliveries } = useDeliveries();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
-  const { animations: animationsEnabled } = useAppSettings();
+  const { animations: animationsEnabled, receiptNotifications } = useAppSettings();
   const enterItem = (i: number) => (animationsEnabled ? staggeredCardEnter(i) : undefined);
 
   useEffect(() => {
@@ -59,6 +59,7 @@ export default function NotificationsScreen() {
           },
           (payload) => {
             if (payload.new) {
+              if (payload.new.type === 'payment' && !receiptNotifications) return;
               const newNotification: Notification = {
                 id: payload.new.id,
                 type: payload.new.type,
@@ -123,7 +124,9 @@ export default function NotificationsScreen() {
 
       if (error) throw error;
 
-      const formattedNotifications: Notification[] = (data ?? []).map(
+      const formattedNotifications: Notification[] = (data ?? [])
+        .filter((item: { type: string }) => receiptNotifications || item.type !== 'payment')
+        .map(
         (item: {
           id: string;
           type: string;
@@ -269,7 +272,7 @@ export default function NotificationsScreen() {
         return restored;
       });
       await refetchUnreadCount();
-      showAlert('Error', 'Could not delete notification. Please try again.');
+      showToast('Could not delete notification. Please try again.', 'error');
     }
   };
 
@@ -296,7 +299,7 @@ export default function NotificationsScreen() {
       console.error('Error clearing notifications:', error);
       setNotifications(previous);
       await refetchUnreadCount();
-      showAlert('Error', 'Could not clear notifications. Please try again.');
+      showToast('Could not clear notifications. Please try again.', 'error');
     }
   };
 
@@ -384,7 +387,12 @@ export default function NotificationsScreen() {
                 !notification.read && { borderLeftWidth: 4, borderLeftColor: theme.colors.primary },
                 theme.shadows.small,
               ]}
-              onPress={() => markAsRead(notification.id)}
+              onPress={() => {
+                markAsRead(notification.id);
+                if (notification.type === 'payment') {
+                  router.push('/(rider)/earnings');
+                }
+              }}
             >
             <View style={styles.notificationHeader}>
               <View style={[styles.iconContainer, { backgroundColor: getNotificationColor(notification.type) }]}>
@@ -417,7 +425,17 @@ export default function NotificationsScreen() {
 
             {notification.actionable && (
               <View style={[styles.actionContainer, { borderTopColor: theme.colors.border }]}>
-                {notification.type === 'delivery_update' ? (
+                {notification.type === 'payment' ? (
+                  <AnimatedPressable
+                    style={[styles.actionButton, { backgroundColor: theme.colors.primary }]}
+                    onPress={() => {
+                      markAsRead(notification.id);
+                      router.push('/(rider)/earnings');
+                    }}
+                  >
+                    <Text style={styles.actionText}>View receipt</Text>
+                  </AnimatedPressable>
+                ) : notification.type === 'delivery_update' ? (
                   <AnimatedPressable
                     style={[styles.actionButton, { backgroundColor: theme.colors.primary }]}
                     onPress={() => {
@@ -468,9 +486,9 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },

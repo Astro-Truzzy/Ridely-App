@@ -14,7 +14,10 @@ import {
   Pressable,
   Linking,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -24,7 +27,15 @@ import { useDeliveryChat, type ChatMessage } from '@/hooks/useDeliveryChat';
 import { pickChatImage, type PickSource } from '@/lib/chatAttachmentUpload';
 import { supabase } from '@/lib/supabase';
 import { tapLight, notifyError } from '@/lib/haptics';
-import { ArrowLeft, Plus, ArrowUp, Phone, Camera, ImageIcon, X } from 'lucide-react-native';
+import {
+  ArrowLeft,
+  Plus,
+  ArrowUp,
+  Phone,
+  Camera,
+  ImageIcon,
+  X,
+} from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
 interface PeerInfo {
@@ -38,8 +49,16 @@ export default function ChatScreen() {
   const { theme, isDark } = useTheme();
   const { user, userType } = useAuth();
   const { showAlert } = useAlert();
-  const { startCall } = useVoiceCall();
-  const params = useLocalSearchParams<{ deliveryId?: string; peerName?: string; peerPhone?: string }>();
+  const {
+    startCall,
+    phase: callPhase,
+    deliveryId: callDeliveryId,
+  } = useVoiceCall();
+  const params = useLocalSearchParams<{
+    deliveryId?: string;
+    peerName?: string;
+    peerPhone?: string;
+  }>();
   const deliveryId = params.deliveryId ?? null;
 
   const {
@@ -47,6 +66,7 @@ export default function ChatScreen() {
     loading,
     sending,
     peerTyping,
+    peerCallPhase,
     sendText,
     sendImage,
     retryMessage,
@@ -91,17 +111,23 @@ export default function ChatScreen() {
         }
       } catch {}
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [deliveryId, userType, params.peerName]);
 
   const scrollToEnd = useCallback(() => {
-    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+    requestAnimationFrame(() =>
+      listRef.current?.scrollToEnd({ animated: true }),
+    );
   }, []);
 
   // Edge-to-edge Android often ignores adjustResize; lift the composer manually.
   useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showEvent =
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent =
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
     const onShow = Keyboard.addListener(showEvent, (e) => {
       setKeyboardHeight(e.endCoordinates.height);
       scrollToEnd();
@@ -117,9 +143,23 @@ export default function ChatScreen() {
     if (messages.length) scrollToEnd();
   }, [messages.length, peerTyping, scrollToEnd]);
 
+  const callActiveOnThread =
+    !!deliveryId &&
+    callDeliveryId === deliveryId &&
+    (callPhase === 'connecting' || callPhase === 'incoming');
+  const peerOnCall =
+    peerCallPhase === 'connecting' ||
+    peerCallPhase === 'connected' ||
+    peerCallPhase === 'incoming';
+  const callConnecting =
+    callActiveOnThread ||
+    peerCallPhase === 'connecting' ||
+    peerCallPhase === 'incoming';
+  const chatLocked = callConnecting || sending;
+
   const handleSend = async () => {
     const text = inputText.trim();
-    if (!text || sending) return;
+    if (!text || chatLocked) return;
     tapLight();
     setInputText('');
     try {
@@ -130,12 +170,14 @@ export default function ChatScreen() {
   };
 
   const handleChangeText = (text: string) => {
+    if (callConnecting) return;
     setInputText(text);
     if (text.length > 0) notifyTyping();
     else notifyStopTyping();
   };
 
   const handlePickImage = async (source: PickSource) => {
+    if (callConnecting) return;
     setAttachOpen(false);
     try {
       const picked = await pickChatImage(source);
@@ -176,9 +218,18 @@ export default function ChatScreen() {
   };
 
   const formatTime = (iso: string) =>
-    new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    new Date(iso).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
 
-  const renderMessage = ({ item, index }: { item: ChatMessage; index: number }) => {
+  const renderMessage = ({
+    item,
+    index,
+  }: {
+    item: ChatMessage;
+    index: number;
+  }) => {
     const isMine = item.sender_id === user?.id;
     const prev = messages[index - 1];
     const isFirstOfGroup = !prev || prev.sender_id !== item.sender_id;
@@ -204,7 +255,10 @@ export default function ChatScreen() {
             styles.bubble,
             item.imageUrl ? styles.imageBubble : null,
             isMine
-              ? { backgroundColor: theme.colors.primary, borderBottomRightRadius: isFirstOfGroup ? 18 : 6 }
+              ? {
+                  backgroundColor: theme.colors.primary,
+                  borderBottomRightRadius: isFirstOfGroup ? 18 : 6,
+                }
               : {
                   backgroundColor: theme.colors.surface,
                   borderWidth: 1,
@@ -215,23 +269,41 @@ export default function ChatScreen() {
           ]}
         >
           {item.imageUrl ? (
-            <Image source={{ uri: item.imageUrl }} style={styles.messageImage} resizeMode="cover" />
+            <Image
+              source={{ uri: item.imageUrl }}
+              style={styles.messageImage}
+              resizeMode="cover"
+            />
           ) : null}
           {item.content ? (
-            <Text style={[styles.messageText, { color: isMine ? '#FFFFFF' : theme.colors.text }]}>
+            <Text
+              style={[
+                styles.messageText,
+                { color: isMine ? '#FFFFFF' : theme.colors.text },
+              ]}
+            >
               {item.content}
             </Text>
           ) : null}
           <View style={styles.metaRow}>
             {item.failed ? (
-              <Text style={[styles.metaText, { color: isMine ? '#FFD5D5' : theme.colors.error }]}>
+              <Text
+                style={[
+                  styles.metaText,
+                  { color: isMine ? '#FFD5D5' : theme.colors.error },
+                ]}
+              >
                 Failed · tap to retry
               </Text>
             ) : (
               <Text
                 style={[
                   styles.metaText,
-                  { color: isMine ? 'rgba(255,255,255,0.75)' : theme.colors.textTertiary },
+                  {
+                    color: isMine
+                      ? 'rgba(255,255,255,0.75)'
+                      : theme.colors.textTertiary,
+                  },
                 ]}
               >
                 {item.pending ? 'Sending…' : formatTime(item.created_at)}
@@ -264,25 +336,51 @@ export default function ChatScreen() {
           },
         ]}
       >
-        <TouchableOpacity style={styles.headerBtn} onPress={() => router.back()} hitSlop={8}>
+        <TouchableOpacity
+          style={styles.headerBtn}
+          onPress={() => router.back()}
+          hitSlop={8}
+        >
           <ArrowLeft size={22} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={[styles.headerName, { color: theme.colors.text }]} numberOfLines={1}>
+          <Text
+            style={[styles.headerName, { color: theme.colors.text }]}
+            numberOfLines={1}
+          >
             {peer.name}
           </Text>
           <Text
             style={[
               styles.headerSubtitle,
-              { color: peerTyping ? theme.colors.primary : theme.colors.textTertiary },
+              {
+                color:
+                  peerOnCall || callActiveOnThread
+                    ? theme.colors.success
+                    : peerTyping
+                      ? theme.colors.primary
+                      : theme.colors.textTertiary,
+              },
             ]}
             numberOfLines={1}
           >
-            {peerTyping ? 'typing…' : peer.subtitle}
+            {callActiveOnThread
+              ? 'Connecting voice call…'
+              : peerCallPhase === 'connected'
+                ? 'On a voice call'
+                : peerCallPhase === 'connecting' || peerCallPhase === 'incoming'
+                  ? 'Joining a voice call…'
+                  : peerTyping
+                    ? 'typing…'
+                    : peer.subtitle}
           </Text>
         </View>
         {deliveryId ? (
-          <TouchableOpacity style={styles.headerBtn} onPress={handleCall} hitSlop={8}>
+          <TouchableOpacity
+            style={styles.headerBtn}
+            onPress={handleCall}
+            hitSlop={8}
+          >
             <Phone size={20} color={theme.colors.text} strokeWidth={2} />
           </TouchableOpacity>
         ) : (
@@ -299,7 +397,9 @@ export default function ChatScreen() {
       >
         {missingThread ? (
           <View style={styles.centerFill}>
-            <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
+            <Text
+              style={[styles.emptyText, { color: theme.colors.textSecondary }]}
+            >
               Chat is available once a delivery is in progress.
             </Text>
           </View>
@@ -319,14 +419,61 @@ export default function ChatScreen() {
             keyboardDismissMode="interactive"
             ListEmptyComponent={
               <View style={styles.centerFill}>
-                <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
+                <Text
+                  style={[
+                    styles.emptyText,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
                   Say hello — messages about this delivery appear here.
                 </Text>
               </View>
             }
             ListFooterComponent={
-              peerTyping ? (
-                <View style={[styles.messageRow, styles.messageRowTheirs, { marginTop: 14 }]}>
+              peerOnCall ? (
+                <View
+                  style={[
+                    styles.messageRow,
+                    styles.messageRowTheirs,
+                    { marginTop: 14 },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.bubble,
+                      styles.callStatusBubble,
+                      {
+                        backgroundColor: theme.colors.surface,
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                      },
+                    ]}
+                  >
+                    <Phone
+                      size={14}
+                      color={theme.colors.success}
+                      strokeWidth={2}
+                    />
+                    <Text
+                      style={[
+                        styles.callStatusText,
+                        { color: theme.colors.textSecondary },
+                      ]}
+                    >
+                      {peerCallPhase === 'connected'
+                        ? `${peer.name} is on a voice call`
+                        : `${peer.name} is connecting a voice call`}
+                    </Text>
+                  </View>
+                </View>
+              ) : peerTyping ? (
+                <View
+                  style={[
+                    styles.messageRow,
+                    styles.messageRowTheirs,
+                    { marginTop: 14 },
+                  ]}
+                >
                   <View
                     style={[
                       styles.bubble,
@@ -355,61 +502,107 @@ export default function ChatScreen() {
                 backgroundColor: theme.colors.background,
                 borderTopColor: theme.colors.border,
                 // Keep a little breathing room above the keyboard; restore safe-area when closed.
-                paddingBottom: keyboardHeight > 0 ? 16 : Math.max(insets.bottom, 12),
+                paddingBottom:
+                  keyboardHeight > 0 ? 16 : Math.max(insets.bottom, 12),
               },
             ]}
           >
-            <TouchableOpacity
-              style={[styles.attachBtn, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
-              onPress={() => {
-                tapLight();
-                setAttachOpen(true);
-              }}
-              disabled={sending}
-            >
-              <Plus size={20} color={theme.colors.textSecondary} strokeWidth={2} />
-            </TouchableOpacity>
-            <TextInput
-              style={[
-                styles.input,
-                {
-                  backgroundColor: theme.colors.surface,
-                  borderColor: theme.colors.border,
-                  color: theme.colors.text,
-                },
-              ]}
-              placeholder="Message"
-              placeholderTextColor={theme.colors.textTertiary}
-              value={inputText}
-              onChangeText={handleChangeText}
-              onBlur={notifyStopTyping}
-              multiline
-              maxLength={1000}
-            />
-            <TouchableOpacity
-              style={[
-                styles.sendBtn,
-                {
-                  backgroundColor:
-                    inputText.trim() && !sending ? theme.colors.primary : theme.colors.border,
-                },
-              ]}
-              onPress={handleSend}
-              disabled={!inputText.trim() || sending}
-            >
-              {sending ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <ArrowUp size={18} color="#FFFFFF" strokeWidth={2.5} />
-              )}
-            </TouchableOpacity>
+            {callConnecting ? (
+              <View
+                style={[
+                  styles.callLockBanner,
+                  {
+                    backgroundColor: isDark ? theme.colors.surface : '#EEF2FF',
+                  },
+                ]}
+              >
+                <Phone size={14} color={theme.colors.primary} strokeWidth={2} />
+                <Text
+                  style={[
+                    styles.callLockText,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  Chat is paused while the call connects
+                </Text>
+              </View>
+            ) : null}
+            <View style={styles.composerRow}>
+              <TouchableOpacity
+                style={[
+                  styles.attachBtn,
+                  {
+                    backgroundColor: theme.colors.surface,
+                    borderColor: theme.colors.border,
+                  },
+                ]}
+                onPress={() => {
+                  tapLight();
+                  setAttachOpen(true);
+                }}
+                disabled={chatLocked}
+              >
+                <Plus
+                  size={20}
+                  color={theme.colors.textSecondary}
+                  strokeWidth={2}
+                />
+              </TouchableOpacity>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: theme.colors.surface,
+                    borderColor: theme.colors.border,
+                    color: theme.colors.text,
+                  },
+                ]}
+                placeholder={
+                  callConnecting ? 'Chat paused while connecting…' : 'Message'
+                }
+                placeholderTextColor={theme.colors.textTertiary}
+                value={inputText}
+                onChangeText={handleChangeText}
+                onBlur={notifyStopTyping}
+                editable={!callConnecting}
+                multiline
+                maxLength={1000}
+              />
+              <TouchableOpacity
+                style={[
+                  styles.sendBtn,
+                  {
+                    backgroundColor:
+                      inputText.trim() && !chatLocked
+                        ? theme.colors.primary
+                        : theme.colors.border,
+                  },
+                ]}
+                onPress={handleSend}
+                disabled={!inputText.trim() || chatLocked}
+              >
+                {sending ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <ArrowUp size={18} color="#FFFFFF" strokeWidth={2.5} />
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       </View>
 
       {/* Attachment sheet */}
-      <Modal visible={attachOpen} transparent animationType="fade" onRequestClose={() => setAttachOpen(false)}>
-        <Pressable style={styles.sheetOverlay} onPress={() => setAttachOpen(false)}>
+      <Modal
+        visible={attachOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAttachOpen(false)}
+      >
+        <Pressable
+          style={styles.sheetOverlay}
+          onPress={() => setAttachOpen(false)}
+        >
           <Pressable
             style={[
               styles.sheet,
@@ -420,21 +613,49 @@ export default function ChatScreen() {
             ]}
             onPress={(e) => e.stopPropagation()}
           >
-            <View style={[styles.sheetHandle, { backgroundColor: theme.colors.border }]} />
-            <TouchableOpacity style={styles.sheetOption} onPress={() => handlePickImage('camera')}>
+            <View
+              style={[
+                styles.sheetHandle,
+                { backgroundColor: theme.colors.border },
+              ]}
+            />
+            <TouchableOpacity
+              style={styles.sheetOption}
+              onPress={() => handlePickImage('camera')}
+            >
               <Camera size={20} color={theme.colors.primary} strokeWidth={2} />
-              <Text style={[styles.sheetOptionText, { color: theme.colors.text }]}>Take photo</Text>
+              <Text
+                style={[styles.sheetOptionText, { color: theme.colors.text }]}
+              >
+                Take photo
+              </Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.sheetOption} onPress={() => handlePickImage('gallery')}>
-              <ImageIcon size={20} color={theme.colors.primary} strokeWidth={2} />
-              <Text style={[styles.sheetOptionText, { color: theme.colors.text }]}>Choose from gallery</Text>
+            <TouchableOpacity
+              style={styles.sheetOption}
+              onPress={() => handlePickImage('gallery')}
+            >
+              <ImageIcon
+                size={20}
+                color={theme.colors.primary}
+                strokeWidth={2}
+              />
+              <Text
+                style={[styles.sheetOptionText, { color: theme.colors.text }]}
+              >
+                Choose from gallery
+              </Text>
             </TouchableOpacity>
           </Pressable>
         </Pressable>
       </Modal>
 
       {/* Fullscreen image preview */}
-      <Modal visible={!!previewUrl} transparent animationType="fade" onRequestClose={() => setPreviewUrl(null)}>
+      <Modal
+        visible={!!previewUrl}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewUrl(null)}
+      >
         <View style={styles.previewOverlay}>
           <TouchableOpacity
             style={[styles.previewClose, { top: insets.top + 12 }]}
@@ -444,7 +665,11 @@ export default function ChatScreen() {
             <X size={26} color="#FFFFFF" strokeWidth={2} />
           </TouchableOpacity>
           {previewUrl ? (
-            <Image source={{ uri: previewUrl }} style={styles.previewImage} resizeMode="contain" />
+            <Image
+              source={{ uri: previewUrl }}
+              style={styles.previewImage}
+              resizeMode="contain"
+            />
           ) : null}
         </View>
       </Modal>
@@ -463,7 +688,10 @@ function TypingDots({ color }: { color: string }) {
       {[0, 1, 2].map((i) => (
         <View
           key={i}
-          style={[styles.dot, { backgroundColor: color, opacity: tick === i ? 1 : 0.35 }]}
+          style={[
+            styles.dot,
+            { backgroundColor: color, opacity: tick === i ? 1 : 0.35 },
+          ]}
         />
       ))}
     </View>
@@ -526,14 +754,34 @@ const styles = StyleSheet.create({
   },
   metaText: { fontSize: 10.5 },
   typingBubble: { paddingVertical: 13, paddingHorizontal: 16 },
+  callStatusBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  callStatusText: { fontSize: 13, fontWeight: '500' },
+  callLockBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+  callLockText: { fontSize: 12, fontWeight: '600', flex: 1 },
   dotsRow: { flexDirection: 'row', gap: 4 },
   dot: { width: 6, height: 6, borderRadius: 3 },
   composer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
     paddingHorizontal: 12,
     paddingTop: 10,
     borderTopWidth: 1,
+  },
+  composerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
     gap: 8,
   },
   attachBtn: {

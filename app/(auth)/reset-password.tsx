@@ -10,15 +10,26 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { ArrowLeft, Lock, Package, Check, Eye, EyeOff } from 'lucide-react-native';
+import {
+  ArrowLeft,
+  Lock,
+  Package,
+  Check,
+  Eye,
+  EyeOff,
+} from 'lucide-react-native';
 import { router } from 'expo-router';
 import * as Linking from 'expo-linking';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAlert } from '@/contexts/AlertContext';
 import { supabase } from '@/lib/supabase';
 import { createSessionFromRedirectUrl } from '@/lib/socialAuth';
+import { FormError } from '@/components/FormError';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -28,7 +39,7 @@ import Animated, {
 export default function ResetPasswordScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
-  const { showAlert } = useAlert();
+  const { showToast } = useAlert();
 
   const [verifying, setVerifying] = useState(true);
   const [sessionReady, setSessionReady] = useState(false);
@@ -38,6 +49,7 @@ export default function ResetPasswordScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -53,7 +65,7 @@ export default function ResetPasswordScreen() {
         setLinkError(
           e instanceof Error
             ? e.message
-            : 'This reset link is invalid or has expired.'
+            : 'This reset link is invalid or has expired.',
         );
       } finally {
         if (active) setVerifying(false);
@@ -100,18 +112,19 @@ export default function ResetPasswordScreen() {
 
   const handleUpdatePassword = async () => {
     if (!password || !confirmPassword) {
-      showAlert('Error', 'Please fill in both password fields.');
+      setFormError('Please fill in both password fields.');
       return;
     }
     if (password.length < 8) {
-      showAlert('Error', 'Your new password must be at least 8 characters long.');
+      setFormError('Your new password must be at least 8 characters long.');
       return;
     }
     if (password !== confirmPassword) {
-      showAlert('Error', 'The passwords do not match.');
+      setFormError('The passwords do not match.');
       return;
     }
 
+    setFormError(null);
     setIsSaving(true);
     try {
       const { error } = await supabase.auth.updateUser({ password });
@@ -120,22 +133,13 @@ export default function ResetPasswordScreen() {
       // Clear the temporary recovery session so the user signs in fresh.
       await supabase.auth.signOut();
 
-      showAlert(
-        'Password Updated',
-        'Your password has been reset successfully. Please sign in with your new password.',
-        [
-          {
-            text: 'Sign In',
-            onPress: () => router.replace('/(auth)/login'),
-          },
-        ]
-      );
+      showToast('Password updated. Please sign in with your new password.');
+      router.replace('/(auth)/login');
     } catch (err) {
-      showAlert(
-        'Error',
+      setFormError(
         err instanceof Error
           ? err.message
-          : 'Could not update your password. Please try again.'
+          : 'Could not update your password. Please try again.',
       );
     } finally {
       setIsSaving(false);
@@ -161,9 +165,9 @@ export default function ResetPasswordScreen() {
       paddingBottom: 20,
     },
     backButton: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
       backgroundColor: theme.colors.surface,
       justifyContent: 'center',
       alignItems: 'center',
@@ -264,7 +268,9 @@ export default function ResetPasswordScreen() {
       return (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
-          <Text style={[styles.subtitle, { marginTop: 8 }]}>Verifying your reset link…</Text>
+          <Text style={[styles.subtitle, { marginTop: 8 }]}>
+            Verifying your reset link…
+          </Text>
         </View>
       );
     }
@@ -290,7 +296,12 @@ export default function ResetPasswordScreen() {
     return (
       <View style={styles.content}>
         <View style={styles.logoSection}>
-          <Package size={48} color={theme.colors.primary} strokeWidth={2} style={{ marginBottom: 12 }} />
+          <Package
+            size={48}
+            color={theme.colors.primary}
+            strokeWidth={2}
+            style={{ marginBottom: 12 }}
+          />
           <Text style={styles.title}>Set New Password</Text>
           <Text style={styles.subtitle}>
             Choose a strong new password for your Ridely account.
@@ -301,7 +312,11 @@ export default function ResetPasswordScreen() {
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>New Password</Text>
             <View style={styles.inputContainer}>
-              <Lock size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+              <Lock
+                size={20}
+                color={theme.colors.textSecondary}
+                strokeWidth={2}
+              />
               <TextInput
                 style={styles.input}
                 placeholder="Enter new password"
@@ -315,9 +330,17 @@ export default function ResetPasswordScreen() {
               />
               <TouchableOpacity onPress={() => setShowPassword((v) => !v)}>
                 {showPassword ? (
-                  <EyeOff size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+                  <EyeOff
+                    size={20}
+                    color={theme.colors.textSecondary}
+                    strokeWidth={2}
+                  />
                 ) : (
-                  <Eye size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+                  <Eye
+                    size={20}
+                    color={theme.colors.textSecondary}
+                    strokeWidth={2}
+                  />
                 )}
               </TouchableOpacity>
             </View>
@@ -326,7 +349,11 @@ export default function ResetPasswordScreen() {
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Confirm Password</Text>
             <View style={styles.inputContainer}>
-              <Lock size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+              <Lock
+                size={20}
+                color={theme.colors.textSecondary}
+                strokeWidth={2}
+              />
               <TextInput
                 style={styles.input}
                 placeholder="Re-enter new password"
@@ -341,6 +368,8 @@ export default function ResetPasswordScreen() {
             </View>
           </View>
 
+          <FormError message={formError} />
+
           <Pressable
             onPressIn={() => (buttonScale.value = withSpring(0.95))}
             onPressOut={() => (buttonScale.value = withSpring(1))}
@@ -348,7 +377,11 @@ export default function ResetPasswordScreen() {
             disabled={isSaving}
           >
             <Animated.View
-              style={[styles.resetButton, isSaving && styles.resetButtonDisabled, animatedStyle]}
+              style={[
+                styles.resetButton,
+                isSaving && styles.resetButtonDisabled,
+                animatedStyle,
+              ]}
             >
               <Check size={20} color="#FFFFFF" strokeWidth={2} />
               <Text style={styles.resetButtonText}>
@@ -369,7 +402,10 @@ export default function ResetPasswordScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.replace('/(auth)/login')}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.replace('/(auth)/login')}
+          >
             <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
           </TouchableOpacity>
         </View>

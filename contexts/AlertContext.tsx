@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useState, ReactNode, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export interface AlertButton {
   text: string;
@@ -23,8 +24,17 @@ interface AlertState {
   buttons: AlertButton[];
 }
 
+export type ToastKind = 'success' | 'error' | 'info';
+
+interface ToastState {
+  visible: boolean;
+  message: string;
+  kind: ToastKind;
+}
+
 interface AlertContextType {
   showAlert: (title: string, message?: string, buttons?: AlertButton[]) => void;
+  showToast: (message: string, kind?: ToastKind) => void;
 }
 
 const defaultButtons: AlertButton[] = [{ text: 'OK' }];
@@ -33,12 +43,25 @@ const AlertContext = createContext<AlertContextType | undefined>(undefined);
 
 export function AlertProvider({ children }: { children: ReactNode }) {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const [state, setState] = useState<AlertState>({
     visible: false,
     title: '',
     message: '',
     buttons: defaultButtons,
   });
+  const [toast, setToast] = useState<ToastState>({
+    visible: false,
+    message: '',
+    kind: 'success',
+  });
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    };
+  }, []);
 
   const showAlert = useCallback(
     (title: string, message?: string, buttons?: AlertButton[]) => {
@@ -51,6 +74,14 @@ export function AlertProvider({ children }: { children: ReactNode }) {
     },
     []
   );
+
+  const showToast = useCallback((message: string, kind: ToastKind = 'success') => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ visible: true, message, kind });
+    toastTimer.current = setTimeout(() => {
+      setToast((prev) => ({ ...prev, visible: false }));
+    }, 2800);
+  }, []);
 
   const close = useCallback(() => {
     setState((prev) => ({ ...prev, visible: false }));
@@ -66,9 +97,26 @@ export function AlertProvider({ children }: { children: ReactNode }) {
 
   const { visible, title, message, buttons } = state;
 
+  const toastBg =
+    toast.kind === 'error'
+      ? theme.colors.error
+      : toast.kind === 'info'
+        ? theme.colors.text
+        : '#059669';
+
   return (
-    <AlertContext.Provider value={{ showAlert }}>
+    <AlertContext.Provider value={{ showAlert, showToast }}>
       {children}
+      {toast.visible ? (
+        <View
+          pointerEvents="none"
+          style={[styles.toastWrap, { bottom: 24 + insets.bottom }]}
+        >
+          <View style={[styles.toast, { backgroundColor: toastBg }]}>
+            <Text style={styles.toastText}>{toast.message}</Text>
+          </View>
+        </View>
+      ) : null}
       <Modal
         visible={visible}
         transparent
@@ -183,5 +231,25 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  toastWrap: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    zIndex: 9999,
+    alignItems: 'center',
+  },
+  toast: {
+    maxWidth: 420,
+    width: '100%',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  toastText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });

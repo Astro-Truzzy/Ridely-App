@@ -12,6 +12,7 @@ import { queryClient } from '@/lib/queryClient';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { AlertProvider } from '@/contexts/AlertContext';
+import { AppSettingsProvider } from '@/contexts/AppSettingsContext';
 import { NotificationsProvider } from '@/contexts/NotificationsContext';
 import { VoiceCallProvider } from '@/contexts/VoiceCallContext';
 import { PushRegistration } from '@/components/PushRegistration';
@@ -29,6 +30,7 @@ function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <ThemeProvider>
             <AlertProvider>
+              <AppSettingsProvider>
               <AuthProvider>
                 <VoiceCallProvider>
                   <NotificationsProvider>
@@ -52,6 +54,7 @@ function RootLayout() {
                   </NotificationsProvider>
                 </VoiceCallProvider>
               </AuthProvider>
+              </AppSettingsProvider>
             </AlertProvider>
           </ThemeProvider>
         </QueryClientProvider>

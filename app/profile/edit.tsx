@@ -31,12 +31,13 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAlert } from '@/contexts/AlertContext';
 import { pickProfileImage, uploadAvatar } from '@/lib/avatarUpload';
+import { FormError } from '@/components/FormError';
 
 export default function EditProfileScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
   const { userProfile, user, updateProfile } = useAuth();
-  const { showAlert } = useAlert();
+  const { showAlert, showToast } = useAlert();
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [profile, setProfile] = useState({
     name: userProfile?.full_name || '',
@@ -54,6 +55,7 @@ export default function EditProfileScreen() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Update profile when userProfile changes
   useEffect(() => {
@@ -73,38 +75,39 @@ export default function EditProfileScreen() {
   const handleSave = async () => {
     // Validate inputs
     if (!profile.name.trim()) {
-      showAlert('Error', 'Name is required');
+      setFormError('Name is required');
       return;
     }
 
     if (!profile.email.trim() || !profile.email.includes('@')) {
-      showAlert('Error', 'Please enter a valid email address');
+      setFormError('Please enter a valid email address');
       return;
     }
 
     if (!profile.phone.trim()) {
-      showAlert('Error', 'Phone number is required');
+      setFormError('Phone number is required');
       return;
     }
 
     // Validate password change if user is trying to change it
     if (profile.newPassword || profile.confirmPassword) {
       if (!profile.currentPassword) {
-        showAlert('Error', 'Current password is required to change password');
+        setFormError('Current password is required to change password');
         return;
       }
 
       if (profile.newPassword !== profile.confirmPassword) {
-        showAlert('Error', 'New passwords do not match');
+        setFormError('New passwords do not match');
         return;
       }
 
       if (profile.newPassword.length < 6) {
-        showAlert('Error', 'New password must be at least 6 characters');
+        setFormError('New password must be at least 6 characters');
         return;
       }
     }
 
+    setFormError(null);
     setIsLoading(true);
 
     try {
@@ -123,12 +126,11 @@ export default function EditProfileScreen() {
       // Update profile in the database
       await updateProfile(updates);
 
-      showAlert('Success', 'Your profile has been updated successfully!', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      showToast('Profile updated');
+      router.back();
     } catch (error: any) {
       console.error('Profile update error:', error);
-      showAlert('Error', error.message || 'Failed to update profile');
+      setFormError(error.message || 'Failed to update profile');
     } finally {
       setIsLoading(false);
     }
@@ -154,10 +156,7 @@ export default function EditProfileScreen() {
         await updateProfile({ avatar_url: null });
         setAvatar(null);
       } catch (e) {
-        showAlert(
-          'Error',
-          e instanceof Error ? e.message : 'Could not remove photo.',
-        );
+        showToast(e instanceof Error ? e.message : 'Could not remove photo.', 'error');
       }
       return;
     }
@@ -171,10 +170,7 @@ export default function EditProfileScreen() {
       await updateProfile({ avatar_url: avatarUrl });
       setAvatar(avatarUrl);
     } catch (e) {
-      showAlert(
-        'Error',
-        e instanceof Error ? e.message : 'Could not update profile picture.',
-      );
+      showToast(e instanceof Error ? e.message : 'Could not update profile picture.', 'error');
     } finally {
       setUploadingAvatar(false);
     }
@@ -197,9 +193,9 @@ export default function EditProfileScreen() {
       borderBottomColor: theme.colors.border,
     },
     backButton: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 44,
+    height: 44,
+    borderRadius: 22,
       backgroundColor: theme.colors.card,
       justifyContent: 'center',
       alignItems: 'center',
@@ -633,6 +629,7 @@ export default function EditProfileScreen() {
 
       {/* Bottom Save Button */}
       <View style={styles.bottomContainer}>
+        <FormError message={formError} />
         <TouchableOpacity
           style={[
             styles.saveButtonLarge,

@@ -1,16 +1,17 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { Alert, AppState, AppStateStatus } from 'react-native';
+import { AppState, AppStateStatus } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAlert } from '@/contexts/AlertContext';
+import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { DeliveryRequestModal } from '@/components/rider/DeliveryRequestModal';
 import * as Notifications from 'expo-notifications';
 import { setNotificationResponseHandler } from '@/hooks/usePushNotifications';
 
 const RIDER_SCHEDULE_KEY = '@ridely/rider_notification_schedule';
-const RIDER_APP_SETTINGS_KEY = '@ridely/rider_app_settings';
 const USER_SCHEDULE_KEY = '@ridely/user_notification_schedule';
 
 function isWithinQuietHours(startTime: string, endTime: string): boolean {
@@ -35,6 +36,8 @@ const NotificationsContext = createContext<NotificationsContextType | undefined>
 
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {
   const { user, userType } = useAuth();
+  const { showToast } = useAlert();
+  const { receiptNotifications, pushNotifications } = useAppSettings();
   const [unreadCount, setUnreadCount] = useState(0);
   const [deliveryRequestModal, setDeliveryRequestModal] = useState<{ visible: boolean; deliveryId: string | null }>({
     visible: false,
@@ -57,6 +60,9 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         query = query.eq('user_id', user.id).is('rider_id', null);
       } else {
         query = query.eq('rider_id', user.id);
+      }
+      if (!receiptNotifications) {
+        query = query.neq('type', 'payment');
       }
       const { count, error } = await query;
       if (!error && mountedRef.current) setUnreadCount(count ?? 0);
@@ -90,6 +96,9 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
             const message = payload.new?.message ?? '';
             const notifType = payload.new?.type;
             const deliveryId = payload.new?.delivery_id ?? null;
+            if (notifType === 'payment' && !receiptNotifications) {
+              return;
+            }
             fetchUnreadCount();
 
             // Rider: delivery request → show custom modal with Accept/Reject (and optionally when app returns from background)
@@ -108,28 +117,21 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
               }
             }
 
-            let showAlert = true;
+            let showBanner = pushNotifications;
             if (isRider) {
-              try {
-                const settingsRaw = await AsyncStorage.getItem(RIDER_APP_SETTINGS_KEY);
-                if (settingsRaw) {
-                  const appSettings = JSON.parse(settingsRaw) as { pushNotifications?: boolean };
-                  if (appSettings.pushNotifications === false) showAlert = false;
-                }
-              } catch {}
-              if (showAlert) {
+              if (showBanner) {
                 try {
                   const raw = await AsyncStorage.getItem(RIDER_SCHEDULE_KEY);
                   if (raw) {
                     const schedule = JSON.parse(raw) as { quietHoursEnabled?: boolean; startTime?: string; endTime?: string };
                     if (schedule.quietHoursEnabled && schedule.startTime && schedule.endTime && isWithinQuietHours(schedule.startTime, schedule.endTime)) {
-                      showAlert = false;
+                      showBanner = false;
                     }
                   }
                 } catch {}
               }
             } else if (isCustomer) {
-              if (showAlert && notifType !== 'delivery_update') {
+              if (showBanner && notifType !== 'delivery_update') {
                 try {
                   const raw = await AsyncStorage.getItem(USER_SCHEDULE_KEY);
                   if (raw) {
@@ -140,26 +142,18 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
                       schedule.endTime &&
                       isWithinQuietHours(schedule.startTime, schedule.endTime)
                     ) {
-                      showAlert = false;
+                      showBanner = false;
                     }
                   }
                 } catch {}
               }
             }
 
-            if (showAlert && mountedRef.current) {
+            if (showBanner && mountedRef.current) {
               try {
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               } catch {}
-              const notificationsRoute = isRider ? '/(rider)/notifications' : '/notifications';
-              Alert.alert(
-                title,
-                message || 'You have a new notification.',
-                [
-                  { text: 'Later', style: 'cancel' },
-                  { text: 'View', onPress: () => router.push(notificationsRoute as any) },
-                ]
-              );
+              showToast(message || title, notifType === 'payment' ? 'success' : 'info');
             }
           }
         )
@@ -182,7 +176,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         supabase.removeChannel(channel);
       };
     }
-  }, [user?.id, isCustomer, isRider]);
+  }, [user?.id, isCustomer, isRider, receiptNotifications, pushNotifications, showToast]);
 
   // When app returns from background, show pending delivery request modal if we have one
   useEffect(() => {

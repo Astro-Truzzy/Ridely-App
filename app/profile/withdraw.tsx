@@ -34,7 +34,7 @@ function createIdempotencyKey(): string {
 export default function WithdrawScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
-  const { showAlert } = useAlert();
+  const { showAlert, showToast } = useAlert();
   const { balance, refetch: refetchWallet } = useWallet();
   const { refetch: refetchTransactions } = useTransactions();
   const { hasPin, loading: pinStatusLoading, refetch: refetchPin } = useWithdrawalPin();
@@ -166,9 +166,8 @@ export default function WithdrawScreen() {
       idempotencyKeyRef.current = createIdempotencyKey();
       await refetchWallet();
       await refetchTransactions();
-      showAlert('Withdrawal started', result.message ?? 'Your withdrawal is being processed.', [
-        { text: 'Done', onPress: () => router.back() },
-      ]);
+      showToast(result.message ?? 'Your withdrawal is being processed.');
+      router.back();
     } catch (e) {
       setPinError(e instanceof Error ? e.message : 'Withdrawal failed');
     } finally {
@@ -380,14 +379,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: { fontSize: 20, fontWeight: '700' },
-  placeholder: { width: 40 },
+  placeholder: { width: 44 },
   scrollView: { flex: 1 },
   balancePill: {
     flexDirection: 'row',

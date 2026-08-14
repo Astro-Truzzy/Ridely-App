@@ -12,12 +12,12 @@ import { ArrowLeft, CreditCard } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { useAlert } from '@/contexts/AlertContext';
 import {
   getPaystackCallbackPath,
   initializePaystackTransaction,
 } from '@/lib/paystack';
 import { setPendingPayment } from '@/lib/paymentWebViewState';
+import { TestPaymentsBanner } from '@/components/TestPaymentsBanner';
 
 const SAVE_CARD_AMOUNT_KOBO = 10000; // ₦100 — Paystack live minimum for many merchants
 
@@ -51,7 +51,6 @@ export default function AddCardScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
   const { user, userProfile } = useAuth();
-  const { showAlert } = useAlert();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -63,7 +62,7 @@ export default function AddCardScreen() {
   const startAddCard = useCallback(async () => {
     const email = user?.email || userProfile?.email || '';
     if (!email) {
-      showAlert('Error', 'Your account email is required to add a card.');
+      setLoadError('Your account email is required to add a card.');
       return;
     }
     setLoadError(null);
@@ -123,6 +122,8 @@ export default function AddCardScreen() {
         <View style={styles.placeholder} />
       </View>
 
+      <TestPaymentsBanner />
+
       {loading ? (
         <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -169,14 +170,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: { fontSize: 20, fontWeight: '700' },
-  placeholder: { width: 40 },
+  placeholder: { width: 44 },
   loadingWrap: {
     flex: 1,
     justifyContent: 'center',

@@ -15,6 +15,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useAlert } from '@/contexts/AlertContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { FormError } from '@/components/FormError';
 import {
   ArrowLeft,
   MessageCircle,
@@ -38,12 +39,13 @@ interface FAQ {
 export default function SupportScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
-  const { showAlert } = useAlert();
+  const { showAlert, showToast } = useAlert();
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedFAQ, setExpandedFAQ] = useState<string | null>(null);
   const [contactMessage, setContactMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const SUPPORT_PHONE = '+15551234357';
   const SUPPORT_EMAIL = 'ridelyi.nc@gmail.com';
 
@@ -63,7 +65,7 @@ export default function SupportScreen() {
     try {
       await Linking.openURL(`tel:${SUPPORT_PHONE}`);
     } catch {
-      showAlert('Call Support', `Unable to launch the dialer. Please call ${SUPPORT_PHONE}.`);
+      showToast(`Unable to launch the dialer. Please call ${SUPPORT_PHONE}.`, 'error');
     }
   };
 
@@ -136,11 +138,11 @@ export default function SupportScreen() {
   const handleSubmitSupport = async () => {
     const trimmed = contactMessage.trim();
     if (!trimmed) {
-      showAlert('Error', 'Please enter a message before submitting.');
+      setFormError('Please enter a message before submitting.');
       return;
     }
     if (!user?.id) {
-      showAlert('Error', 'You must be signed in to send a support request.');
+      setFormError('You must be signed in to send a support request.');
       return;
     }
     setSubmitting(true);
@@ -152,10 +154,11 @@ export default function SupportScreen() {
         category: 'general',
       });
       if (error) throw error;
-      showAlert('Message Sent', 'Thanks for contacting support. We will get back to you shortly.');
+      showToast('Thanks — we will get back to you shortly.');
       setContactMessage('');
+      setFormError(null);
     } catch (e) {
-      showAlert('Error', e instanceof Error ? e.message : 'Failed to send support message.');
+      setFormError(e instanceof Error ? e.message : 'Failed to send support message.');
     } finally {
       setSubmitting(false);
     }
@@ -281,8 +284,12 @@ export default function SupportScreen() {
               multiline
               numberOfLines={4}
               value={contactMessage}
-              onChangeText={setContactMessage}
+              onChangeText={(t) => {
+                setContactMessage(t);
+                setFormError(null);
+              }}
             />
+            <FormError message={formError} />
             <TouchableOpacity 
               style={[styles.contactButton, { backgroundColor: theme.colors.primary }]}
               onPress={handleSubmitSupport}
@@ -320,9 +327,9 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E5E7EB',
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',

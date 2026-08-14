@@ -19,6 +19,8 @@ const names = [
   'EXPO_PUBLIC_OAUTH_GOOGLE_ENABLED',
   'EXPO_PUBLIC_LIVEKIT_URL',
   'EXPO_PUBLIC_SENTRY_DSN',
+  'EXPO_PUBLIC_PAYSTACK_PUBLIC_KEY',
+  'EXPO_PUBLIC_PAYSTACK_TEST_MODE',
 ];
 
 const environments = ['production', 'preview', 'development'];

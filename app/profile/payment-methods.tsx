@@ -27,7 +27,7 @@ import { useWallet } from '@/hooks/useWallet';
 export default function PaymentMethodsScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
-  const { showAlert } = useAlert();
+  const { showAlert, showToast } = useAlert();
   const {
     methods: paymentMethods,
     loading,
@@ -44,7 +44,7 @@ export default function PaymentMethodsScreen() {
 
   const setDefaultPayment = (id: string) => {
     setDefault(id);
-    showAlert('Success', 'Default payment method updated');
+    showToast('Default payment method updated');
   };
 
   const removePaymentMethod = (id: string) => {
@@ -273,9 +273,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },

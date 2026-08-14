@@ -9,8 +9,13 @@ import {
   ActivityIndicator,
   Pressable,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import {
   ArrowLeft,
@@ -27,7 +32,10 @@ import { router, useLocalSearchParams } from 'expo-router';
 import * as Location from 'expo-location';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAlert } from '@/contexts/AlertContext';
-import { useAddressAutocomplete, AddressSuggestion } from '@/hooks/useAddressAutocomplete';
+import {
+  useAddressAutocomplete,
+  AddressSuggestion,
+} from '@/hooks/useAddressAutocomplete';
 import { useSavedAddresses } from '@/hooks/useSavedAddresses';
 import { reverseGeocodeCoords } from '@/lib/googleDirections';
 
@@ -79,17 +87,31 @@ function getDateOptions(): { label: string; date: Date }[] {
     const d = new Date(now);
     d.setDate(d.getDate() + i);
     d.setHours(0, 0, 0, 0);
-    const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    const label =
+      i === 0
+        ? 'Today'
+        : i === 1
+          ? 'Tomorrow'
+          : d.toLocaleDateString(undefined, {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+            });
     out.push({ label, date: d });
   }
   return out;
 }
 
 /** 30-min time slots from 6:00 to 20:00; if forDate is today, only future slots. */
-function getTimeSlots(forDate: Date): { label: string; hours: number; minutes: number }[] {
+function getTimeSlots(
+  forDate: Date,
+): { label: string; hours: number; minutes: number }[] {
   const slots: { label: string; hours: number; minutes: number }[] = [];
   const now = new Date();
-  const isToday = forDate.getDate() === now.getDate() && forDate.getMonth() === now.getMonth() && forDate.getFullYear() === now.getFullYear();
+  const isToday =
+    forDate.getDate() === now.getDate() &&
+    forDate.getMonth() === now.getMonth() &&
+    forDate.getFullYear() === now.getFullYear();
   for (let h = 6; h <= 20; h++) {
     for (let m = 0; m < 60; m += 30) {
       if (h === 20 && m > 0) break;
@@ -115,29 +137,56 @@ export default function AddressScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
   const { showAlert } = useAlert();
-  const { size, scheduleLater, rebookPickup, rebookDropoff, pickupLat, pickupLon, dropoffLat, dropoffLon } =
-    useLocalSearchParams<{
-      size: string;
-      scheduleLater?: string;
-      rebookPickup?: string;
-      rebookDropoff?: string;
-      pickupLat?: string;
-      pickupLon?: string;
-      dropoffLat?: string;
-      dropoffLon?: string;
-    }>();
+  const {
+    size,
+    scheduleLater,
+    rebookPickup,
+    rebookDropoff,
+    pickupLat,
+    pickupLon,
+    dropoffLat,
+    dropoffLon,
+  } = useLocalSearchParams<{
+    size: string;
+    scheduleLater?: string;
+    rebookPickup?: string;
+    rebookDropoff?: string;
+    pickupLat?: string;
+    pickupLon?: string;
+    dropoffLat?: string;
+    dropoffLon?: string;
+  }>();
   const [pickupAddress, setPickupAddress] = useState('');
   const [dropoffAddress, setDropoffAddress] = useState('');
-  const [pickupCoords, setPickupCoords] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [dropoffCoords, setDropoffCoords] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [deliveryTime, setDeliveryTime] = useState<'now' | 'scheduled'>(scheduleLater ? 'scheduled' : 'now');
+  const [pickupCoords, setPickupCoords] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [dropoffCoords, setDropoffCoords] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [deliveryTime, setDeliveryTime] = useState<'now' | 'scheduled'>(
+    scheduleLater ? 'scheduled' : 'now',
+  );
   const [scheduledTime, setScheduledTime] = useState('');
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [pickerDate, setPickerDate] = useState<Date>(() => getDefaultScheduledDate());
-  const [modalSelectedDate, setModalSelectedDate] = useState<Date>(() => getDefaultScheduledDate());
-  const [modalSelectedTime, setModalSelectedTime] = useState({ hours: 9, minutes: 0 });
+  const [pickerDate, setPickerDate] = useState<Date>(() =>
+    getDefaultScheduledDate(),
+  );
+  const [modalSelectedDate, setModalSelectedDate] = useState<Date>(() =>
+    getDefaultScheduledDate(),
+  );
+  const [modalSelectedTime, setModalSelectedTime] = useState({
+    hours: 9,
+    minutes: 0,
+  });
   const [locationLoading, setLocationLoading] = useState(false);
-  
+  const [addressStep, setAddressStep] = useState<'pickup' | 'dropoff'>(
+    'pickup',
+  );
+  const didAutoLocate = useRef(false);
+
   // Address autocomplete for pickup
   const [showPickupSuggestions, setShowPickupSuggestions] = useState(false);
   const [pickupInputFocused, setPickupInputFocused] = useState(false);
@@ -179,7 +228,29 @@ export default function AddressScreen() {
         longitude: parseFloat(dropoffLon),
       });
     }
-  }, [rebookPickup, rebookDropoff, pickupLat, pickupLon, dropoffLat, dropoffLon]);
+  }, [
+    rebookPickup,
+    rebookDropoff,
+    pickupLat,
+    pickupLon,
+    dropoffLat,
+    dropoffLon,
+  ]);
+
+  useEffect(() => {
+    if (rebookPickup || (pickupLat && pickupLon)) {
+      if (rebookDropoff || (dropoffLat && dropoffLon)) {
+        setAddressStep('dropoff');
+      }
+    }
+  }, [
+    rebookPickup,
+    rebookDropoff,
+    pickupLat,
+    pickupLon,
+    dropoffLat,
+    dropoffLon,
+  ]);
 
   const savedAddresses: Address[] = savedAddressesFromDb.map((a) => ({
     id: a.id,
@@ -219,27 +290,34 @@ export default function AddressScreen() {
       if (status !== 'granted') {
         showAlert(
           'Location Permission',
-          'Please enable location access to use your current location as the pickup address.'
+          'Please enable location access to use your current location as the pickup address.',
         );
         return;
       }
 
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
       const { latitude, longitude } = loc.coords;
 
       let address = await reverseGeocodeCoords(latitude, longitude);
       if (!address) {
-        const results = await Location.reverseGeocodeAsync({ latitude, longitude });
+        const results = await Location.reverseGeocodeAsync({
+          latitude,
+          longitude,
+        });
         if (results.length > 0) {
           const r = results[0];
-          address = [r.name, r.street, r.city, r.region].filter(Boolean).join(', ');
+          address = [r.name, r.street, r.city, r.region]
+            .filter(Boolean)
+            .join(', ');
         }
       }
 
       if (!address) {
         showAlert(
           'Location Error',
-          'Could not determine your address. Please enter the pickup address manually.'
+          'Could not determine your address. Please enter the pickup address manually.',
         );
         return;
       }
@@ -253,16 +331,28 @@ export default function AddressScreen() {
       console.warn('Failed to get location:', e);
       showAlert(
         'Location Error',
-        'Unable to get your current location. Please try again or enter an address manually.'
+        'Unable to get your current location. Please try again or enter an address manually.',
       );
     } finally {
       setLocationLoading(false);
     }
   };
 
+  useEffect(() => {
+    if (didAutoLocate.current) return;
+    if (rebookPickup || (pickupLat && pickupLon)) return;
+    didAutoLocate.current = true;
+    handleUseMyLocation();
+    // Intentionally run once on first visit so pickup defaults to current location.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const selectPickupSuggestion = async (suggestion: AddressSuggestion) => {
     let resolved = suggestion;
-    if (typeof suggestion.place_id === 'string' && (!suggestion.lat || !suggestion.lon)) {
+    if (
+      typeof suggestion.place_id === 'string' &&
+      (!suggestion.lat || !suggestion.lon)
+    ) {
       const details = await getPickupPlaceDetails(suggestion.place_id);
       if (!details) return;
       resolved = details;
@@ -279,7 +369,10 @@ export default function AddressScreen() {
 
   const selectDropoffSuggestion = async (suggestion: AddressSuggestion) => {
     let resolved = suggestion;
-    if (typeof suggestion.place_id === 'string' && (!suggestion.lat || !suggestion.lon)) {
+    if (
+      typeof suggestion.place_id === 'string' &&
+      (!suggestion.lat || !suggestion.lon)
+    ) {
       const details = await getDropoffPlaceDetails(suggestion.place_id);
       if (!details) return;
       resolved = details;
@@ -294,22 +387,38 @@ export default function AddressScreen() {
     dropoffInputRef.current?.blur();
   };
 
+  const goToDropoffStep = () => {
+    if (!pickupAddress || !pickupCoords) {
+      showAlert(
+        'Select a pickup address',
+        'Choose a suggestion, a saved address, or Use my location so we can pin the pickup.',
+      );
+      return;
+    }
+    setShowPickupSuggestions(false);
+    pickupInputRef.current?.blur();
+    setAddressStep('dropoff');
+  };
+
   const handleContinue = () => {
-    if (!pickupAddress || !dropoffAddress) {
-      showAlert('Missing Information', 'Please enter both pickup and dropoff addresses');
+    if (addressStep === 'pickup') {
+      goToDropoffStep();
       return;
     }
 
-    if (!pickupCoords || !dropoffCoords) {
+    if (!pickupCoords || !dropoffAddress || !dropoffCoords) {
       showAlert(
-        'Address Validation',
-        'Please select addresses from the suggestions to ensure accurate delivery location.'
+        'Select a dropoff address',
+        'Choose an address from the list below so the rider can find it.',
       );
       return;
     }
 
     if (deliveryTime === 'scheduled' && !scheduledTime) {
-      showAlert('Missing Information', 'Please select a scheduled delivery time');
+      showAlert(
+        'Missing Information',
+        'Please select a scheduled delivery time',
+      );
       return;
     }
 
@@ -333,19 +442,43 @@ export default function AddressScreen() {
     if (type === 'pickup') {
       setPickupAddress(address.address);
       if (address.latitude != null && address.longitude != null) {
-        setPickupCoords({ latitude: address.latitude, longitude: address.longitude });
+        setPickupCoords({
+          latitude: address.latitude,
+          longitude: address.longitude,
+        });
       } else {
         setPickupCoords(null);
       }
+      setShowPickupSuggestions(false);
     } else {
       setDropoffAddress(address.address);
       if (address.latitude != null && address.longitude != null) {
-        setDropoffCoords({ latitude: address.latitude, longitude: address.longitude });
+        setDropoffCoords({
+          latitude: address.latitude,
+          longitude: address.longitude,
+        });
       } else {
         setDropoffCoords(null);
       }
+      setShowDropoffSuggestions(false);
     }
   };
+
+  const handleBack = () => {
+    if (addressStep === 'dropoff') {
+      setAddressStep('pickup');
+      return;
+    }
+    router.back();
+  };
+
+  const pickupReady = !!(pickupAddress && pickupCoords);
+  const dropoffReady = !!(
+    dropoffAddress &&
+    dropoffCoords &&
+    (deliveryTime !== 'scheduled' || !!scheduledTime)
+  );
+  const continueEnabled = addressStep === 'pickup' ? pickupReady : dropoffReady;
 
   return (
     <SafeAreaView
@@ -354,397 +487,1091 @@ export default function AddressScreen() {
     >
       <StatusBar style={isDark ? 'light' : 'dark'} />
       {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.colors.card, borderBottomColor: theme.colors.border, paddingTop: 16 + insets.top }]}>
-        <TouchableOpacity style={[styles.backButton, { backgroundColor: theme.colors.surface }]} onPress={() => router.back()}>
+      <View
+        style={[
+          styles.header,
+          {
+            backgroundColor: theme.colors.card,
+            borderBottomColor: theme.colors.border,
+            paddingTop: 16 + insets.top,
+          },
+        ]}
+      >
+        <TouchableOpacity
+          style={[styles.backButton, { backgroundColor: theme.colors.surface }]}
+          onPress={handleBack}
+        >
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
-        <Text style={[styles.title, { color: theme.colors.text }]}>Addresses & Time</Text>
+        <Text style={[styles.title, { color: theme.colors.text }]}>
+          {addressStep === 'pickup' ? 'Pickup' : 'Dropoff & time'}
+        </Text>
         <View style={styles.placeholder} />
       </View>
 
-      <ScrollView 
-        style={styles.scrollView} 
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-        nestedScrollEnabled={true}
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       >
-        {/* Progress Indicator */}
-        <View style={styles.progressContainer}>
-          <View style={styles.progressBar}>
-            <View style={[styles.progressStep, { backgroundColor: theme.colors.success }]} />
-            <View style={[styles.progressStep, { backgroundColor: theme.colors.primary }]} />
-            <View style={[styles.progressStep, { backgroundColor: theme.colors.border }]} />
-            <View style={[styles.progressStep, { backgroundColor: theme.colors.border }]} />
-          </View>
-          <Text style={[styles.progressText, { color: theme.colors.textSecondary }]}>Step 2 of 4</Text>
-        </View>
-
-        {/* Content */}
-        <View style={styles.content}>
-          {/* Pickup Address */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <MapPin size={24} color={theme.colors.success} strokeWidth={2} />
-              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Pickup Address</Text>
-            </View>
-
-            <View style={styles.inputContainer}>
-              <TextInput
-                ref={pickupInputRef}
-                style={[styles.addressInput, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, color: theme.colors.text }]}
-                placeholder="Enter pickup address"
-                placeholderTextColor={theme.colors.textSecondary}
-                value={pickupAddress}
-                onChangeText={handlePickupAddressChange}
-                onFocus={() => {
-                  setPickupInputFocused(true);
-                  if (pickupAddress.trim().length >= 2) {
-                    setShowPickupSuggestions(true);
-                  }
-                }}
-                onBlur={() => {
-                  setTimeout(() => {
-                    if (showPickupSuggestions && !pickupInputFocused) setShowPickupSuggestions(false);
-                    setPickupInputFocused(false);
-                  }, 200);
-                }}
-                multiline={false}
-                editable={true}
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="interactive"
+          nestedScrollEnabled={true}
+        >
+          {/* Progress Indicator */}
+          <View style={styles.progressContainer}>
+            <View style={styles.progressBar}>
+              <View
+                style={[
+                  styles.progressStep,
+                  { backgroundColor: theme.colors.success },
+                ]}
               />
-              {pickupAddress.length > 0 && (
-                <TouchableOpacity
-                  style={styles.clearButton}
-                  onPress={() => {
-                    setPickupAddress('');
-                    setPickupCoords(null);
-                    clearPickupSuggestions();
-                    setShowPickupSuggestions(false);
-                  }}>
-                  <X size={18} color={theme.colors.textSecondary} strokeWidth={2} />
-                </TouchableOpacity>
-              )}
-              {pickupLoading && (
-                <View style={styles.loadingIndicator}>
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                </View>
-              )}
+              <View
+                style={[
+                  styles.progressStep,
+                  { backgroundColor: theme.colors.primary },
+                ]}
+              />
+              <View
+                style={[
+                  styles.progressStep,
+                  { backgroundColor: theme.colors.border },
+                ]}
+              />
+              <View
+                style={[
+                  styles.progressStep,
+                  { backgroundColor: theme.colors.border },
+                ]}
+              />
             </View>
-
-            <TouchableOpacity
+            <Text
               style={[
-                styles.useLocationButton,
-                { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
-                locationLoading && styles.useLocationButtonDisabled,
+                styles.progressText,
+                { color: theme.colors.textSecondary },
               ]}
-              onPress={handleUseMyLocation}
-              disabled={locationLoading}
-              activeOpacity={0.7}>
-              {locationLoading ? (
-                <ActivityIndicator size="small" color={theme.colors.primary} />
-              ) : (
-                <Navigation size={18} color={theme.colors.primary} strokeWidth={2} />
-              )}
-              <Text style={[styles.useLocationText, { color: theme.colors.primary }]}>
-                {locationLoading ? 'Getting your location...' : 'Use my location'}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Pickup Address Suggestions */}
-            {showPickupSuggestions && pickupSuggestions.length > 0 && (
-              <View style={[styles.suggestionsContainer, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                <ScrollView
-                  style={styles.suggestionsScroll}
-                  contentContainerStyle={styles.suggestionsScrollContent}
-                  nestedScrollEnabled
-                  keyboardShouldPersistTaps="handled"
-                  showsVerticalScrollIndicator={true}>
-                  {pickupSuggestions.map((item) => (
-                    <TouchableOpacity
-                      key={item.place_id.toString()}
-                      style={[styles.suggestionItem, { borderBottomColor: theme.colors.border }]}
-                      activeOpacity={0.6}
-                      onPress={() => selectPickupSuggestion(item)}>
-                      <MapPin size={16} color={theme.colors.primary} strokeWidth={2} />
-                      <Text style={[styles.suggestionText, { color: theme.colors.text }]} numberOfLines={2}>
-                        {item.display_name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            {/* Saved Addresses (user-defined from Profile) */}
-            {savedAddresses.length > 0 && (
-              <>
-                <Text style={[styles.savedTitle, { color: theme.colors.textSecondary }]}>Saved Addresses</Text>
-                {savedAddresses.map((address) => (
-                  <TouchableOpacity
-                    key={address.id}
-                    style={[styles.savedAddressCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
-                    onPress={() => selectAddress(address, 'pickup')}>
-                    <View style={[styles.addressIcon, { backgroundColor: theme.colors.surface }]}>
-                      <address.icon size={20} color={theme.colors.primary} strokeWidth={2} />
-                    </View>
-                    <View style={styles.addressInfo}>
-                      <Text style={[styles.addressLabel, { color: theme.colors.text }]}>{address.label}</Text>
-                      <Text style={[styles.addressText, { color: theme.colors.textSecondary }]}>{address.address}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </>
-            )}
+            >
+              Step 2 of 4
+            </Text>
           </View>
 
-          {/* Dropoff Address */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <MapPin size={24} color={theme.colors.error} strokeWidth={2} />
-              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Dropoff Address</Text>
-            </View>
-
-            <View style={styles.inputContainer}>
-              <TextInput
-                ref={dropoffInputRef}
-                style={[styles.addressInput, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, color: theme.colors.text }]}
-                placeholder="Enter dropoff address"
-                placeholderTextColor={theme.colors.textSecondary}
-                value={dropoffAddress}
-                onChangeText={handleDropoffAddressChange}
-                onFocus={() => {
-                  setDropoffInputFocused(true);
-                  if (dropoffAddress.trim().length >= 2) {
-                    setShowDropoffSuggestions(true);
-                  }
-                }}
-                onBlur={() => {
-                  setTimeout(() => {
-                    if (showDropoffSuggestions && !dropoffInputFocused) setShowDropoffSuggestions(false);
-                    setDropoffInputFocused(false);
-                  }, 200);
-                }}
-                multiline={false}
-                editable={true}
-              />
-              {dropoffAddress.length > 0 && (
-                <TouchableOpacity
-                  style={styles.clearButton}
-                  onPress={() => {
-                    setDropoffAddress('');
-                    setDropoffCoords(null);
-                    clearDropoffSuggestions();
-                    setShowDropoffSuggestions(false);
-                  }}>
-                  <X size={18} color={theme.colors.textSecondary} strokeWidth={2} />
-                </TouchableOpacity>
-              )}
-              {dropoffLoading && (
-                <View style={styles.loadingIndicator}>
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
+          {/* Content */}
+          <View style={styles.content}>
+            {addressStep === 'pickup' ? (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <MapPin
+                    size={24}
+                    color={theme.colors.success}
+                    strokeWidth={2}
+                  />
+                  <Text
+                    style={[styles.sectionTitle, { color: theme.colors.text }]}
+                  >
+                    Pickup Address
+                  </Text>
                 </View>
-              )}
-            </View>
 
-            {/* Dropoff Address Suggestions */}
-            {showDropoffSuggestions && dropoffSuggestions.length > 0 && (
-              <View style={[styles.suggestionsContainer, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                <ScrollView
-                  style={styles.suggestionsScroll}
-                  contentContainerStyle={styles.suggestionsScrollContent}
-                  nestedScrollEnabled
-                  keyboardShouldPersistTaps="handled"
-                  showsVerticalScrollIndicator={true}>
-                  {dropoffSuggestions.map((item) => (
+                <View style={styles.inputContainer}>
+                  <TextInput
+                    ref={pickupInputRef}
+                    style={[
+                      styles.addressInput,
+                      {
+                        backgroundColor: theme.colors.card,
+                        borderColor: theme.colors.border,
+                        color: theme.colors.text,
+                      },
+                    ]}
+                    placeholder="Enter pickup address"
+                    placeholderTextColor={theme.colors.textSecondary}
+                    value={pickupAddress}
+                    onChangeText={handlePickupAddressChange}
+                    onFocus={() => {
+                      setPickupInputFocused(true);
+                      if (pickupAddress.trim().length >= 2) {
+                        setShowPickupSuggestions(true);
+                      }
+                    }}
+                    onBlur={() => {
+                      setTimeout(() => {
+                        if (showPickupSuggestions && !pickupInputFocused)
+                          setShowPickupSuggestions(false);
+                        setPickupInputFocused(false);
+                      }, 200);
+                    }}
+                    multiline={false}
+                    editable={true}
+                  />
+                  {pickupAddress.length > 0 && (
                     <TouchableOpacity
-                      key={item.place_id.toString()}
-                      style={[styles.suggestionItem, { borderBottomColor: theme.colors.border }]}
-                      activeOpacity={0.6}
-                      onPress={() => selectDropoffSuggestion(item)}>
-                      <MapPin size={16} color={theme.colors.error} strokeWidth={2} />
-                      <Text style={[styles.suggestionText, { color: theme.colors.text }]} numberOfLines={2}>
-                        {item.display_name}
-                      </Text>
+                      style={styles.clearButton}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      onPress={() => {
+                        setPickupAddress('');
+                        setPickupCoords(null);
+                        clearPickupSuggestions();
+                        setShowPickupSuggestions(false);
+                      }}
+                    >
+                      <X
+                        size={18}
+                        color={theme.colors.textSecondary}
+                        strokeWidth={2}
+                      />
                     </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            {/* Saved Addresses (user-defined from Profile) */}
-            {savedAddresses.length > 0 && (
-              <>
-                <Text style={[styles.savedTitle, { color: theme.colors.textSecondary }]}>Saved Addresses</Text>
-                {savedAddresses.map((address) => (
-                  <TouchableOpacity
-                    key={address.id}
-                    style={[styles.savedAddressCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
-                    onPress={() => selectAddress(address, 'dropoff')}>
-                    <View style={[styles.addressIcon, { backgroundColor: theme.colors.surface }]}>
-                      <address.icon size={20} color={theme.colors.primary} strokeWidth={2} />
+                  )}
+                  {pickupLoading && (
+                    <View style={styles.loadingIndicator}>
+                      <ActivityIndicator
+                        size="small"
+                        color={theme.colors.primary}
+                      />
                     </View>
-                    <View style={styles.addressInfo}>
-                      <Text style={[styles.addressLabel, { color: theme.colors.text }]}>{address.label}</Text>
-                      <Text style={[styles.addressText, { color: theme.colors.textSecondary }]}>{address.address}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </>
-            )}
-          </View>
+                  )}
+                </View>
+                {showPickupSuggestions && pickupAddress.trim().length >= 2 ? (
+                  <Text
+                    style={[
+                      styles.hintText,
+                      { color: theme.colors.textSecondary },
+                    ]}
+                  >
+                    Select an address below
+                  </Text>
+                ) : null}
 
-          {/* Delivery Time */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Clock size={24} color={theme.colors.warning} strokeWidth={2} />
-              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Delivery Time</Text>
-            </View>
-
-            <View style={styles.timeOptions}>
-              <TouchableOpacity
-                style={[
-                  styles.timeOption,
-                  { backgroundColor: theme.colors.card, borderColor: theme.colors.border },
-                  deliveryTime === 'now' && { borderColor: theme.colors.primary, backgroundColor: theme.colors.surface },
-                ]}
-                onPress={() => setDeliveryTime('now')}>
-                <Text style={[styles.timeOptionText, { color: theme.colors.text }, deliveryTime === 'now' && { color: theme.colors.primary }]}>Deliver Now</Text>
-                <Text style={[styles.timeOptionSubtext, { color: theme.colors.textSecondary }, deliveryTime === 'now' && { color: theme.colors.primary }]}>Pickup within 15-30 mins</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.timeOption,
-                  { backgroundColor: theme.colors.card, borderColor: theme.colors.border },
-                  deliveryTime === 'scheduled' && { borderColor: theme.colors.primary, backgroundColor: theme.colors.surface },
-                ]}
-                onPress={() => setDeliveryTime('scheduled')}>
-                <Text style={[styles.timeOptionText, { color: theme.colors.text }, deliveryTime === 'scheduled' && { color: theme.colors.primary }]}>Schedule for Later</Text>
-                <Text style={[styles.timeOptionSubtext, { color: theme.colors.textSecondary }, deliveryTime === 'scheduled' && { color: theme.colors.primary }]}>Choose pickup time</Text>
-              </TouchableOpacity>
-            </View>
-
-            {deliveryTime === 'scheduled' && (
-              <View style={styles.timeInput}>
                 <TouchableOpacity
-                  style={[styles.input, styles.scheduleTouchable, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
-                  onPress={() => {
-                    const base = scheduledTime ? new Date(scheduledTime) : getDefaultScheduledDate();
-                    setPickerDate(base);
-                    let day = new Date(base.getFullYear(), base.getMonth(), base.getDate());
-                    let time = { hours: base.getHours(), minutes: base.getMinutes() };
-                    const slots = getTimeSlots(day);
-                    if (slots.length === 0) {
-                      const tomorrow = new Date(day);
-                      tomorrow.setDate(tomorrow.getDate() + 1);
-                      day = tomorrow;
-                      time = { hours: 9, minutes: 0 };
-                    }
-                    setModalSelectedDate(day);
-                    setModalSelectedTime(time);
-                    setShowDatePicker(true);
-                  }}
+                  style={[
+                    styles.useLocationButton,
+                    {
+                      backgroundColor: theme.colors.surface,
+                      borderColor: theme.colors.border,
+                    },
+                    locationLoading && styles.useLocationButtonDisabled,
+                  ]}
+                  onPress={handleUseMyLocation}
+                  disabled={locationLoading}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.scheduleTouchableText, { color: scheduledTime ? theme.colors.text : theme.colors.textSecondary }]}>
-                    {scheduledTime ? formatScheduledDisplay(scheduledTime) : 'Select date and time'}
+                  {locationLoading ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={theme.colors.primary}
+                    />
+                  ) : (
+                    <Navigation
+                      size={18}
+                      color={theme.colors.primary}
+                      strokeWidth={2}
+                    />
+                  )}
+                  <Text
+                    style={[
+                      styles.useLocationText,
+                      { color: theme.colors.primary },
+                    ]}
+                  >
+                    {locationLoading
+                      ? 'Getting your location...'
+                      : 'Use my location'}
                   </Text>
-                  <Clock size={20} color={theme.colors.textSecondary} strokeWidth={2} />
                 </TouchableOpacity>
-              </View>
-            )}
 
-            {/* Date/time picker modal (JS-only, works in Expo Go) */}
-            <Modal visible={showDatePicker} transparent animationType="slide">
-              <Pressable style={styles.datePickerOverlay} onPress={() => setShowDatePicker(false)}>
-                <View style={[styles.datePickerModal, { backgroundColor: theme.colors.card }]} onStartShouldSetResponder={() => true}>
-                  <View style={[styles.datePickerHeader, { borderBottomColor: theme.colors.border }]}>
-                    <TouchableOpacity onPress={() => setShowDatePicker(false)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-                      <Text style={[styles.datePickerCancel, { color: theme.colors.textSecondary }]}>Cancel</Text>
-                    </TouchableOpacity>
-                    <Text style={[styles.datePickerTitle, { color: theme.colors.text }]}>Pickup date & time</Text>
-                    <TouchableOpacity
-                      onPress={() => {
-                        const d = new Date(modalSelectedDate.getFullYear(), modalSelectedDate.getMonth(), modalSelectedDate.getDate(), modalSelectedTime.hours, modalSelectedTime.minutes, 0, 0);
-                        setPickerDate(d);
-                        setScheduledTime(d.toISOString());
-                        setShowDatePicker(false);
-                      }}
-                      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                {showPickupSuggestions && pickupAddress.trim().length >= 2 ? (
+                  <View
+                    style={[
+                      styles.suggestionsContainer,
+                      {
+                        backgroundColor: theme.colors.card,
+                        borderColor: theme.colors.border,
+                      },
+                    ]}
+                  >
+                    {pickupLoading && pickupSuggestions.length === 0 ? (
+                      <View style={styles.suggestionStatus}>
+                        <ActivityIndicator
+                          size="small"
+                          color={theme.colors.primary}
+                        />
+                        <Text
+                          style={[
+                            styles.suggestionStatusText,
+                            { color: theme.colors.textSecondary },
+                          ]}
+                        >
+                          Searching…
+                        </Text>
+                      </View>
+                    ) : null}
+                    {!pickupLoading && pickupSuggestions.length === 0 ? (
+                      <Text
+                        style={[
+                          styles.suggestionStatusText,
+                          styles.suggestionStatus,
+                          { color: theme.colors.textSecondary },
+                        ]}
+                      >
+                        No matches. Try a street name or landmark.
+                      </Text>
+                    ) : null}
+                    {pickupSuggestions.length === 1 ? (
+                      <TouchableOpacity
+                        style={[
+                          styles.useThisButton,
+                          { backgroundColor: theme.colors.primary },
+                        ]}
+                        onPress={() =>
+                          selectPickupSuggestion(pickupSuggestions[0])
+                        }
+                      >
+                        <Text style={styles.useThisButtonText}>
+                          Use this address
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    <ScrollView
+                      style={styles.suggestionsScroll}
+                      contentContainerStyle={styles.suggestionsScrollContent}
+                      nestedScrollEnabled
+                      keyboardShouldPersistTaps="always"
+                      showsVerticalScrollIndicator={true}
                     >
-                      <Text style={[styles.datePickerConfirm, { color: theme.colors.primary }]}>Confirm</Text>
+                      {pickupSuggestions.map((item) => (
+                        <TouchableOpacity
+                          key={item.place_id.toString()}
+                          style={[
+                            styles.suggestionItem,
+                            { borderBottomColor: theme.colors.border },
+                          ]}
+                          activeOpacity={0.6}
+                          onPress={() => selectPickupSuggestion(item)}
+                        >
+                          <MapPin
+                            size={16}
+                            color={theme.colors.primary}
+                            strokeWidth={2}
+                          />
+                          <Text
+                            style={[
+                              styles.suggestionText,
+                              { color: theme.colors.text },
+                            ]}
+                            numberOfLines={2}
+                          >
+                            {item.display_name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                ) : null}
+
+                {/* Saved Addresses (user-defined from Profile) */}
+                {savedAddresses.length > 0 && (
+                  <>
+                    <Text
+                      style={[
+                        styles.savedTitle,
+                        { color: theme.colors.textSecondary },
+                      ]}
+                    >
+                      Saved Addresses
+                    </Text>
+                    {savedAddresses.map((address) => (
+                      <TouchableOpacity
+                        key={address.id}
+                        style={[
+                          styles.savedAddressCard,
+                          {
+                            backgroundColor: theme.colors.card,
+                            borderColor: theme.colors.border,
+                          },
+                        ]}
+                        onPress={() => selectAddress(address, 'pickup')}
+                      >
+                        <View
+                          style={[
+                            styles.addressIcon,
+                            { backgroundColor: theme.colors.surface },
+                          ]}
+                        >
+                          <address.icon
+                            size={20}
+                            color={theme.colors.primary}
+                            strokeWidth={2}
+                          />
+                        </View>
+                        <View style={styles.addressInfo}>
+                          <Text
+                            style={[
+                              styles.addressLabel,
+                              { color: theme.colors.text },
+                            ]}
+                          >
+                            {address.label}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.addressText,
+                              { color: theme.colors.textSecondary },
+                            ]}
+                          >
+                            {address.address}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </>
+                )}
+              </View>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={[
+                    styles.pickupSummary,
+                    {
+                      backgroundColor: theme.colors.card,
+                      borderColor: theme.colors.border,
+                    },
+                  ]}
+                  onPress={() => setAddressStep('pickup')}
+                  activeOpacity={0.7}
+                >
+                  <MapPin
+                    size={18}
+                    color={theme.colors.success}
+                    strokeWidth={2}
+                  />
+                  <View style={styles.addressInfo}>
+                    <Text
+                      style={[
+                        styles.pickupSummaryLabel,
+                        { color: theme.colors.textSecondary },
+                      ]}
+                    >
+                      Pickup
+                    </Text>
+                    <Text
+                      style={[
+                        styles.pickupSummaryText,
+                        { color: theme.colors.text },
+                      ]}
+                      numberOfLines={2}
+                    >
+                      {pickupAddress}
+                    </Text>
+                  </View>
+                  <Text
+                    style={[styles.changeLink, { color: theme.colors.primary }]}
+                  >
+                    Change
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Dropoff Address */}
+                <View style={styles.section}>
+                  <View style={styles.sectionHeader}>
+                    <MapPin
+                      size={24}
+                      color={theme.colors.error}
+                      strokeWidth={2}
+                    />
+                    <Text
+                      style={[
+                        styles.sectionTitle,
+                        { color: theme.colors.text },
+                      ]}
+                    >
+                      Dropoff Address
+                    </Text>
+                  </View>
+
+                  <View style={styles.inputContainer}>
+                    <TextInput
+                      ref={dropoffInputRef}
+                      style={[
+                        styles.addressInput,
+                        {
+                          backgroundColor: theme.colors.card,
+                          borderColor: theme.colors.border,
+                          color: theme.colors.text,
+                        },
+                      ]}
+                      placeholder="Enter dropoff address"
+                      placeholderTextColor={theme.colors.textSecondary}
+                      value={dropoffAddress}
+                      onChangeText={handleDropoffAddressChange}
+                      onFocus={() => {
+                        setDropoffInputFocused(true);
+                        if (dropoffAddress.trim().length >= 2) {
+                          setShowDropoffSuggestions(true);
+                        }
+                      }}
+                      onBlur={() => {
+                        setTimeout(() => {
+                          if (showDropoffSuggestions && !dropoffInputFocused)
+                            setShowDropoffSuggestions(false);
+                          setDropoffInputFocused(false);
+                        }, 200);
+                      }}
+                      multiline={false}
+                      editable={true}
+                    />
+                    {dropoffAddress.length > 0 && (
+                      <TouchableOpacity
+                        style={styles.clearButton}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        onPress={() => {
+                          setDropoffAddress('');
+                          setDropoffCoords(null);
+                          clearDropoffSuggestions();
+                          setShowDropoffSuggestions(false);
+                        }}
+                      >
+                        <X
+                          size={18}
+                          color={theme.colors.textSecondary}
+                          strokeWidth={2}
+                        />
+                      </TouchableOpacity>
+                    )}
+                    {dropoffLoading && (
+                      <View style={styles.loadingIndicator}>
+                        <ActivityIndicator
+                          size="small"
+                          color={theme.colors.primary}
+                        />
+                      </View>
+                    )}
+                  </View>
+                  {showDropoffSuggestions &&
+                  dropoffAddress.trim().length >= 2 ? (
+                    <Text
+                      style={[
+                        styles.hintText,
+                        { color: theme.colors.textSecondary },
+                      ]}
+                    >
+                      Select an address below
+                    </Text>
+                  ) : null}
+
+                  {showDropoffSuggestions &&
+                  dropoffAddress.trim().length >= 2 ? (
+                    <View
+                      style={[
+                        styles.suggestionsContainer,
+                        {
+                          backgroundColor: theme.colors.card,
+                          borderColor: theme.colors.border,
+                        },
+                      ]}
+                    >
+                      {dropoffLoading && dropoffSuggestions.length === 0 ? (
+                        <View style={styles.suggestionStatus}>
+                          <ActivityIndicator
+                            size="small"
+                            color={theme.colors.primary}
+                          />
+                          <Text
+                            style={[
+                              styles.suggestionStatusText,
+                              { color: theme.colors.textSecondary },
+                            ]}
+                          >
+                            Searching…
+                          </Text>
+                        </View>
+                      ) : null}
+                      {!dropoffLoading && dropoffSuggestions.length === 0 ? (
+                        <Text
+                          style={[
+                            styles.suggestionStatusText,
+                            styles.suggestionStatus,
+                            { color: theme.colors.textSecondary },
+                          ]}
+                        >
+                          No matches. Try a street name or landmark.
+                        </Text>
+                      ) : null}
+                      {dropoffSuggestions.length === 1 ? (
+                        <TouchableOpacity
+                          style={[
+                            styles.useThisButton,
+                            { backgroundColor: theme.colors.primary },
+                          ]}
+                          onPress={() =>
+                            selectDropoffSuggestion(dropoffSuggestions[0])
+                          }
+                        >
+                          <Text style={styles.useThisButtonText}>
+                            Use this address
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      <ScrollView
+                        style={styles.suggestionsScroll}
+                        contentContainerStyle={styles.suggestionsScrollContent}
+                        nestedScrollEnabled
+                        keyboardShouldPersistTaps="always"
+                        showsVerticalScrollIndicator={true}
+                      >
+                        {dropoffSuggestions.map((item) => (
+                          <TouchableOpacity
+                            key={item.place_id.toString()}
+                            style={[
+                              styles.suggestionItem,
+                              { borderBottomColor: theme.colors.border },
+                            ]}
+                            activeOpacity={0.6}
+                            onPress={() => selectDropoffSuggestion(item)}
+                          >
+                            <MapPin
+                              size={16}
+                              color={theme.colors.error}
+                              strokeWidth={2}
+                            />
+                            <Text
+                              style={[
+                                styles.suggestionText,
+                                { color: theme.colors.text },
+                              ]}
+                              numberOfLines={2}
+                            >
+                              {item.display_name}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  ) : null}
+
+                  {/* Saved Addresses (user-defined from Profile) */}
+                  {savedAddresses.length > 0 && (
+                    <>
+                      <Text
+                        style={[
+                          styles.savedTitle,
+                          { color: theme.colors.textSecondary },
+                        ]}
+                      >
+                        Saved Addresses
+                      </Text>
+                      {savedAddresses.map((address) => (
+                        <TouchableOpacity
+                          key={address.id}
+                          style={[
+                            styles.savedAddressCard,
+                            {
+                              backgroundColor: theme.colors.card,
+                              borderColor: theme.colors.border,
+                            },
+                          ]}
+                          onPress={() => selectAddress(address, 'dropoff')}
+                        >
+                          <View
+                            style={[
+                              styles.addressIcon,
+                              { backgroundColor: theme.colors.surface },
+                            ]}
+                          >
+                            <address.icon
+                              size={20}
+                              color={theme.colors.primary}
+                              strokeWidth={2}
+                            />
+                          </View>
+                          <View style={styles.addressInfo}>
+                            <Text
+                              style={[
+                                styles.addressLabel,
+                                { color: theme.colors.text },
+                              ]}
+                            >
+                              {address.label}
+                            </Text>
+                            <Text
+                              style={[
+                                styles.addressText,
+                                { color: theme.colors.textSecondary },
+                              ]}
+                            >
+                              {address.address}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </>
+                  )}
+                </View>
+
+                {/* Delivery Time */}
+                <View style={styles.section}>
+                  <View style={styles.sectionHeader}>
+                    <Clock
+                      size={24}
+                      color={theme.colors.warning}
+                      strokeWidth={2}
+                    />
+                    <Text
+                      style={[
+                        styles.sectionTitle,
+                        { color: theme.colors.text },
+                      ]}
+                    >
+                      Delivery Time
+                    </Text>
+                  </View>
+
+                  <View style={styles.timeOptions}>
+                    <TouchableOpacity
+                      style={[
+                        styles.timeOption,
+                        {
+                          backgroundColor: theme.colors.card,
+                          borderColor: theme.colors.border,
+                        },
+                        deliveryTime === 'now' && {
+                          borderColor: theme.colors.primary,
+                          backgroundColor: theme.colors.surface,
+                        },
+                      ]}
+                      onPress={() => setDeliveryTime('now')}
+                    >
+                      <Text
+                        style={[
+                          styles.timeOptionText,
+                          { color: theme.colors.text },
+                          deliveryTime === 'now' && {
+                            color: theme.colors.primary,
+                          },
+                        ]}
+                      >
+                        Deliver Now
+                      </Text>
+                      <Text
+                        style={[
+                          styles.timeOptionSubtext,
+                          { color: theme.colors.textSecondary },
+                          deliveryTime === 'now' && {
+                            color: theme.colors.primary,
+                          },
+                        ]}
+                      >
+                        Pickup within 15-30 mins
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.timeOption,
+                        {
+                          backgroundColor: theme.colors.card,
+                          borderColor: theme.colors.border,
+                        },
+                        deliveryTime === 'scheduled' && {
+                          borderColor: theme.colors.primary,
+                          backgroundColor: theme.colors.surface,
+                        },
+                      ]}
+                      onPress={() => setDeliveryTime('scheduled')}
+                    >
+                      <Text
+                        style={[
+                          styles.timeOptionText,
+                          { color: theme.colors.text },
+                          deliveryTime === 'scheduled' && {
+                            color: theme.colors.primary,
+                          },
+                        ]}
+                      >
+                        Schedule for Later
+                      </Text>
+                      <Text
+                        style={[
+                          styles.timeOptionSubtext,
+                          { color: theme.colors.textSecondary },
+                          deliveryTime === 'scheduled' && {
+                            color: theme.colors.primary,
+                          },
+                        ]}
+                      >
+                        Choose pickup time
+                      </Text>
                     </TouchableOpacity>
                   </View>
-                  <ScrollView style={styles.datePickerScroll} showsVerticalScrollIndicator={false}>
-                    <Text style={[styles.datePickerSectionLabel, { color: theme.colors.textSecondary }]}>Date</Text>
-                    <View style={styles.datePickerChips}>
-                      {getDateOptions().map((opt) => {
-                        const isSelected = modalSelectedDate.getDate() === opt.date.getDate() && modalSelectedDate.getMonth() === opt.date.getMonth() && modalSelectedDate.getFullYear() === opt.date.getFullYear();
-                        return (
-                          <TouchableOpacity
-                            key={opt.date.toISOString()}
-                            style={[styles.datePickerChip, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }, isSelected && { borderColor: theme.colors.primary, backgroundColor: theme.colors.primary + '20' }]}
-                            onPress={() => setModalSelectedDate(opt.date)}
-                          >
-                            <Text style={[styles.datePickerChipText, { color: theme.colors.text }, isSelected && { color: theme.colors.primary, fontWeight: '600' }]}>{opt.label}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                    <Text style={[styles.datePickerSectionLabel, { color: theme.colors.textSecondary, marginTop: 16 }]}>Time</Text>
-                    <View style={styles.datePickerChips}>
-                      {getTimeSlots(modalSelectedDate).map((slot) => {
-                        const isSelected = modalSelectedTime.hours === slot.hours && modalSelectedTime.minutes === slot.minutes;
-                        return (
-                          <TouchableOpacity
-                            key={`${slot.hours}-${slot.minutes}`}
-                            style={[styles.datePickerChip, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }, isSelected && { borderColor: theme.colors.primary, backgroundColor: theme.colors.primary + '20' }]}
-                            onPress={() => setModalSelectedTime({ hours: slot.hours, minutes: slot.minutes })}
-                          >
-                            <Text style={[styles.datePickerChipText, { color: theme.colors.text }, isSelected && { color: theme.colors.primary, fontWeight: '600' }]}>{slot.label}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </ScrollView>
-                </View>
-              </Pressable>
-            </Modal>
-          </View>
-        </View>
-      </ScrollView>
 
-      {/* Bottom Button */}
-      <View style={[styles.bottomContainer, { backgroundColor: theme.colors.card, borderTopColor: theme.colors.border }]}>
-        <TouchableOpacity
+                  {deliveryTime === 'scheduled' && (
+                    <View style={styles.timeInput}>
+                      <TouchableOpacity
+                        style={[
+                          styles.input,
+                          styles.scheduleTouchable,
+                          {
+                            backgroundColor: theme.colors.card,
+                            borderColor: theme.colors.border,
+                          },
+                        ]}
+                        onPress={() => {
+                          const base = scheduledTime
+                            ? new Date(scheduledTime)
+                            : getDefaultScheduledDate();
+                          setPickerDate(base);
+                          let day = new Date(
+                            base.getFullYear(),
+                            base.getMonth(),
+                            base.getDate(),
+                          );
+                          let time = {
+                            hours: base.getHours(),
+                            minutes: base.getMinutes(),
+                          };
+                          const slots = getTimeSlots(day);
+                          if (slots.length === 0) {
+                            const tomorrow = new Date(day);
+                            tomorrow.setDate(tomorrow.getDate() + 1);
+                            day = tomorrow;
+                            time = { hours: 9, minutes: 0 };
+                          }
+                          setModalSelectedDate(day);
+                          setModalSelectedTime(time);
+                          setShowDatePicker(true);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={[
+                            styles.scheduleTouchableText,
+                            {
+                              color: scheduledTime
+                                ? theme.colors.text
+                                : theme.colors.textSecondary,
+                            },
+                          ]}
+                        >
+                          {scheduledTime
+                            ? formatScheduledDisplay(scheduledTime)
+                            : 'Select date and time'}
+                        </Text>
+                        <Clock
+                          size={20}
+                          color={theme.colors.textSecondary}
+                          strokeWidth={2}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {/* Date/time picker modal (JS-only, works in Expo Go) */}
+                  <Modal
+                    visible={showDatePicker}
+                    transparent
+                    animationType="slide"
+                  >
+                    <Pressable
+                      style={styles.datePickerOverlay}
+                      onPress={() => setShowDatePicker(false)}
+                    >
+                      <View
+                        style={[
+                          styles.datePickerModal,
+                          { backgroundColor: theme.colors.card },
+                        ]}
+                        onStartShouldSetResponder={() => true}
+                      >
+                        <View
+                          style={[
+                            styles.datePickerHeader,
+                            { borderBottomColor: theme.colors.border },
+                          ]}
+                        >
+                          <TouchableOpacity
+                            onPress={() => setShowDatePicker(false)}
+                            hitSlop={{
+                              top: 12,
+                              bottom: 12,
+                              left: 12,
+                              right: 12,
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.datePickerCancel,
+                                { color: theme.colors.textSecondary },
+                              ]}
+                            >
+                              Cancel
+                            </Text>
+                          </TouchableOpacity>
+                          <Text
+                            style={[
+                              styles.datePickerTitle,
+                              { color: theme.colors.text },
+                            ]}
+                          >
+                            Pickup date & time
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => {
+                              const d = new Date(
+                                modalSelectedDate.getFullYear(),
+                                modalSelectedDate.getMonth(),
+                                modalSelectedDate.getDate(),
+                                modalSelectedTime.hours,
+                                modalSelectedTime.minutes,
+                                0,
+                                0,
+                              );
+                              setPickerDate(d);
+                              setScheduledTime(d.toISOString());
+                              setShowDatePicker(false);
+                            }}
+                            hitSlop={{
+                              top: 12,
+                              bottom: 12,
+                              left: 12,
+                              right: 12,
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.datePickerConfirm,
+                                { color: theme.colors.primary },
+                              ]}
+                            >
+                              Confirm
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                        <ScrollView
+                          style={styles.datePickerScroll}
+                          showsVerticalScrollIndicator={false}
+                        >
+                          <Text
+                            style={[
+                              styles.datePickerSectionLabel,
+                              { color: theme.colors.textSecondary },
+                            ]}
+                          >
+                            Date
+                          </Text>
+                          <View style={styles.datePickerChips}>
+                            {getDateOptions().map((opt) => {
+                              const isSelected =
+                                modalSelectedDate.getDate() ===
+                                  opt.date.getDate() &&
+                                modalSelectedDate.getMonth() ===
+                                  opt.date.getMonth() &&
+                                modalSelectedDate.getFullYear() ===
+                                  opt.date.getFullYear();
+                              return (
+                                <TouchableOpacity
+                                  key={opt.date.toISOString()}
+                                  style={[
+                                    styles.datePickerChip,
+                                    {
+                                      backgroundColor: theme.colors.surface,
+                                      borderColor: theme.colors.border,
+                                    },
+                                    isSelected && {
+                                      borderColor: theme.colors.primary,
+                                      backgroundColor:
+                                        theme.colors.primary + '20',
+                                    },
+                                  ]}
+                                  onPress={() => setModalSelectedDate(opt.date)}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.datePickerChipText,
+                                      { color: theme.colors.text },
+                                      isSelected && {
+                                        color: theme.colors.primary,
+                                        fontWeight: '600',
+                                      },
+                                    ]}
+                                  >
+                                    {opt.label}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                          <Text
+                            style={[
+                              styles.datePickerSectionLabel,
+                              {
+                                color: theme.colors.textSecondary,
+                                marginTop: 16,
+                              },
+                            ]}
+                          >
+                            Time
+                          </Text>
+                          <View style={styles.datePickerChips}>
+                            {getTimeSlots(modalSelectedDate).map((slot) => {
+                              const isSelected =
+                                modalSelectedTime.hours === slot.hours &&
+                                modalSelectedTime.minutes === slot.minutes;
+                              return (
+                                <TouchableOpacity
+                                  key={`${slot.hours}-${slot.minutes}`}
+                                  style={[
+                                    styles.datePickerChip,
+                                    {
+                                      backgroundColor: theme.colors.surface,
+                                      borderColor: theme.colors.border,
+                                    },
+                                    isSelected && {
+                                      borderColor: theme.colors.primary,
+                                      backgroundColor:
+                                        theme.colors.primary + '20',
+                                    },
+                                  ]}
+                                  onPress={() =>
+                                    setModalSelectedTime({
+                                      hours: slot.hours,
+                                      minutes: slot.minutes,
+                                    })
+                                  }
+                                >
+                                  <Text
+                                    style={[
+                                      styles.datePickerChipText,
+                                      { color: theme.colors.text },
+                                      isSelected && {
+                                        color: theme.colors.primary,
+                                        fontWeight: '600',
+                                      },
+                                    ]}
+                                  >
+                                    {slot.label}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        </ScrollView>
+                      </View>
+                    </Pressable>
+                  </Modal>
+                </View>
+              </>
+            )}
+          </View>
+        </ScrollView>
+
+        {/* Bottom Button */}
+        <View
           style={[
-            styles.continueButton,
-            (pickupAddress && dropoffAddress && pickupCoords && dropoffCoords && (deliveryTime !== 'scheduled' || !!scheduledTime)) ? { backgroundColor: theme.colors.primary } : { backgroundColor: theme.colors.border },
+            styles.bottomContainer,
+            {
+              backgroundColor: theme.colors.card,
+              borderTopColor: theme.colors.border,
+            },
           ]}
-          onPress={handleContinue}
-          disabled={!pickupAddress || !dropoffAddress || !pickupCoords || !dropoffCoords || (deliveryTime === 'scheduled' && !scheduledTime)}>
-          <Text
+        >
+          <TouchableOpacity
             style={[
-              styles.continueText,
-              (pickupAddress && dropoffAddress && pickupCoords && dropoffCoords && (deliveryTime !== 'scheduled' || !!scheduledTime)) ? { color: '#FFFFFF' } : { color: theme.colors.textTertiary },
-            ]}>
-            Get Price Estimate
-          </Text>
-          <ChevronRight
-            size={20}
-            color={pickupAddress && dropoffAddress && pickupCoords && dropoffCoords && (deliveryTime !== 'scheduled' || !!scheduledTime) ? '#FFFFFF' : theme.colors.textTertiary}
-            strokeWidth={2}
-          />
-        </TouchableOpacity>
-      </View>
+              styles.continueButton,
+              continueEnabled
+                ? { backgroundColor: theme.colors.primary }
+                : { backgroundColor: theme.colors.border },
+            ]}
+            onPress={handleContinue}
+            disabled={!continueEnabled}
+          >
+            <Text
+              style={[
+                styles.continueText,
+                continueEnabled
+                  ? { color: '#FFFFFF' }
+                  : { color: theme.colors.textTertiary },
+              ]}
+            >
+              {addressStep === 'pickup'
+                ? 'Continue to dropoff'
+                : 'Get Price Estimate'}
+            </Text>
+            <ChevronRight
+              size={20}
+              color={continueEnabled ? '#FFFFFF' : theme.colors.textTertiary}
+              strokeWidth={2}
+            />
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     backgroundColor: '#F7F8FA',
+  },
+  scrollContent: {
+    paddingBottom: 24,
+  },
+  hintText: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginBottom: 8,
+  },
+  suggestionStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  suggestionStatusText: {
+    fontSize: 14,
+  },
+  useThisButton: {
+    marginHorizontal: 12,
+    marginTop: 12,
+    marginBottom: 4,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  useThisButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  pickupSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 20,
+  },
+  pickupSummaryLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  pickupSummaryText: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  changeLink: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   header: {
     flexDirection: 'row',
@@ -758,9 +1585,9 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E5E7EB',
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1053,10 +1880,11 @@ const styles = StyleSheet.create({
   suggestionItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
-    minHeight: 50,
+    minHeight: 44,
     backgroundColor: 'transparent',
   },
   suggestionText: {

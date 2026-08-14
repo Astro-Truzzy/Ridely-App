@@ -11,7 +11,10 @@ import {
   Image,
   Pressable,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import {
   ArrowLeft,
@@ -21,37 +24,61 @@ import {
   EyeOff,
   Package,
 } from 'lucide-react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAlert } from '@/contexts/AlertContext';
 import { useLogo } from '@/hooks/useLogo';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
 import { GoogleLogo, FacebookLogo, AppleLogo } from '@/lib/SocialIcons';
-import { getEnabledOAuthProviders, OAuthProvider, startOAuth } from '@/lib/socialAuth';
+import {
+  getEnabledOAuthProviders,
+  OAuthProvider,
+  startOAuth,
+} from '@/lib/socialAuth';
+import { openEmailApp, resendSignupConfirmation } from '@/lib/emailInbox';
+import { FormError } from '@/components/FormError';
+
+function isEmailUnconfirmedError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('email not confirmed') ||
+    lower.includes('confirm your email')
+  );
+}
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
   const { logo } = useLogo();
   const { signIn } = useAuth();
-  const { showAlert } = useAlert();
-  const [email, setEmail] = useState('');
+  const { showAlert, showToast } = useAlert();
+  const params = useLocalSearchParams<{ email?: string }>();
+  const [email, setEmail] = useState(
+    typeof params.email === 'string' ? params.email : '',
+  );
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const handleLogin = async () => {
     if (!email || !password) {
-      showAlert('Error', 'Please fill in all fields');
+      setFormError('Please fill in all fields');
       return;
     }
 
     if (!email.includes('@')) {
-      showAlert('Error', 'Please enter a valid email address');
+      setFormError('Please enter a valid email address');
       return;
     }
 
+    setFormError(null);
     setIsLoading(true);
 
     try {
@@ -60,20 +87,61 @@ export default function LoginScreen() {
     } catch (error: any) {
       console.error('Login error:', error);
       let errorMessage = 'Failed to sign in';
-      
-      // Use the error message from signIn if available
+
       if (error.message) {
         errorMessage = error.message;
-      } else if (error.includes && error.includes('Invalid login credentials')) {
-        errorMessage = 'Invalid email or password. Please check your credentials and try again.';
+      } else if (
+        error.includes &&
+        error.includes('Invalid login credentials')
+      ) {
+        errorMessage =
+          'Invalid email or password. Please check your credentials and try again.';
       } else if (error.includes && error.includes('Email not confirmed')) {
         errorMessage = 'Please confirm your email address before signing in.';
       }
 
-      showAlert('Login Error', errorMessage);
+      if (isEmailUnconfirmedError(errorMessage)) {
+        showUnconfirmedEmailAlert();
+      } else {
+        setFormError(errorMessage);
+      }
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleResendConfirmation = async () => {
+    if (isResending) return;
+    setIsResending(true);
+    try {
+      await resendSignupConfirmation(email);
+      showToast('Check your inbox for a new confirmation link.');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Try again in a minute.', 'error');
+    } finally {
+      setIsResending(false);
+    }
+  };
+
+  const showUnconfirmedEmailAlert = () => {
+    showAlert(
+      'Confirm your email',
+      'Your account is waiting on the confirmation link we sent. Open your inbox, or resend the email if you cannot find it.',
+      [
+        {
+          text: 'Open email app',
+          onPress: () => {
+            void openEmailApp();
+          },
+        },
+        {
+          text: isResending ? 'Sending…' : 'Resend confirmation',
+          onPress: () => {
+            void handleResendConfirmation();
+          },
+        },
+      ],
+    );
   };
 
   const enabledProviders = getEnabledOAuthProviders();
@@ -85,7 +153,6 @@ export default function LoginScreen() {
     try {
       const result = await startOAuth(provider);
       if (result === 'cancel') {
-        showAlert('Social Login', 'Sign-in was cancelled.');
         return;
       }
       router.replace('/');
@@ -94,7 +161,7 @@ export default function LoginScreen() {
         e instanceof Error
           ? e.message
           : 'Social login could not be started. Check provider setup in Supabase.';
-      showAlert('Social Login', msg);
+      setFormError(msg);
     } finally {
       setIsSocialLoading(false);
     }
@@ -136,229 +203,238 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-        <View style={styles.content}>
-          {/* Logo */}
-          <View style={styles.logoSection}>
-            <Image source={logo} style={styles.logoImage} />
-            <Text style={[styles.title, { color: theme.colors.text }]}>
-              Welcome Back
-            </Text>
-            <Text
-              style={[styles.subtitle, { color: theme.colors.textSecondary }]}
-            >
-              Sign in to your Ridely account
-            </Text>
-          </View>
-
-          {/* Form */}
-          <View style={styles.form}>
-            <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: theme.colors.text }]}>
-                Email Address
+          <View style={styles.content}>
+            {/* Logo */}
+            <View style={styles.logoSection}>
+              <Image source={logo} style={styles.logoImage} />
+              <Text style={[styles.title, { color: theme.colors.text }]}>
+                Welcome Back
               </Text>
-              <View
-                style={[
-                  styles.inputContainer,
-                  {
-                    backgroundColor: theme.colors.surface,
-                    borderColor: theme.colors.border,
-                  },
-                ]}
-              >
-                <Mail
-                  size={20}
-                  color={theme.colors.textSecondary}
-                  strokeWidth={2}
-                />
-                <TextInput
-                  style={[styles.input, { color: theme.colors.text }]}
-                  placeholder="Enter your email"
-                  placeholderTextColor={theme.colors.textTertiary}
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-              </View>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: theme.colors.text }]}>
-                Password
-              </Text>
-              <View
-                style={[
-                  styles.inputContainer,
-                  {
-                    backgroundColor: theme.colors.surface,
-                    borderColor: theme.colors.border,
-                  },
-                ]}
-              >
-                <Lock
-                  size={20}
-                  color={theme.colors.textSecondary}
-                  strokeWidth={2}
-                />
-                <TextInput
-                  style={[styles.passwordInput, { color: theme.colors.text }]}
-                  placeholder="Enter your password"
-                  placeholderTextColor={theme.colors.textTertiary}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                />
-                <TouchableOpacity
-                  style={styles.eyeButton}
-                  onPress={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? (
-                    <EyeOff
-                      size={20}
-                      color={theme.colors.textSecondary}
-                      strokeWidth={2}
-                    />
-                  ) : (
-                    <Eye
-                      size={20}
-                      color={theme.colors.textSecondary}
-                      strokeWidth={2}
-                    />
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={styles.forgotPassword}
-              onPress={() => router.push('/(auth)/forgot-password')}
-            >
               <Text
-                style={[
-                  styles.forgotPasswordText,
-                  { color: theme.colors.primary },
-                ]}
+                style={[styles.subtitle, { color: theme.colors.textSecondary }]}
               >
-                Forgot Password?
+                Sign in to your Ridely account
               </Text>
-            </TouchableOpacity>
-
-            <Pressable
-              onPressIn={() => (scale.value = 0.95)}
-              onPressOut={() => (scale.value = 1)}
-              onPress={handleLogin}
-              disabled={isLoading}
-            >
-              <Animated.View
-                style={[
-                  styles.loginButton,
-                  { backgroundColor: theme.colors.primary },
-                  isLoading && { backgroundColor: theme.colors.textTertiary },
-                  animatedStyle,
-                ]}
-              >
-                <Text style={styles.loginButtonText}>
-                  {isLoading ? 'Signing In...' : 'Sign In'}
-                </Text>
-              </Animated.View>
-            </Pressable>
-          </View>
-
-          {/* Divider */}
-          <View style={styles.divider}>
-            <View
-              style={[
-                styles.dividerLine,
-                { backgroundColor: theme.colors.border },
-              ]}
-            />
-            <Text
-              style={[
-                styles.dividerText,
-                { color: theme.colors.textSecondary },
-              ]}
-            >
-              Or continue with
-            </Text>
-            <View
-              style={[
-                styles.dividerLine,
-                { backgroundColor: theme.colors.border },
-              ]}
-            />
-          </View>
-
-          {/* Social Login */}
-          {enabledProviders.length > 0 ? (
-            <View style={styles.socialContainer}>
-              {enabledProviders.includes('google') ? (
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  style={[
-                    styles.socialButton,
-                    {
-                      backgroundColor: theme.colors.surface,
-                      borderColor: theme.colors.border,
-                      ...theme.shadows?.small,
-                    },
-                  ]}
-                  onPress={() => handleSocialLogin('google')}
-                  disabled={isSocialLoading || isLoading}
-                >
-                  <View style={styles.socialIconWrapper}>
-                    <GoogleLogo size={26} />
-                  </View>
-                </TouchableOpacity>
-              ) : null}
-              {enabledProviders.includes('facebook') ? (
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  style={[
-                    styles.socialButton,
-                    {
-                      backgroundColor: theme.colors.surface,
-                      borderColor: theme.colors.border,
-                      ...theme.shadows?.small,
-                    },
-                  ]}
-                  onPress={() => handleSocialLogin('facebook')}
-                >
-                  <View style={styles.socialIconWrapper}>
-                    <FacebookLogo size={26} color={theme.colors.text} />
-                  </View>
-                </TouchableOpacity>
-              ) : null}
-              {enabledProviders.includes('apple') ? (
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  style={[
-                    styles.socialButton,
-                    {
-                      backgroundColor: theme.colors.surface,
-                      borderColor: theme.colors.border,
-                      ...theme.shadows?.small,
-                    },
-                  ]}
-                  onPress={() => handleSocialLogin('apple')}
-                >
-                  <View style={styles.socialIconWrapper}>
-                    <AppleLogo size={26} color={theme.colors.text} />
-                  </View>
-                </TouchableOpacity>
-              ) : null}
             </View>
-          ) : (
-            <Text style={[styles.socialDisabledText, { color: theme.colors.textSecondary }]}>
-              Social sign-in is currently unavailable.
-            </Text>
-          )}
-        </View>
+
+            {/* Form */}
+            <View style={styles.form}>
+              <View style={styles.inputGroup}>
+                <Text style={[styles.inputLabel, { color: theme.colors.text }]}>
+                  Email Address
+                </Text>
+                <View
+                  style={[
+                    styles.inputContainer,
+                    {
+                      backgroundColor: theme.colors.surface,
+                      borderColor: theme.colors.border,
+                    },
+                  ]}
+                >
+                  <Mail
+                    size={20}
+                    color={theme.colors.textSecondary}
+                    strokeWidth={2}
+                  />
+                  <TextInput
+                    style={[styles.input, { color: theme.colors.text }]}
+                    placeholder="Enter your email"
+                    placeholderTextColor={theme.colors.textTertiary}
+                    value={email}
+                    onChangeText={(t) => {
+                      setEmail(t);
+                      setFormError(null);
+                    }}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={[styles.inputLabel, { color: theme.colors.text }]}>
+                  Password
+                </Text>
+                <View
+                  style={[
+                    styles.inputContainer,
+                    {
+                      backgroundColor: theme.colors.surface,
+                      borderColor: theme.colors.border,
+                    },
+                  ]}
+                >
+                  <Lock
+                    size={20}
+                    color={theme.colors.textSecondary}
+                    strokeWidth={2}
+                  />
+                  <TextInput
+                    style={[styles.passwordInput, { color: theme.colors.text }]}
+                    placeholder="Enter your password"
+                    placeholderTextColor={theme.colors.textTertiary}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeButton}
+                    onPress={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? (
+                      <EyeOff
+                        size={20}
+                        color={theme.colors.textSecondary}
+                        strokeWidth={2}
+                      />
+                    ) : (
+                      <Eye
+                        size={20}
+                        color={theme.colors.textSecondary}
+                        strokeWidth={2}
+                      />
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.forgotPassword}
+                onPress={() => router.push('/(auth)/forgot-password')}
+              >
+                <Text
+                  style={[
+                    styles.forgotPasswordText,
+                    { color: theme.colors.primary },
+                  ]}
+                >
+                  Forgot Password?
+                </Text>
+              </TouchableOpacity>
+
+              <FormError message={formError} />
+
+              <Pressable
+                onPressIn={() => (scale.value = 0.95)}
+                onPressOut={() => (scale.value = 1)}
+                onPress={handleLogin}
+                disabled={isLoading}
+              >
+                <Animated.View
+                  style={[
+                    styles.loginButton,
+                    { backgroundColor: theme.colors.primary },
+                    isLoading && { backgroundColor: theme.colors.textTertiary },
+                    animatedStyle,
+                  ]}
+                >
+                  <Text style={styles.loginButtonText}>
+                    {isLoading ? 'Signing In...' : 'Sign In'}
+                  </Text>
+                </Animated.View>
+              </Pressable>
+            </View>
+
+            {enabledProviders.length > 0 ? (
+              <>
+                <View style={styles.divider}>
+                  <View
+                    style={[
+                      styles.dividerLine,
+                      { backgroundColor: theme.colors.border },
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.dividerText,
+                      { color: theme.colors.textSecondary },
+                    ]}
+                  >
+                    Or continue with
+                  </Text>
+                  <View
+                    style={[
+                      styles.dividerLine,
+                      { backgroundColor: theme.colors.border },
+                    ]}
+                  />
+                </View>
+
+                <View style={styles.socialContainer}>
+                  {enabledProviders.includes('google') ? (
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      style={[
+                        styles.socialButton,
+                        {
+                          backgroundColor: theme.colors.surface,
+                          borderColor: theme.colors.border,
+                          ...theme.shadows?.small,
+                        },
+                      ]}
+                      onPress={() => handleSocialLogin('google')}
+                      disabled={isSocialLoading || isLoading}
+                    >
+                      <View style={styles.socialIconWrapper}>
+                        <GoogleLogo size={26} />
+                      </View>
+                    </TouchableOpacity>
+                  ) : null}
+                  {enabledProviders.includes('facebook') ? (
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      style={[
+                        styles.socialButton,
+                        {
+                          backgroundColor: theme.colors.surface,
+                          borderColor: theme.colors.border,
+                          ...theme.shadows?.small,
+                        },
+                      ]}
+                      onPress={() => handleSocialLogin('facebook')}
+                    >
+                      <View style={styles.socialIconWrapper}>
+                        <FacebookLogo size={26} color={theme.colors.text} />
+                      </View>
+                    </TouchableOpacity>
+                  ) : null}
+                  {enabledProviders.includes('apple') ? (
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      style={[
+                        styles.socialButton,
+                        {
+                          backgroundColor: theme.colors.surface,
+                          borderColor: theme.colors.border,
+                          ...theme.shadows?.small,
+                        },
+                      ]}
+                      onPress={() => handleSocialLogin('apple')}
+                    >
+                      <View style={styles.socialIconWrapper}>
+                        <AppleLogo size={26} color={theme.colors.text} />
+                      </View>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              </>
+            ) : null}
+          </View>
 
           {/* Sign up prompt – below form, scrolls with content so it stays visible above keyboard */}
           <View style={styles.bottomContainer}>
-            <TouchableOpacity onPress={() => router.push('/(auth)/signup')} activeOpacity={0.7}>
-              <Text style={[styles.signupText, { color: theme.colors.textSecondary }]}>
+            <TouchableOpacity
+              onPress={() => router.push('/(auth)/signup')}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[
+                  styles.signupText,
+                  { color: theme.colors.textSecondary },
+                ]}
+              >
                 Don't have an account?{' '}
                 <Text
                   style={[styles.signupLink, { color: theme.colors.primary }]}
@@ -394,9 +470,9 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 10,
@@ -454,7 +530,10 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   eyeButton: {
-    padding: 4,
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   forgotPassword: {
     alignSelf: 'flex-end',
@@ -494,6 +573,8 @@ const styles = StyleSheet.create({
     gap: 20,
   },
   socialButton: {
+    minWidth: 44,
+    minHeight: 44,
     width: 64,
     height: 64,
     borderRadius: 32,

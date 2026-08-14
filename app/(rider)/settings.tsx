@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import Animated from 'react-native-reanimated';
-import { Bell, Moon, Globe, Zap, CircleHelp as HelpCircle, FileText, Shield, LogOut, ChevronRight, Smartphone, Mail, MessageSquare, Sun, Monitor } from 'lucide-react-native';
+import { Bell, Moon, Globe, Zap, CircleHelp as HelpCircle, FileText, Shield, LogOut, ChevronRight, Smartphone, Receipt, MessageSquare, Sun, Monitor } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme, ThemeMode } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -22,7 +22,7 @@ import { AnimatedPressable } from '@/components/rider/AnimatedPressable';
 
 interface SettingsState {
   pushNotifications: boolean;
-  emailNotifications: boolean;
+  receiptNotifications: boolean;
   smsNotifications: boolean;
   animations: boolean;
   language: string;
@@ -39,31 +39,23 @@ export default function SettingsScreen() {
     setAnimations,
     pushNotifications,
     setPushNotifications,
-    emailNotifications,
-    setEmailNotifications,
+    receiptNotifications,
+    setReceiptNotifications,
     smsNotifications,
     setSmsNotifications,
   } = useAppSettings();
 
   const enterSection = (i: number) => (animations ? staggeredCardEnter(i) : undefined);
-  const [settings, setSettings] = useState<SettingsState>({
-    pushNotifications: true,
-    emailNotifications: true,
-    smsNotifications: false,
-    animations: true,
-    language: 'English',
-  });
-
   const getNotificationValue = (key: keyof SettingsState) => {
     if (key === 'pushNotifications') return pushNotifications;
-    if (key === 'emailNotifications') return emailNotifications;
+    if (key === 'receiptNotifications') return receiptNotifications;
     if (key === 'smsNotifications') return smsNotifications;
-    return settings[key] as boolean;
+    return false;
   };
 
   const setNotificationValue = (key: keyof SettingsState, value: boolean) => {
     if (key === 'pushNotifications') setPushNotifications(value);
-    else if (key === 'emailNotifications') setEmailNotifications(value);
+    else if (key === 'receiptNotifications') setReceiptNotifications(value);
     else if (key === 'smsNotifications') setSmsNotifications(value);
   };
 
@@ -75,10 +67,10 @@ export default function SettingsScreen() {
       icon: Smartphone,
     },
     {
-      key: 'emailNotifications' as keyof SettingsState,
-      title: 'Email Notifications',
-      subtitle: 'Booking confirmations and receipts',
-      icon: Mail,
+      key: 'receiptNotifications' as keyof SettingsState,
+      title: 'Receipts',
+      subtitle: 'Payment receipts in Earnings and notifications',
+      icon: Receipt,
     },
     {
       key: 'smsNotifications' as keyof SettingsState,
@@ -253,7 +245,7 @@ export default function SettingsScreen() {
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>App Settings</Text>
           <View style={[styles.settingsContainer, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
             {appSettings.map((setting) => {
-              const value = setting.key === 'animations' ? animations : (settings[setting.key] as boolean);
+              const value = setting.key === 'animations' ? animations : false;
               const onToggle = setting.key === 'animations' ? () => setAnimations(!animations) : () => {};
               return (
                 <View key={setting.key} style={styles.settingItem}>

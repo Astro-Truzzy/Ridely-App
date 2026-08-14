@@ -1,6 +1,7 @@
 // Pays out rider earnings to bank via Paystack. Requires 4-digit withdrawal PIN.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { pinFailurePayload } from '../_shared/pinError.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -150,12 +151,15 @@ Deno.serve(async (req) => {
   if (pinCheckError) {
     return json({ error: 'Could not verify withdrawal PIN' }, 500);
   }
-  const pinResult = pinCheck as { valid?: boolean; error?: string; locked?: boolean };
+  const pinResult = pinCheck as {
+    valid?: boolean;
+    error?: string;
+    locked?: boolean;
+    attempts_left?: number;
+    locked_until?: string | null;
+  };
   if (!pinResult?.valid) {
-    return json(
-      { error: pinResult?.error ?? 'Invalid withdrawal PIN', pin_locked: !!pinResult?.locked },
-      pinResult?.locked ? 429 : 403
-    );
+    return json(pinFailurePayload(pinResult), pinResult?.locked ? 429 : 403);
   }
 
   const { data: reserveData, error: reserveError } = await admin.rpc('reserve_rider_earnings', {

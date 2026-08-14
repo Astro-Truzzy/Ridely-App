@@ -9,6 +9,7 @@ import {
   Image,
   TouchableOpacity,
   ScrollView,
+  Linking,
 } from 'react-native';
 import {
   SafeAreaView,
@@ -40,6 +41,7 @@ import * as Location from 'expo-location';
 import { supabase } from '@/lib/supabase';
 import { geocodeAddress, fetchGoogleDirections } from '@/lib/googleDirections';
 import { pickProofImage, uploadDeliveryProof } from '@/lib/deliveryProofUpload';
+import { notifySuccess } from '@/lib/haptics';
 
 /**
  * Active Delivery Screen
@@ -56,6 +58,15 @@ type DeliveryStatus =
   | 'heading_to_dropoff'
   | 'at_dropoff'
   | 'delivered';
+
+type RiderStep = 'go_pickup' | 'confirm_pickup' | 'go_dropoff' | 'handoff';
+
+const STEPPER_STEPS: { key: RiderStep; label: string }[] = [
+  { key: 'go_pickup', label: 'Go to pickup' },
+  { key: 'confirm_pickup', label: 'Confirm pickup' },
+  { key: 'go_dropoff', label: 'Go to dropoff' },
+  { key: 'handoff', label: 'Handoff code' },
+];
 
 const DEFAULT_DELTA = { latitudeDelta: 0.05, longitudeDelta: 0.05 };
 
@@ -244,6 +255,9 @@ export default function ActiveDeliveryScreen() {
   );
   const [deliveryStatus, setDeliveryStatus] =
     useState<DeliveryStatus>('heading_to_pickup');
+  const [startedPickupNav, setStartedPickupNav] = useState(false);
+  const [startedDropoffNav, setStartedDropoffNav] = useState(false);
+  const [earnedNet, setEarnedNet] = useState<number | null>(null);
   const [deliveryOTP, setDeliveryOTP] = useState('');
   const [showConfirmSheet, setShowConfirmSheet] = useState(false);
   const [proofPreview, setProofPreview] = useState<{
@@ -257,6 +271,12 @@ export default function ActiveDeliveryScreen() {
 
   // Geocode pickup and dropoff addresses (like user tracking screen)
   useEffect(() => {
+    if (job?.pickupCoords?.latitude) {
+      setPickupCoordsState(job.pickupCoords);
+    }
+    if (job?.dropoffCoords?.latitude) {
+      setDropoffCoordsState(job.dropoffCoords);
+    }
     if (!job?.pickupAddress || !job?.dropoffAddress) return;
     let cancelled = false;
     (async () => {
@@ -362,34 +382,37 @@ export default function ActiveDeliveryScreen() {
     const s = delivery.status;
     if (s === 'accepted' || s === 'rider_assigned') {
       setRouteTarget('pickup');
-      setDeliveryStatus('at_pickup');
+      setDeliveryStatus(startedPickupNav ? 'at_pickup' : 'heading_to_pickup');
     } else if (s === 'picked_up') {
       setRouteTarget('dropoff');
-      setDeliveryStatus('at_dropoff');
+      setDeliveryStatus(startedDropoffNav ? 'at_dropoff' : 'heading_to_dropoff');
     } else if (s === 'delivered' || s === 'completed') {
       setRouteTarget(null);
       setDeliveryStatus('delivered');
     }
-  }, [delivery?.status]);
+  }, [delivery?.status, startedPickupNav, startedDropoffNav]);
 
   useEffect(() => {
-    if (delivery?.status === 'delivered' || delivery?.status === 'completed') {
-      showAlert(
-        'Delivery Completed',
-        `You've earned ₦${job?.reward ?? 0}!\n\nNet earnings: ₦${((job?.reward ?? 0) * 0.85).toFixed(2)} (after 15% platform fee)\n\nThank you for using Ridely!`,
-        [
-          {
-            text: 'View Earnings',
-            onPress: () => router.replace('/(rider)/earnings'),
-          },
-          {
-            text: 'Back to Dashboard',
-            onPress: () => router.replace('/(rider)/dashboard'),
-          },
-        ],
-      );
-    }
-  }, [delivery?.status]);
+    if (delivery?.status !== 'delivered' && delivery?.status !== 'completed') return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await (supabase as any)
+        .from('earnings')
+        .select('net_amount')
+        .eq('delivery_id', jobId)
+        .maybeSingle();
+      if (cancelled) return;
+      if (data?.net_amount != null) {
+        setEarnedNet(Number(data.net_amount));
+      } else {
+        setEarnedNet(Number(job?.reward ?? 0) * 0.85);
+      }
+      notifySuccess();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [delivery?.status, jobId]);
 
   const handleConfirmPickup = async () => {
     if (!jobId || !user) return;
@@ -675,15 +698,15 @@ export default function ActiveDeliveryScreen() {
   const getStatusText = (status: DeliveryStatus) => {
     switch (status) {
       case 'heading_to_pickup':
-        return 'Heading to Pickup';
+        return 'Go to pickup';
       case 'at_pickup':
-        return 'At Pickup Location';
+        return 'Confirm pickup';
       case 'picked_up':
-        return 'Package Picked Up';
+        return 'Package picked up';
       case 'heading_to_dropoff':
-        return 'Heading to Dropoff';
+        return 'Go to dropoff';
       case 'at_dropoff':
-        return 'At Dropoff Location';
+        return 'Enter handoff code';
       case 'delivered':
         return 'Delivered';
       default:
@@ -691,37 +714,48 @@ export default function ActiveDeliveryScreen() {
     }
   };
 
-  const getNextAction = () => {
-    const s = delivery?.status;
-    if (s === 'accepted' || s === 'rider_assigned') {
-      return { text: 'Confirm Pickup', action: handleConfirmPickup };
-    }
-    if (s === 'picked_up') {
-      return { text: 'Confirm Delivery', action: openConfirmDeliverySheet };
-    }
-    switch (deliveryStatus) {
-      case 'heading_to_pickup':
-        return {
-          text: 'Arrived at Pickup',
-          action: () => setDeliveryStatus('at_pickup'),
-        };
-      case 'at_pickup':
-        return {
-          text: 'Mark as Picked Up',
-          action: handleConfirmPickup,
-        };
-      case 'picked_up':
-        return {
-          text: 'Start Delivery',
-          action: () => setDeliveryStatus('heading_to_dropoff'),
-        };
-      case 'heading_to_dropoff':
-        return {
-          text: 'Arrived at Dropoff',
-          action: () => setDeliveryStatus('at_dropoff'),
-        };
-      case 'at_dropoff':
-        return { text: 'Complete Delivery', action: openConfirmDeliverySheet };
+  const dbStatus = delivery?.status;
+  const riderStep: RiderStep =
+    dbStatus === 'delivered' || dbStatus === 'completed'
+      ? 'handoff'
+      : dbStatus === 'picked_up'
+        ? startedDropoffNav
+          ? 'handoff'
+          : 'go_dropoff'
+        : startedPickupNav
+          ? 'confirm_pickup'
+          : 'go_pickup';
+
+  const openMapsTo = (kind: 'pickup' | 'dropoff') => {
+    const coords = kind === 'pickup' ? pickupCoordsState : dropoffCoordsState;
+    const address = kind === 'pickup' ? job?.pickupAddress : job?.dropoffAddress;
+    const dest =
+      coords && Number.isFinite(coords.latitude)
+        ? `${coords.latitude},${coords.longitude}`
+        : encodeURIComponent(address || '');
+    const url =
+      Platform.OS === 'ios'
+        ? `maps:0,0?q=${dest}`
+        : Platform.OS === 'android'
+          ? `google.navigation:q=${dest}`
+          : `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
+    Linking.openURL(url).catch(() => {
+      Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${dest}`).catch(() => {});
+    });
+    if (kind === 'pickup') setStartedPickupNav(true);
+    else setStartedDropoffNav(true);
+  };
+
+  const primaryForStep = () => {
+    switch (riderStep) {
+      case 'go_pickup':
+        return { text: 'Navigate to pickup', action: () => openMapsTo('pickup') };
+      case 'confirm_pickup':
+        return { text: confirming ? 'Confirming…' : 'Confirm pickup', action: handleConfirmPickup };
+      case 'go_dropoff':
+        return { text: 'Navigate to dropoff', action: () => openMapsTo('dropoff') };
+      case 'handoff':
+        return { text: 'Enter handoff code', action: openConfirmDeliverySheet };
       default:
         return null;
     }
@@ -795,7 +829,12 @@ export default function ActiveDeliveryScreen() {
     );
   }
 
-  const nextAction = getNextAction();
+  const nextAction = primaryForStep();
+  const stepIndex = STEPPER_STEPS.findIndex((s) => s.key === riderStep);
+  const netDisplay =
+    earnedNet != null
+      ? earnedNet
+      : Number(job.reward || 0) * 0.85;
 
   return (
     <SafeAreaView
@@ -1000,160 +1039,102 @@ export default function ActiveDeliveryScreen() {
         </View>
       </View>
 
-      {/* Job Details */}
-      <View
-        style={[
-          styles.jobDetails,
-          { backgroundColor: theme.colors.surface },
-          theme.shadows.medium,
-        ]}
-      >
-        <View style={styles.jobHeader}>
-          <Text style={[styles.jobId, { color: theme.colors.text }]}>
-            #{job.id}
-          </Text>
-          <View style={styles.sizeIndicator}>
-            <Package size={16} color={theme.colors.primary} strokeWidth={2} />
-            <Text style={[styles.sizeText, { color: theme.colors.primary }]}>
-              {job.parcelSize.charAt(0).toUpperCase() + job.parcelSize.slice(1)}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.addressContainer}>
-          <View style={styles.addressRow}>
-            <MapPin size={20} color={theme.colors.success} strokeWidth={2} />
-            <View style={styles.addressInfo}>
-              <Text
-                style={[
-                  styles.addressLabel,
-                  { color: theme.colors.textSecondary },
-                ]}
-              >
-                Pickup
-              </Text>
-              <Text style={[styles.addressText, { color: theme.colors.text }]}>
-                {job.pickupAddress}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.addressDivider} />
-
-          <View style={styles.addressRow}>
-            <MapPin size={20} color={theme.colors.error} strokeWidth={2} />
-            <View style={styles.addressInfo}>
-              <Text
-                style={[
-                  styles.addressLabel,
-                  { color: theme.colors.textSecondary },
-                ]}
-              >
-                Dropoff
-              </Text>
-              <Text style={[styles.addressText, { color: theme.colors.text }]}>
-                {job.dropoffAddress}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.metaInfo}>
-          <View style={styles.metaItem}>
-            <Navigation
-              size={16}
-              color={theme.colors.textSecondary}
-              strokeWidth={2}
-            />
-            <Text
-              style={[styles.metaText, { color: theme.colors.textSecondary }]}
-            >
-              {job.distance} km
-            </Text>
-          </View>
-          <View style={styles.metaItem}>
-            <Clock
-              size={16}
-              color={theme.colors.textSecondary}
-              strokeWidth={2}
-            />
-            <Text
-              style={[styles.metaText, { color: theme.colors.textSecondary }]}
-            >
-              ~{job.estimatedTime}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Contact Options */}
-      <View style={styles.contactContainer}>
-        <AnimatedPressable
+      {/* Stepper + one primary action */}
+      {deliveryStatus !== 'delivered' ? (
+        <View
           style={[
-            styles.contactButton,
+            styles.stepSheet,
             { backgroundColor: theme.colors.surface },
-            theme.shadows.medium,
+            theme.shadows.large,
           ]}
-          onPress={handleContactSender}
         >
-          <MessageCircle
-            size={20}
-            color={theme.colors.primary}
-            strokeWidth={2}
-          />
-          <Text style={[styles.contactText, { color: theme.colors.text }]}>
-            Chat with Sender
-          </Text>
-        </AnimatedPressable>
+          <View style={styles.stepperRow}>
+            {STEPPER_STEPS.map((step, index) => {
+              const done = index < stepIndex;
+              const current = index === stepIndex;
+              return (
+                <View key={step.key} style={styles.stepperItem}>
+                  <View
+                    style={[
+                      styles.stepDot,
+                      {
+                        backgroundColor: done
+                          ? theme.colors.success
+                          : current
+                            ? theme.colors.primary
+                            : theme.colors.border,
+                      },
+                    ]}
+                  >
+                    <Text style={styles.stepDotText}>{done ? '✓' : index + 1}</Text>
+                  </View>
+                  <Text
+                    style={[
+                      styles.stepLabel,
+                      {
+                        color: current ? theme.colors.text : theme.colors.textTertiary,
+                        fontWeight: current ? '700' : '500',
+                      },
+                    ]}
+                    numberOfLines={2}
+                  >
+                    {step.label}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
 
-        <AnimatedPressable
-          style={[
-            styles.contactButton,
-            { backgroundColor: theme.colors.surface },
-            theme.shadows.medium,
-          ]}
-          onPress={handleContactReceiver}
-        >
-          <Package size={20} color={theme.colors.success} strokeWidth={2} />
-          <Text style={[styles.contactText, { color: theme.colors.text }]}>
-            Contact Receiver
+          <Text style={[styles.stepAddress, { color: theme.colors.textSecondary }]} numberOfLines={2}>
+            {riderStep === 'go_dropoff' || riderStep === 'handoff'
+              ? job.dropoffAddress
+              : job.pickupAddress}
           </Text>
-        </AnimatedPressable>
-      </View>
 
-      {/* Action Button */}
-      {nextAction && deliveryStatus !== 'delivered' && (
-        <View style={styles.actionContainer}>
+          <View style={styles.stepActions}>
+            <AnimatedPressable
+              style={[styles.chatIconBtn, { backgroundColor: theme.colors.background }]}
+              onPress={handleContactSender}
+            >
+              <MessageCircle size={20} color={theme.colors.primary} strokeWidth={2} />
+            </AnimatedPressable>
+            {nextAction ? (
+              <AnimatedPressable
+                style={[styles.primaryStepBtn, { backgroundColor: theme.colors.primary }]}
+                onPress={nextAction.action}
+                disabled={confirming}
+              >
+                <Text style={styles.primaryStepText}>{nextAction.text}</Text>
+              </AnimatedPressable>
+            ) : null}
+          </View>
+        </View>
+      ) : (
+        <View style={[styles.earnedSheet, { backgroundColor: theme.colors.surface }, theme.shadows.large]}>
+          <CheckCircle size={48} color={theme.colors.success} strokeWidth={2} />
+          <Text style={[styles.earnedEyebrow, { color: theme.colors.textSecondary }]}>
+            Delivery complete
+          </Text>
+          <Text style={[styles.earnedTitle, { color: theme.colors.text }]}>
+            You earned ₦{netDisplay.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </Text>
+          <Text style={[styles.earnedSub, { color: theme.colors.textSecondary }]}>
+            Added to your available earnings
+          </Text>
           <AnimatedPressable
-            style={[
-              styles.actionButton,
-              { backgroundColor: theme.colors.primary },
-            ]}
-            onPress={nextAction.action}
-            disabled={confirming}
+            style={[styles.primaryStepBtn, { backgroundColor: theme.colors.primary, marginTop: 20, alignSelf: 'stretch' }]}
+            onPress={() => router.replace('/(rider)/earnings')}
           >
-            <CheckCircle size={20} color="#FFFFFF" strokeWidth={2} />
-            <Text style={styles.actionText}>
-              {confirming ? 'Updating…' : nextAction.text}
-            </Text>
+            <Text style={styles.primaryStepText}>View earnings</Text>
           </AnimatedPressable>
-        </View>
-      )}
-
-      {deliveryStatus === 'delivered' && (
-        <View style={styles.completedContainer}>
-          <View
-            style={[
-              styles.completedCard,
-              { backgroundColor: theme.colors.success },
-            ]}
+          <TouchableOpacity
+            style={{ marginTop: 12, padding: 8 }}
+            onPress={() => router.replace('/(rider)/dashboard')}
           >
-            <CheckCircle size={32} color="#FFFFFF" strokeWidth={2} />
-            <Text style={styles.completedText}>Delivery Completed!</Text>
-            <Text style={styles.completedSubtext}>
-              You earned ₦{(job.reward * 0.85).toFixed(2)} (net)
+            <Text style={{ color: theme.colors.textSecondary, fontWeight: '600' }}>
+              Back to dashboard
             </Text>
-          </View>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -1312,7 +1293,7 @@ const styles = StyleSheet.create({
     width: 40,
   },
   mapContainer: {
-    height: 280,
+    flex: 1,
     position: 'relative',
   },
   mapPlaceholder: {
@@ -1606,5 +1587,95 @@ const styles = StyleSheet.create({
   sheetCancelText: {
     fontSize: 15,
     fontWeight: '600',
+  },
+  stepSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 12,
+  },
+  stepperRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  stepperItem: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 2,
+  },
+  stepDot: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  stepDotText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  stepLabel: {
+    fontSize: 11,
+    textAlign: 'center',
+    lineHeight: 14,
+  },
+  stepAddress: {
+    fontSize: 13,
+    marginBottom: 14,
+    textAlign: 'center',
+  },
+  stepActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  chatIconBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryStepBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryStepText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  earnedSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 28,
+    paddingBottom: 20,
+    alignItems: 'center',
+  },
+  earnedEyebrow: {
+    marginTop: 12,
+    fontSize: 13,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  earnedTitle: {
+    marginTop: 6,
+    fontSize: 28,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  earnedSub: {
+    marginTop: 6,
+    fontSize: 14,
+    textAlign: 'center',
   },
 });

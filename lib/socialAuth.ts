@@ -71,9 +71,18 @@ export async function createSessionFromRedirectUrl(url: string): Promise<void> {
     return;
   }
 
+  if (params.token_hash && params.type) {
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash: params.token_hash,
+      type: params.type as 'signup' | 'email' | 'recovery' | 'invite' | 'magiclink' | 'email_change',
+    });
+    if (error) throw error;
+    return;
+  }
+
   const code = params.code;
   if (!code) {
-    throw new Error('No OAuth credentials received. Please try again.');
+    throw new Error('This link is missing sign-in details. Open it from your email and try again.');
   }
 
   const { error } = await supabase.auth.exchangeCodeForSession(code);

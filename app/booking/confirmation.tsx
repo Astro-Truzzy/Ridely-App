@@ -8,7 +8,10 @@ import {
   Modal,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { WebView } from 'react-native-webview';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -27,7 +30,10 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { useDeliveries } from '@/hooks/useDeliveries';
 import { useAuth } from '@/contexts/AuthContext';
-import { usePaymentMethods, type PaymentMethodDisplay } from '@/hooks/usePaymentMethods';
+import {
+  usePaymentMethods,
+  type PaymentMethodDisplay,
+} from '@/hooks/usePaymentMethods';
 import { useWallet } from '@/hooks/useWallet';
 import {
   initializePaystackTransaction,
@@ -36,6 +42,8 @@ import {
   getPaystackCallbackPath,
   PAYSTACK_NEW_CARD_OPTION_ID,
 } from '@/lib/paystack';
+import { TestPaymentsBanner } from '@/components/TestPaymentsBanner';
+import { FormError } from '@/components/FormError';
 
 type PaymentOption = PaymentMethodDisplay & { icon: typeof CreditCard };
 
@@ -70,14 +78,18 @@ export default function ConfirmationScreen() {
   const { theme, isDark } = useTheme();
   const { createDelivery } = useDeliveries();
   const { user, userProfile } = useAuth();
-  const { showAlert } = useAlert();
-  const { methods: savedMethods, loading: methodsLoading, addPlaceholderMethodsIfEmpty } =
-    usePaymentMethods();
+  const { showToast } = useAlert();
+  const {
+    methods: savedMethods,
+    loading: methodsLoading,
+    addPlaceholderMethodsIfEmpty,
+  } = usePaymentMethods();
   const { balance: walletBalance } = useWallet();
   const [selectedPayment, setSelectedPayment] = useState<string>('');
   const [isBooking, setIsBooking] = useState(false);
   const [paystackAuthUrl, setPaystackAuthUrl] = useState<string | null>(null);
   const [paystackLoading, setPaystackLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     addPlaceholderMethodsIfEmpty();
@@ -91,18 +103,20 @@ export default function ConfirmationScreen() {
     };
 
     const options: PaymentOption[] = savedMethods
-      .filter((m) => m.type === 'card' || m.type === 'cash' || m.type === 'wallet')
+      .filter(
+        (m) => m.type === 'card' || m.type === 'cash' || m.type === 'wallet',
+      )
       .map((m) => ({
         ...m,
         details:
           m.type === 'wallet'
-            ? `Balance: ₦${(walletBalance ?? 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`
+            ? `Coming soon · Balance: ₦${(walletBalance ?? 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`
             : m.details,
         icon: iconFor(m.type),
       }));
 
     const hasChargeableCard = savedMethods.some(
-      (m) => m.type === 'card' && !!m.gatewayPaymentMethodId
+      (m) => m.type === 'card' && !!m.gatewayPaymentMethodId,
     );
     if (hasChargeableCard || savedMethods.some((m) => m.type === 'card')) {
       options.push({
@@ -131,55 +145,72 @@ export default function ConfirmationScreen() {
 
   useEffect(() => {
     if (paymentMethods.length === 0 || selectedPayment) return;
-    const defaultSaved = savedMethods.find((m) => m.isDefault && m.type === 'card' && m.gatewayPaymentMethodId);
+    const defaultSaved = savedMethods.find(
+      (m) => m.isDefault && m.type === 'card' && m.gatewayPaymentMethodId,
+    );
     const defaultAny = savedMethods.find((m) => m.isDefault);
     const cash = savedMethods.find((m) => m.type === 'cash');
     if (defaultSaved) setSelectedPayment(defaultSaved.id);
-    else if (defaultAny) setSelectedPayment(defaultAny.id);
+    else if (defaultAny && defaultAny.type !== 'wallet')
+      setSelectedPayment(defaultAny.id);
     else if (cash) setSelectedPayment(cash.id);
-    else setSelectedPayment(paymentMethods[0]?.id ?? PAYSTACK_NEW_CARD_OPTION_ID);
+    else
+      setSelectedPayment(paymentMethods[0]?.id ?? PAYSTACK_NEW_CARD_OPTION_ID);
   }, [paymentMethods, savedMethods, selectedPayment]);
 
-  const completeBooking = useCallback(async (opts: {
-    payment_method: 'cash' | 'card';
-    payment_reference?: string | null;
-  }) => {
-    if (!user) return;
-    await createDelivery({
-      pickup_address: pickupAddress,
-      dropoff_address: dropoffAddress,
-      pickup_lat: pickupLat != null ? parseFloat(pickupLat) : null,
-      pickup_lng: pickupLon != null ? parseFloat(pickupLon) : null,
-      dropoff_lat: dropoffLat != null ? parseFloat(dropoffLat) : null,
-      dropoff_lng: dropoffLon != null ? parseFloat(dropoffLon) : null,
-      parcel_size: size as 'small' | 'medium' | 'large',
-      total_cost: parseFloat(price),
-      distance: parseFloat(distance),
-      estimated_time: '25-35 mins',
-      delivery_time: deliveryTime as 'now' | 'scheduled',
-      scheduled_time: deliveryTime === 'scheduled' && scheduledTime ? scheduledTime : null,
-      payment_method: opts.payment_method,
-      payment_reference: opts.payment_reference ?? null,
-    });
-    showAlert(
-      'Booking Confirmed! 🎉',
-      'Your delivery has been booked successfully. You will receive a notification when a rider accepts your request.',
-      [
-        { text: 'View Bookings', onPress: () => router.replace('/(tabs)/bookings') },
-        { text: 'Go to Home', onPress: () => router.replace('/(tabs)') },
-      ]
-    );
-  }, [user, pickupAddress, dropoffAddress, size, price, distance, deliveryTime, scheduledTime, pickupLat, pickupLon, dropoffLat, dropoffLon, createDelivery, showAlert]);
+  const completeBooking = useCallback(
+    async (opts: {
+      payment_method: 'cash' | 'card';
+      payment_reference?: string | null;
+    }) => {
+      if (!user) return;
+      await createDelivery({
+        pickup_address: pickupAddress,
+        dropoff_address: dropoffAddress,
+        pickup_lat: pickupLat != null ? parseFloat(pickupLat) : null,
+        pickup_lng: pickupLon != null ? parseFloat(pickupLon) : null,
+        dropoff_lat: dropoffLat != null ? parseFloat(dropoffLat) : null,
+        dropoff_lng: dropoffLon != null ? parseFloat(dropoffLon) : null,
+        parcel_size: size as 'small' | 'medium' | 'large',
+        total_cost: parseFloat(price),
+        distance: parseFloat(distance),
+        estimated_time: '25-35 mins',
+        delivery_time: deliveryTime as 'now' | 'scheduled',
+        scheduled_time:
+          deliveryTime === 'scheduled' && scheduledTime ? scheduledTime : null,
+        payment_method: opts.payment_method,
+        payment_reference: opts.payment_reference ?? null,
+      });
+      showToast('Delivery booked. We will notify you when a rider accepts.');
+      router.replace('/(tabs)/bookings');
+    },
+    [
+      user,
+      pickupAddress,
+      dropoffAddress,
+      size,
+      price,
+      distance,
+      deliveryTime,
+      scheduledTime,
+      pickupLat,
+      pickupLon,
+      dropoffLat,
+      dropoffLon,
+      createDelivery,
+      showToast,
+    ],
+  );
 
   const startNewCardPayment = useCallback(async () => {
     const email = user?.email || userProfile?.email || '';
     if (!email) {
-      showAlert('Error', 'Your account email is required for card payment.');
+      setFormError('Your account email is required for card payment.');
       return;
     }
     const amountKobo = Math.round(parseFloat(price || '0') * 100);
     if (amountKobo < 100) {
-      showAlert('Error', 'Amount must be at least ₦1.00');
+      setFormError('Amount must be at least ₦1.00');
       return;
     }
     setPaystackLoading(true);
@@ -195,34 +226,35 @@ export default function ConfirmationScreen() {
       });
       setPaystackAuthUrl(authorization_url);
     } catch (e) {
-      showAlert(
-        'Payment error',
-        e instanceof Error ? e.message : 'Could not start payment. Check README_PAYMENT_METHODS for setup.'
+      setFormError(
+        e instanceof Error
+          ? e.message
+          : 'Could not start payment. Check README_PAYMENT_METHODS for setup.',
       );
     } finally {
       setPaystackLoading(false);
     }
-  }, [user?.id, user?.email, userProfile?.email, price, showAlert]);
+  }, [user?.id, user?.email, userProfile?.email, price]);
 
   const handleBooking = async () => {
     if (!user) {
-      showAlert('Error', 'You must be logged in to create a booking');
+      setFormError('You must be logged in to create a booking');
       return;
     }
 
     if (!selectedPayment) {
-      showAlert('Error', 'Please select a payment method.');
+      setFormError('Please select a payment method.');
       return;
     }
 
     const selected = paymentMethods.find((m) => m.id === selectedPayment);
     if (!selected) {
-      showAlert('Error', 'Invalid payment method.');
+      setFormError('Invalid payment method.');
       return;
     }
 
     if (selected.type === 'wallet') {
-      showAlert('Not available', 'Paying with Ridely Wallet is coming soon. Choose card or cash.');
+      setFormError('Paying with Ridely Wallet is coming soon. Choose card or cash.');
       return;
     }
 
@@ -232,9 +264,10 @@ export default function ConfirmationScreen() {
         await completeBooking({ payment_method: 'cash' });
       } catch (error: unknown) {
         console.error('Error creating delivery:', error);
-        showAlert(
-          'Booking Failed',
-          error instanceof Error ? error.message : 'Failed to create booking. Please try again.'
+        setFormError(
+          error instanceof Error
+            ? error.message
+            : 'Failed to create booking. Please try again.',
         );
       } finally {
         setIsBooking(false);
@@ -256,12 +289,12 @@ export default function ConfirmationScreen() {
     if (savedCard?.gatewayPaymentMethodId) {
       const email = user.email || userProfile?.email || '';
       if (!email) {
-        showAlert('Error', 'Your account email is required for card payment.');
+        setFormError('Your account email is required for card payment.');
         return;
       }
       const amountKobo = Math.round(parseFloat(price || '0') * 100);
       if (amountKobo < 100) {
-        showAlert('Error', 'Amount must be at least ₦1.00');
+        setFormError('Amount must be at least ₦1.00');
         return;
       }
 
@@ -280,7 +313,7 @@ export default function ConfirmationScreen() {
           },
         });
         if (!chargeResult.success || !chargeResult.reference) {
-          showAlert('Payment failed', chargeResult.error || 'Could not charge your saved card.');
+          setFormError(chargeResult.error || 'Could not charge your saved card.');
           return;
         }
         setIsBooking(true);
@@ -289,9 +322,10 @@ export default function ConfirmationScreen() {
           payment_reference: chargeResult.reference,
         });
       } catch (e) {
-        showAlert(
-          'Payment error',
-          e instanceof Error ? e.message : 'Could not charge saved card. Try paying with a different card.'
+        setFormError(
+          e instanceof Error
+            ? e.message
+            : 'Could not charge saved card. Try paying with a different card.',
         );
       } finally {
         setPaystackLoading(false);
@@ -303,18 +337,20 @@ export default function ConfirmationScreen() {
     await startNewCardPayment();
   };
 
-  const handlePaystackCallback = useCallback(
-    async (url: string) => {
-      const callbackPath = getPaystackCallbackPath();
-      if (!callbackPath || !url.includes('/paystack-callback') || !url.includes('reference=')) return null;
-      const match = url.match(/reference=([^&]+)/);
-      const reference = match ? decodeURIComponent(match[1]) : null;
-      if (!reference) return null;
-      const result = await verifyPaystackTransaction(reference);
-      return result.success ? reference : null;
-    },
-    []
-  );
+  const handlePaystackCallback = useCallback(async (url: string) => {
+    const callbackPath = getPaystackCallbackPath();
+    if (
+      !callbackPath ||
+      !url.includes('/paystack-callback') ||
+      !url.includes('reference=')
+    )
+      return null;
+    const match = url.match(/reference=([^&]+)/);
+    const reference = match ? decodeURIComponent(match[1]) : null;
+    if (!reference) return null;
+    const result = await verifyPaystackTransaction(reference);
+    return result.success ? reference : null;
+  }, []);
 
   const closePaystackWebView = useCallback(() => {
     setPaystackAuthUrl(null);
@@ -333,12 +369,12 @@ export default function ConfirmationScreen() {
           payment_reference: success,
         });
       } catch (e) {
-        showAlert('Booking Failed', e instanceof Error ? e.message : 'Could not complete booking.');
+        setFormError(e instanceof Error ? e.message : 'Could not complete booking.');
       } finally {
         setIsBooking(false);
       }
     },
-    [handlePaystackCallback, closePaystackWebView, completeBooking]
+    [handlePaystackCallback, closePaystackWebView, completeBooking],
   );
 
   const getSizeLabel = (size: string) => {
@@ -361,185 +397,383 @@ export default function ConfirmationScreen() {
     >
       <StatusBar style={isDark ? 'light' : 'dark'} />
       {/* Header */}
-      <View style={[styles.header, {
-        backgroundColor: theme.colors.card,
-        borderBottomColor: theme.colors.border,
-        paddingTop: 16 + insets.top,
-      }]}>
+      <View
+        style={[
+          styles.header,
+          {
+            backgroundColor: theme.colors.card,
+            borderBottomColor: theme.colors.border,
+            paddingTop: 16 + insets.top,
+          },
+        ]}
+      >
         <TouchableOpacity
           style={[styles.backButton, { backgroundColor: theme.colors.surface }]}
-          onPress={() => router.back()}>
+          onPress={() => router.back()}
+        >
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
-        <Text style={[styles.title, { color: theme.colors.text }]}>Confirm Booking</Text>
+        <Text style={[styles.title, { color: theme.colors.text }]}>
+          Confirm Booking
+        </Text>
         <View style={styles.placeholder} />
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Progress Indicator */}
         <View style={styles.progressContainer}>
           <View style={styles.progressBar}>
-            <View style={[styles.progressStep, { backgroundColor: theme.colors.success }]} />
-            <View style={[styles.progressStep, { backgroundColor: theme.colors.success }]} />
-            <View style={[styles.progressStep, { backgroundColor: theme.colors.success }]} />
-            <View style={[styles.progressStep, { backgroundColor: theme.colors.primary }]} />
+            <View
+              style={[
+                styles.progressStep,
+                { backgroundColor: theme.colors.success },
+              ]}
+            />
+            <View
+              style={[
+                styles.progressStep,
+                { backgroundColor: theme.colors.success },
+              ]}
+            />
+            <View
+              style={[
+                styles.progressStep,
+                { backgroundColor: theme.colors.success },
+              ]}
+            />
+            <View
+              style={[
+                styles.progressStep,
+                { backgroundColor: theme.colors.primary },
+              ]}
+            />
           </View>
-          <Text style={[styles.progressText, { color: theme.colors.textSecondary }]}>Step 4 of 4</Text>
+          <Text
+            style={[styles.progressText, { color: theme.colors.textSecondary }]}
+          >
+            Step 4 of 4
+          </Text>
         </View>
 
         {/* Content */}
         <View style={styles.content}>
           {/* Summary Card */}
-          <View style={[
-            styles.summaryCard,
-            {
-              backgroundColor: theme.colors.card,
-              borderColor: theme.colors.success,
-            },
-            theme.shadows.large,
-          ]}>
+          <View
+            style={[
+              styles.summaryCard,
+              {
+                backgroundColor: theme.colors.card,
+                borderColor: theme.colors.success,
+              },
+              theme.shadows.large,
+            ]}
+          >
             <View style={styles.summaryHeader}>
-              <CheckCircle size={32} color={theme.colors.success} strokeWidth={2} />
+              <CheckCircle
+                size={32}
+                color={theme.colors.success}
+                strokeWidth={2}
+              />
               <View style={styles.summaryInfo}>
-                <Text style={[styles.summaryTitle, { color: theme.colors.text }]}>Almost Done!</Text>
-                <Text style={[styles.summarySubtitle, { color: theme.colors.textSecondary }]}>
+                <Text
+                  style={[styles.summaryTitle, { color: theme.colors.text }]}
+                >
+                  Almost Done!
+                </Text>
+                <Text
+                  style={[
+                    styles.summarySubtitle,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
                   Review and confirm your booking
                 </Text>
               </View>
-              <Text style={[styles.totalPrice, { color: theme.colors.success }]}>
+              <Text
+                style={[styles.totalPrice, { color: theme.colors.success }]}
+              >
                 ₦{parseFloat(price || '0').toLocaleString('en-NG')}
               </Text>
             </View>
           </View>
 
           {/* Booking Details */}
-          <View style={[
-            styles.detailsCard,
-            { backgroundColor: theme.colors.card },
-            theme.shadows.medium,
-          ]}>
-            <Text style={[styles.cardTitle, { color: theme.colors.text }]}>Booking Summary</Text>
-            
+          <View
+            style={[
+              styles.detailsCard,
+              { backgroundColor: theme.colors.card },
+              theme.shadows.medium,
+            ]}
+          >
+            <Text style={[styles.cardTitle, { color: theme.colors.text }]}>
+              Booking Summary
+            </Text>
+
             <View style={styles.detailRow}>
               <Package size={20} color={theme.colors.primary} strokeWidth={2} />
               <View style={styles.detailInfo}>
-                <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Package Size</Text>
-                <Text style={[styles.detailValue, { color: theme.colors.text }]}>{getSizeLabel(size)}</Text>
+                <Text
+                  style={[
+                    styles.detailLabel,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  Package Size
+                </Text>
+                <Text
+                  style={[styles.detailValue, { color: theme.colors.text }]}
+                >
+                  {getSizeLabel(size)}
+                </Text>
               </View>
             </View>
-            
+
             <View style={styles.detailRow}>
               <MapPin size={20} color={theme.colors.success} strokeWidth={2} />
               <View style={styles.detailInfo}>
-                <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Pickup</Text>
-                <Text style={[styles.detailValue, { color: theme.colors.text }]} numberOfLines={2}>{pickupAddress}</Text>
+                <Text
+                  style={[
+                    styles.detailLabel,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  Pickup
+                </Text>
+                <Text
+                  style={[styles.detailValue, { color: theme.colors.text }]}
+                  numberOfLines={2}
+                >
+                  {pickupAddress}
+                </Text>
               </View>
             </View>
-            
+
             <View style={styles.detailRow}>
               <MapPin size={20} color={theme.colors.error} strokeWidth={2} />
               <View style={styles.detailInfo}>
-                <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Dropoff</Text>
-                <Text style={[styles.detailValue, { color: theme.colors.text }]} numberOfLines={2}>{dropoffAddress}</Text>
+                <Text
+                  style={[
+                    styles.detailLabel,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  Dropoff
+                </Text>
+                <Text
+                  style={[styles.detailValue, { color: theme.colors.text }]}
+                  numberOfLines={2}
+                >
+                  {dropoffAddress}
+                </Text>
               </View>
             </View>
-            
+
             <View style={styles.detailRow}>
               <Clock size={20} color={theme.colors.warning} strokeWidth={2} />
               <View style={styles.detailInfo}>
-                <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Delivery Time</Text>
-                <Text style={[styles.detailValue, { color: theme.colors.text }]}>
-                  {deliveryTime === 'now' 
-                    ? 'Immediate Pickup' 
+                <Text
+                  style={[
+                    styles.detailLabel,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  Delivery Time
+                </Text>
+                <Text
+                  style={[styles.detailValue, { color: theme.colors.text }]}
+                >
+                  {deliveryTime === 'now'
+                    ? 'Immediate Pickup'
                     : `Scheduled: ${scheduledTime || 'Later'}`}
                 </Text>
               </View>
             </View>
-            
-            <View style={[styles.estimateRow, { borderTopColor: theme.colors.border }]}>
-              <Text style={[styles.estimateText, { color: theme.colors.textSecondary }]}>
+
+            <View
+              style={[
+                styles.estimateRow,
+                { borderTopColor: theme.colors.border },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.estimateText,
+                  { color: theme.colors.textSecondary },
+                ]}
+              >
                 📍 Distance: {distance} km • ⏱️ Est. delivery: 25-35 mins
               </Text>
             </View>
           </View>
 
           {/* Payment Method */}
-          <View style={[
-            styles.paymentCard,
-            { backgroundColor: theme.colors.card },
-            theme.shadows.medium,
-          ]}>
-            <Text style={[styles.cardTitle, { color: theme.colors.text }]}>Payment Method</Text>
+          <View
+            style={[
+              styles.paymentCard,
+              { backgroundColor: theme.colors.card },
+              theme.shadows.medium,
+            ]}
+          >
+            <Text style={[styles.cardTitle, { color: theme.colors.text }]}>
+              Payment Method
+            </Text>
+            <TestPaymentsBanner compact />
 
             {methodsLoading ? (
-              <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginVertical: 16 }} />
+              <ActivityIndicator
+                size="small"
+                color={theme.colors.primary}
+                style={{ marginVertical: 16 }}
+              />
             ) : null}
 
-            {paymentMethods.map((method) => (
-              <TouchableOpacity
-                key={method.id}
-                style={[
-                  styles.paymentOption,
-                  {
-                    borderColor: theme.colors.border,
-                    backgroundColor: theme.colors.card,
-                  },
-                  selectedPayment === method.id && {
-                    borderColor: theme.colors.primary,
-                    backgroundColor: isDark ? theme.colors.surface : theme.colors.primary + '12',
-                  },
-                ]}
-                onPress={() => setSelectedPayment(method.id)}>
-                <View style={[styles.paymentIcon, { backgroundColor: theme.colors.surface }]}>
-                  <method.icon size={24} color={theme.colors.primary} strokeWidth={2} />
-                </View>
-                <View style={styles.paymentInfo}>
-                  <Text style={[styles.paymentLabel, { color: theme.colors.text }]}>{method.label}</Text>
-                  <Text style={[styles.paymentDetails, { color: theme.colors.textSecondary }]}>{method.details}</Text>
-                </View>
-                {selectedPayment === method.id && (
-                  <View style={[styles.checkmark, { backgroundColor: theme.colors.primary }]}>
-                    <Text style={styles.checkmarkText}>✓</Text>
+            {paymentMethods.map((method) => {
+              const comingSoon = method.type === 'wallet';
+              return (
+                <TouchableOpacity
+                  key={method.id}
+                  disabled={comingSoon}
+                  style={[
+                    styles.paymentOption,
+                    {
+                      borderColor: theme.colors.border,
+                      backgroundColor: theme.colors.card,
+                    },
+                    selectedPayment === method.id &&
+                      !comingSoon && {
+                        borderColor: theme.colors.primary,
+                        backgroundColor: isDark
+                          ? theme.colors.surface
+                          : theme.colors.primary + '12',
+                      },
+                    comingSoon && { opacity: 0.7 },
+                  ]}
+                  onPress={() => {
+                    if (comingSoon) return;
+                    setSelectedPayment(method.id);
+                  }}
+                >
+                  <View
+                    style={[
+                      styles.paymentIcon,
+                      { backgroundColor: theme.colors.surface },
+                    ]}
+                  >
+                    <method.icon
+                      size={24}
+                      color={theme.colors.primary}
+                      strokeWidth={2}
+                    />
                   </View>
-                )}
-              </TouchableOpacity>
-            ))}
+                  <View style={styles.paymentInfo}>
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.paymentLabel,
+                          { color: theme.colors.text },
+                        ]}
+                      >
+                        {method.label}
+                      </Text>
+                      {comingSoon ? (
+                        <Text
+                          style={[
+                            styles.comingSoonBadge,
+                            {
+                              color: theme.colors.primary,
+                              borderColor: theme.colors.primary,
+                            },
+                          ]}
+                        >
+                          Coming soon
+                        </Text>
+                      ) : null}
+                    </View>
+                    <Text
+                      style={[
+                        styles.paymentDetails,
+                        { color: theme.colors.textSecondary },
+                      ]}
+                    >
+                      {method.details}
+                    </Text>
+                  </View>
+                  {selectedPayment === method.id && !comingSoon && (
+                    <View
+                      style={[
+                        styles.checkmark,
+                        { backgroundColor: theme.colors.primary },
+                      ]}
+                    >
+                      <Text style={styles.checkmarkText}>✓</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           {/* Terms */}
           <View style={styles.termsContainer}>
-            <Text style={[styles.termsText, { color: theme.colors.textSecondary }]}>
+            <Text
+              style={[styles.termsText, { color: theme.colors.textSecondary }]}
+            >
               By confirming this booking, you agree to our{' '}
-              <Text style={[styles.termsLink, { color: theme.colors.primary }]}>Terms of Service</Text> and{' '}
-              <Text style={[styles.termsLink, { color: theme.colors.primary }]}>Privacy Policy</Text>. The rider will arrive
-              within the estimated time frame.
+              <Text style={[styles.termsLink, { color: theme.colors.primary }]}>
+                Terms of Service
+              </Text>{' '}
+              and{' '}
+              <Text style={[styles.termsLink, { color: theme.colors.primary }]}>
+                Privacy Policy
+              </Text>
+              . The rider will arrive within the estimated time frame.
             </Text>
           </View>
         </View>
       </ScrollView>
 
       {/* Bottom Button */}
-      <View style={[styles.bottomContainer, {
-        backgroundColor: theme.colors.card,
-        borderTopColor: theme.colors.border,
-      }]}>
+      <View
+        style={[
+          styles.bottomContainer,
+          {
+            backgroundColor: theme.colors.card,
+            borderTopColor: theme.colors.border,
+          },
+        ]}
+      >
+        <FormError message={formError} />
         <TouchableOpacity
           style={[
             styles.bookingButton,
             { backgroundColor: theme.colors.primary },
-            (isBooking || paystackLoading) && { backgroundColor: theme.colors.textTertiary },
+            (isBooking || paystackLoading) && {
+              backgroundColor: theme.colors.textTertiary,
+            },
           ]}
           onPress={handleBooking}
-          disabled={isBooking || paystackLoading}>
+          disabled={isBooking || paystackLoading}
+        >
           <Text style={styles.bookingText}>
             {paystackLoading
               ? selectedPayment !== PAYSTACK_NEW_CARD_OPTION_ID &&
-                paymentMethods.find((m) => m.id === selectedPayment)?.gatewayPaymentMethodId
+                paymentMethods.find((m) => m.id === selectedPayment)
+                  ?.gatewayPaymentMethodId
                 ? 'Charging card...'
                 : 'Opening payment...'
               : isBooking
                 ? 'Confirming Booking...'
-                : paymentMethods.find((m) => m.id === selectedPayment)?.type === 'cash'
+                : paymentMethods.find((m) => m.id === selectedPayment)?.type ===
+                    'cash'
                   ? 'Confirm'
                   : `Confirm & Pay ₦${parseFloat(price || '0').toLocaleString('en-NG')}`}
           </Text>
@@ -547,15 +781,40 @@ export default function ConfirmationScreen() {
       </View>
 
       {/* Paystack card payment WebView */}
-      <Modal visible={!!paystackAuthUrl} animationType="slide" onRequestClose={closePaystackWebView}>
-        <SafeAreaView style={[styles.paystackModal, { backgroundColor: theme.colors.background }]}>
-          <View style={[styles.paystackHeader, { backgroundColor: theme.colors.card, borderBottomColor: theme.colors.border }]}>
-            <TouchableOpacity onPress={closePaystackWebView} style={styles.paystackClose}>
+      <Modal
+        visible={!!paystackAuthUrl}
+        animationType="slide"
+        onRequestClose={closePaystackWebView}
+      >
+        <SafeAreaView
+          style={[
+            styles.paystackModal,
+            { backgroundColor: theme.colors.background },
+          ]}
+        >
+          <View
+            style={[
+              styles.paystackHeader,
+              {
+                backgroundColor: theme.colors.card,
+                borderBottomColor: theme.colors.border,
+              },
+            ]}
+          >
+            <TouchableOpacity
+              onPress={closePaystackWebView}
+              style={styles.paystackClose}
+            >
               <X size={24} color={theme.colors.text} strokeWidth={2} />
             </TouchableOpacity>
-            <Text style={[styles.paystackHeaderTitle, { color: theme.colors.text }]}>Complete payment</Text>
+            <Text
+              style={[styles.paystackHeaderTitle, { color: theme.colors.text }]}
+            >
+              Complete payment
+            </Text>
             <View style={styles.paystackClose} />
           </View>
+          <TestPaymentsBanner />
           {paystackAuthUrl ? (
             <WebView
               source={{ uri: paystackAuthUrl }}
@@ -587,9 +846,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -720,6 +979,15 @@ const styles = StyleSheet.create({
   },
   paymentDetails: {
     fontSize: 14,
+  },
+  comingSoonBadge: {
+    fontSize: 11,
+    fontWeight: '700',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    overflow: 'hidden',
   },
   checkmark: {
     width: 28,

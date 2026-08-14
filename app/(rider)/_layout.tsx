@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { LanguageProvider } from '@/contexts/LanguageContext';
-import { AppSettingsProvider } from '@/contexts/AppSettingsContext';
 
 export default function RiderLayout() {
   const { session, userType, loading } = useAuth();
@@ -21,12 +20,12 @@ export default function RiderLayout() {
 
   return (
     <LanguageProvider>
-    <AppSettingsProvider>
     <Stack screenOptions={{ headerShown: false }} initialRouteName="dashboard">
       <Stack.Screen name="dashboard" />
       <Stack.Screen name="job-details" />
       <Stack.Screen name="active-delivery" />
       <Stack.Screen name="earnings" />
+      <Stack.Screen name="receipt" />
       <Stack.Screen name="payout" />
       <Stack.Screen name="withdrawal-pin" />
       <Stack.Screen name="profile" />
@@ -40,7 +39,6 @@ export default function RiderLayout() {
       <Stack.Screen name="terms-of-service" />
       <Stack.Screen name="apply-verification" />
     </Stack>
-    </AppSettingsProvider>
     </LanguageProvider>
   );
 }

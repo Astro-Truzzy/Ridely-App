@@ -6,11 +6,14 @@ import {
   TouchableOpacity,
   ScrollView,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, Package, ChevronRight } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useTheme } from '@/contexts/ThemeContext';
+import { useTheme, type Theme } from '@/contexts/ThemeContext';
 
 interface ParcelSize {
   id: 'small' | 'medium' | 'large';
@@ -22,9 +25,30 @@ interface ParcelSize {
 }
 
 const PARCEL_SIZES: ParcelSize[] = [
-  { id: 'small', title: 'Small', description: 'Documents, keys, small items', dimensions: 'Up to 20cm x 15cm x 5cm', maxWeight: 'Max 1kg', icon: '📄' },
-  { id: 'medium', title: 'Medium', description: 'Clothing, books, electronics', dimensions: 'Up to 40cm x 30cm x 20cm', maxWeight: 'Max 5kg', icon: '📦' },
-  { id: 'large', title: 'Large', description: 'Large packages, multiple items', dimensions: 'Up to 60cm x 45cm x 40cm', maxWeight: 'Max 15kg', icon: '📫' },
+  {
+    id: 'small',
+    title: 'Small',
+    description: 'Documents, keys, small items',
+    dimensions: 'Up to 20cm x 15cm x 5cm',
+    maxWeight: 'Max 1kg',
+    icon: '📄',
+  },
+  {
+    id: 'medium',
+    title: 'Medium',
+    description: 'Clothing, books, electronics',
+    dimensions: 'Up to 40cm x 30cm x 20cm',
+    maxWeight: 'Max 5kg',
+    icon: '📦',
+  },
+  {
+    id: 'large',
+    title: 'Large',
+    description: 'Large packages, multiple items',
+    dimensions: 'Up to 60cm x 45cm x 40cm',
+    maxWeight: 'Max 15kg',
+    icon: '📫',
+  },
 ];
 
 function ParcelSizeCard({
@@ -37,16 +61,23 @@ function ParcelSizeCard({
   size: ParcelSize;
   selected: boolean;
   onSelect: () => void;
-  theme: { colors: { card: string; border: string; text: string; textSecondary: string; primary: string }; shadows: { medium: object } };
+  theme: Theme;
   isDark: boolean;
 }) {
   return (
     <TouchableOpacity
       style={[
         styles.sizeCard,
-        { backgroundColor: theme.colors.card, borderColor: theme.colors.border, ...theme.shadows.medium },
+        {
+          backgroundColor: theme.colors.card,
+          borderColor: theme.colors.border,
+          ...theme.shadows.medium,
+        },
         selected && styles.selectedSizeCard,
-        selected && { borderColor: theme.colors.primary, backgroundColor: isDark ? theme.colors.surface : '#F8F9FF' },
+        selected && {
+          borderColor: theme.colors.primary,
+          backgroundColor: isDark ? theme.colors.surface : '#F8F9FF',
+        },
       ]}
       onPress={onSelect}
       activeOpacity={0.7}
@@ -57,18 +88,55 @@ function ParcelSizeCard({
       <View style={styles.sizeHeader}>
         <Text style={styles.sizeIcon}>{size.icon}</Text>
         <View style={styles.sizeInfo}>
-          <Text style={[styles.sizeTitle, { color: theme.colors.text }, selected && { color: theme.colors.primary }]}>{size.title}</Text>
-          <Text style={[styles.sizeDescription, { color: theme.colors.textSecondary }, selected && { color: theme.colors.primary }]}>{size.description}</Text>
+          <Text
+            style={[
+              styles.sizeTitle,
+              { color: theme.colors.text },
+              selected && { color: theme.colors.primary },
+            ]}
+          >
+            {size.title}
+          </Text>
+          <Text
+            style={[
+              styles.sizeDescription,
+              { color: theme.colors.textSecondary },
+              selected && { color: theme.colors.primary },
+            ]}
+          >
+            {size.description}
+          </Text>
         </View>
         {selected && (
-          <View style={[styles.checkmark, { backgroundColor: theme.colors.primary }]}>
+          <View
+            style={[
+              styles.checkmark,
+              { backgroundColor: theme.colors.primary },
+            ]}
+          >
             <Text style={styles.checkmarkText}>✓</Text>
           </View>
         )}
       </View>
       <View style={styles.sizeDetails}>
-        <Text style={[styles.sizeDimensions, { color: theme.colors.textSecondary }, selected && { color: theme.colors.primary }]}>📏 {size.dimensions}</Text>
-        <Text style={[styles.sizeWeight, { color: theme.colors.textSecondary }, selected && { color: theme.colors.primary }]}>⚖️ {size.maxWeight}</Text>
+        <Text
+          style={[
+            styles.sizeDimensions,
+            { color: theme.colors.textSecondary },
+            selected && { color: theme.colors.primary },
+          ]}
+        >
+          📏 {size.dimensions}
+        </Text>
+        <Text
+          style={[
+            styles.sizeWeight,
+            { color: theme.colors.textSecondary },
+            selected && { color: theme.colors.primary },
+          ]}
+        >
+          ⚖️ {size.maxWeight}
+        </Text>
       </View>
     </TouchableOpacity>
   );
@@ -84,7 +152,10 @@ export default function BookingScreen() {
     if (selectedSize) {
       router.push({
         pathname: '/booking/address',
-        params: { size: selectedSize, ...(scheduleLater ? { scheduleLater: '1' } : {}) },
+        params: {
+          size: selectedSize,
+          ...(scheduleLater ? { scheduleLater: '1' } : {}),
+        },
       });
     }
   }, [selectedSize, scheduleLater]);
@@ -96,41 +167,81 @@ export default function BookingScreen() {
     >
       <StatusBar style={isDark ? 'light' : 'dark'} />
       {/* Header - card background fills to top; content padded below status bar */}
-      <View style={[styles.header, {
-        backgroundColor: theme.colors.card,
-        borderBottomColor: theme.colors.border,
-        paddingTop: 10 + insets.top,
-      }]}>
+      <View
+        style={[
+          styles.header,
+          {
+            backgroundColor: theme.colors.card,
+            borderBottomColor: theme.colors.border,
+            paddingTop: 10 + insets.top,
+          },
+        ]}
+      >
         <TouchableOpacity
-          style={[styles.backButton, { backgroundColor: isDark ? theme.colors.card : '#F3F4F6' }]}
-          onPress={() => router.back()}>
+          style={[
+            styles.backButton,
+            { backgroundColor: isDark ? theme.colors.card : '#F3F4F6' },
+          ]}
+          onPress={() => router.back()}
+        >
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
-        <Text style={[styles.title, { color: theme.colors.text }]}>Book a Delivery</Text>
+        <Text style={[styles.title, { color: theme.colors.text }]}>
+          Book a Delivery
+        </Text>
         <View style={styles.placeholder} />
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Progress Indicator */}
         <View style={styles.progressContainer}>
           <View style={styles.progressBar}>
             <View style={[styles.progressStep, styles.activeStep]} />
-            <View style={[styles.progressStep, { backgroundColor: theme.colors.border }]} />
-            <View style={[styles.progressStep, { backgroundColor: theme.colors.border }]} />
-            <View style={[styles.progressStep, { backgroundColor: theme.colors.border }]} />
+            <View
+              style={[
+                styles.progressStep,
+                { backgroundColor: theme.colors.border },
+              ]}
+            />
+            <View
+              style={[
+                styles.progressStep,
+                { backgroundColor: theme.colors.border },
+              ]}
+            />
+            <View
+              style={[
+                styles.progressStep,
+                { backgroundColor: theme.colors.border },
+              ]}
+            />
           </View>
-          <Text style={[styles.progressText, { color: theme.colors.textSecondary }]}>{'Step 1 of 4'}</Text>
+          <Text
+            style={[styles.progressText, { color: theme.colors.textSecondary }]}
+          >
+            {'Step 1 of 4'}
+          </Text>
         </View>
 
         {/* Content */}
         <View style={styles.content}>
           <View style={styles.sectionHeader}>
             <Package size={28} color={theme.colors.primary} strokeWidth={2} />
-            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{'Select Parcel Size'}</Text>
+            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+              {'Select Parcel Size'}
+            </Text>
           </View>
-          <Text style={[styles.sectionSubtitle, { color: theme.colors.textSecondary }]}>
-            Choose the size that best fits your package. Pricing will be calculated based on
-            your selection and delivery distance.
+          <Text
+            style={[
+              styles.sectionSubtitle,
+              { color: theme.colors.textSecondary },
+            ]}
+          >
+            Choose the size that best fits your package. Pricing will be
+            calculated based on your selection and delivery distance.
           </Text>
 
           {/* Size Options */}
@@ -148,12 +259,29 @@ export default function BookingScreen() {
           </View>
 
           {/* Info Box */}
-          <View style={[styles.infoBox, { 
-            backgroundColor: isDark ? theme.colors.info + '18' : '#F0F9FF',
-            borderLeftColor: theme.colors.info
-          }]}>
-            <Text style={[styles.infoTitle, { color: isDark ? theme.colors.info : '#0C4A6E' }]}>{'💡 Good to know'}</Text>
-            <Text style={[styles.infoText, { color: isDark ? theme.colors.textSecondary : '#0C4A6E' }]}>
+          <View
+            style={[
+              styles.infoBox,
+              {
+                backgroundColor: isDark ? theme.colors.info + '18' : '#F0F9FF',
+                borderLeftColor: theme.colors.info,
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.infoTitle,
+                { color: isDark ? theme.colors.info : '#0C4A6E' },
+              ]}
+            >
+              {'💡 Good to know'}
+            </Text>
+            <Text
+              style={[
+                styles.infoText,
+                { color: isDark ? theme.colors.textSecondary : '#0C4A6E' },
+              ]}
+            >
               {'• Medium parcels include a 2% size surcharge\n'}
               {'• Large parcels include a 5% size surcharge\n'}
               {'• Final pricing is calculated after address selection\n'}
@@ -164,23 +292,31 @@ export default function BookingScreen() {
       </ScrollView>
 
       {/* Bottom Button */}
-      <View style={[styles.bottomContainer, { 
-        backgroundColor: theme.colors.card,
-        borderTopColor: theme.colors.border
-      }]}>
+      <View
+        style={[
+          styles.bottomContainer,
+          {
+            backgroundColor: theme.colors.card,
+            borderTopColor: theme.colors.border,
+          },
+        ]}
+      >
         <TouchableOpacity
-          style={[styles.continueButton,
+          style={[
+            styles.continueButton,
             !selectedSize && { backgroundColor: theme.colors.border },
             selectedSize && { backgroundColor: theme.colors.primary },
           ]}
           onPress={handleContinue}
-          disabled={!selectedSize}>
+          disabled={!selectedSize}
+        >
           <Text
             style={[
               styles.continueText,
               !selectedSize && { color: theme.colors.textTertiary },
               selectedSize && { color: '#FFFFFF' },
-            ]}>
+            ]}
+          >
             {'Continue to Addresses'}
           </Text>
           <ChevronRight
@@ -207,9 +343,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },

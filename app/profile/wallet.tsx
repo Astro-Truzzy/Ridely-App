@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  ActivityIndicator,
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,17 +16,20 @@ import {
   ArrowDownLeft,
   Wallet as WalletIcon,
   Lock,
+  ChevronRight,
 } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useWallet } from '@/hooks/useWallet';
-import { useTransactions, type WalletTransaction } from '@/hooks/useTransactions';
+import { useTransactions } from '@/hooks/useTransactions';
 import { useWithdrawalPin } from '@/hooks/useWithdrawalPin';
-
-function formatNaira(amount: number): string {
-  return `₦${Number(amount).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
+import { Skeleton, CardSkeletonList } from '@/components/Skeleton';
+import {
+  formatNairaAmount,
+  transactionLabel,
+  transactionStatusLabel,
+} from '@/lib/receiptDisplay';
 
 function formatDate(dateString: string): string {
   const d = new Date(dateString);
@@ -37,29 +39,6 @@ function formatDate(dateString: string): string {
     hour: 'numeric',
     minute: '2-digit',
   });
-}
-
-function transactionLabel(tx: WalletTransaction): string {
-  if (tx.category === 'promo_credit') return 'Promo credit';
-  if (tx.category === 'wallet_withdrawal') return 'Withdrawal';
-  if (tx.category === 'wallet_topup') return 'Wallet top-up';
-  if (tx.category === 'booking_charge') return 'Booking charge';
-  if (tx.category === 'card_authorization') return 'Card authorization';
-  if (tx.reference.startsWith('promo:')) return 'Promo credit';
-  if (tx.reference.startsWith('wd_')) return 'Withdrawal';
-  return tx.type === 'credit' ? 'Wallet top-up' : 'Payment';
-}
-
-function transactionStatusLabel(tx: WalletTransaction): string | null {
-  if (tx.category === 'wallet_withdrawal') {
-    if (tx.status === 'pending') return 'Processing payout';
-    if (tx.status === 'success') return 'Paid out';
-    if (tx.status === 'failed' || tx.status === 'reversed') return 'Payout failed/refunded';
-  }
-  if (tx.category === 'wallet_topup' && tx.status !== 'success') {
-    return 'Credit processing';
-  }
-  return null;
 }
 
 export default function WalletScreen() {
@@ -140,9 +119,9 @@ export default function WalletScreen() {
             <Text style={styles.balanceLabel}>Available balance</Text>
           </View>
           {balanceLoading && balance === null ? (
-            <ActivityIndicator color="#FFFFFF" style={{ marginTop: 12 }} />
+            <Skeleton width={180} height={40} radius={8} style={{ marginTop: 12, backgroundColor: 'rgba(255,255,255,0.35)' }} />
           ) : (
-            <Text style={styles.balanceValue}>{formatNaira(balance ?? 0)}</Text>
+            <Text style={styles.balanceValue}>{formatNairaAmount(balance ?? 0)}</Text>
           )}
         </View>
 
@@ -194,10 +173,10 @@ export default function WalletScreen() {
 
         {/* Transactions */}
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Transaction history</Text>
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Activity</Text>
 
           {txLoading && transactions.length === 0 ? (
-            <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 24 }} />
+            <CardSkeletonList count={4} />
           ) : transactions.length === 0 ? (
             <View style={styles.emptyState}>
               <WalletIcon size={40} color={theme.colors.textTertiary} strokeWidth={1.5} />
@@ -212,8 +191,10 @@ export default function WalletScreen() {
             transactions.map((tx) => {
               const isCredit = tx.type === 'credit';
               return (
-                <View
+                <TouchableOpacity
                   key={tx.id}
+                  activeOpacity={0.7}
+                  onPress={() => router.push({ pathname: '/profile/receipt', params: { id: tx.id } })}
                   style={[styles.txRow, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}
                 >
                   <View
@@ -232,11 +213,9 @@ export default function WalletScreen() {
                     <Text style={[styles.txLabel, { color: theme.colors.text }]}>
                       {transactionLabel(tx)}
                     </Text>
-                    {transactionStatusLabel(tx) ? (
-                      <Text style={[styles.txStatus, { color: theme.colors.textSecondary }]}>
-                        {transactionStatusLabel(tx)}
-                      </Text>
-                    ) : null}
+                    <Text style={[styles.txStatus, { color: theme.colors.textSecondary }]}>
+                      {transactionStatusLabel(tx)}
+                    </Text>
                     <Text style={[styles.txDate, { color: theme.colors.textTertiary }]}>
                       {formatDate(tx.created_at)}
                     </Text>
@@ -248,9 +227,10 @@ export default function WalletScreen() {
                     ]}
                   >
                     {isCredit ? '+' : '-'}
-                    {formatNaira(tx.amount)}
+                    {formatNairaAmount(tx.amount)}
                   </Text>
-                </View>
+                  <ChevronRight size={18} color={theme.colors.textTertiary} strokeWidth={2} />
+                </TouchableOpacity>
               );
             })
           )}
@@ -271,14 +251,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: { fontSize: 20, fontWeight: '700' },
-  placeholder: { width: 40 },
+  placeholder: { width: 44 },
   scrollView: { flex: 1 },
   balanceCard: {
     margin: 20,
