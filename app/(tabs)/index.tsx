@@ -28,6 +28,11 @@ import { useAutoCancelPendingDelivery } from '@/hooks/useAutoCancelPendingDelive
 import { CardSkeletonList } from '@/components/Skeleton';
 import { supabase } from '@/lib/supabase';
 import Animated, { FadeInUp } from 'react-native-reanimated';
+import {
+  isCustomerActiveStatus,
+  isCompletedDeliveryStatus,
+  homeActiveDeliveryBadge,
+} from '@/lib/screenContracts';
 
 interface ActiveDelivery {
   id: string;
@@ -53,15 +58,8 @@ export default function HomeScreen() {
     }, [refetchUnreadCount, refetchDeliveries])
   );
 
-  // Get active delivery: pending (searching), in transit, or picked up
-  const activeDeliveryData = deliveries.find(
-    d =>
-      d.status === 'pending' ||
-      d.status === 'in_transit' ||
-      d.status === 'picked_up' ||
-      d.status === 'rider_assigned' ||
-      d.status === 'accepted'
-  );
+  // Get active delivery: searching, assigned, in transit, nearby, or picked up
+  const activeDeliveryData = deliveries.find((d) => isCustomerActiveStatus(d.status));
   const isSearchingForRider = activeDeliveryData?.status === 'pending' && !activeDeliveryData?.rider_id;
   const [handoffCode, setHandoffCode] = useState<string | null>(null);
 
@@ -145,13 +143,13 @@ export default function HomeScreen() {
 
   // Get recent completed deliveries (last 2)
   const recentDeliveries = deliveries
-    .filter(d => d.status === 'delivered')
+    .filter(d => isCompletedDeliveryStatus(d.status))
     .slice(0, 2)
     .map(d => {
       const fromPart = (d.pickup_address || '').trim().split(',')[0] || 'Pickup';
       const toPart = (d.dropoff_address || '').trim().split(',')[0] || 'Dropoff';
       return {
-        id: d.id.substring(0, 8),
+        id: d.id,
         date: `${new Date(d.created_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}, ${new Date(d.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`,
         from: fromPart,
         to: toPart,
@@ -214,7 +212,12 @@ export default function HomeScreen() {
               },
               theme.shadows.large,
             ]}
-            onPress={() => router.push('/tracking')}
+            onPress={() =>
+              router.push({
+                pathname: '/tracking',
+                params: { deliveryId: activeDeliveryData.id },
+              })
+            }
           >
             <View style={styles.deliveryHeader}>
               <View
@@ -223,7 +226,12 @@ export default function HomeScreen() {
                   { backgroundColor: isSearchingForRider ? theme.colors.textSecondary : theme.colors.success },
                 ]}
               >
-                <Text style={styles.statusText}>{isSearchingForRider ? 'Searching for rider…' : 'In Transit'}</Text>
+                <Text style={styles.statusText}>
+                  {homeActiveDeliveryBadge(
+                    activeDeliveryData.status,
+                    !!isSearchingForRider
+                  )}
+                </Text>
               </View>
               <Text
                 style={[styles.estimatedTime, { color: theme.colors.primary }]}
@@ -340,7 +348,12 @@ export default function HomeScreen() {
                 },
                 theme.shadows.small,
               ]}
-              onPress={() => router.push('/tracking')}
+              onPress={() =>
+                router.push({
+                  pathname: '/tracking',
+                  params: { deliveryId: delivery.id },
+                })
+              }
             >
               <Animated.View entering={FadeInUp.duration(300)}>
                 <View style={styles.deliveryInfo}>

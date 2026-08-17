@@ -10,6 +10,8 @@
     "lint": "expo lint",
     "test": "jest",
     "test:functions": "npx --yes deno@2.1.4 test supabase/functions --allow-env",
+    "qa:agent": "node qa-agent/run.mjs",
+    "qa:agent:sandbox": "node qa-agent/run.mjs --sandbox",
     "android": "expo run:android",
     "android:clean": "cd android && gradlew.bat clean && cd ..",
     "ios": "expo run:ios",

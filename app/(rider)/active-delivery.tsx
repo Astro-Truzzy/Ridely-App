@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   ScrollView,
   Linking,
+  ActivityIndicator,
 } from 'react-native';
 import {
   SafeAreaView,
@@ -42,6 +43,11 @@ import { supabase } from '@/lib/supabase';
 import { geocodeAddress, fetchGoogleDirections } from '@/lib/googleDirections';
 import { pickProofImage, uploadDeliveryProof } from '@/lib/deliveryProofUpload';
 import { notifySuccess } from '@/lib/haptics';
+import {
+  parseRiderJobData,
+  buildRiderJobPayload,
+  type RiderJobPayload,
+} from '@/lib/screenContracts';
 
 /**
  * Active Delivery Screen
@@ -267,7 +273,58 @@ export default function ActiveDeliveryScreen() {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [confirming, setConfirming] = useState(false);
 
-  const job = jobData ? JSON.parse(jobData) : null;
+  const [job, setJob] = useState<RiderJobPayload | null>(() =>
+    parseRiderJobData(jobData),
+  );
+  const [jobLoading, setJobLoading] = useState(
+    !parseRiderJobData(jobData) && !!jobId,
+  );
+
+  useEffect(() => {
+    if (job || !jobId || !user) {
+      if (!jobId) setJobLoading(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await (supabase as any)
+        .from('deliveries')
+        .select(
+          'id, status, rider_id, total_cost, parcel_size, pickup_address, dropoff_address, distance, estimated_time, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, users:user_id(full_name)',
+        )
+        .eq('id', jobId)
+        .maybeSingle();
+      if (cancelled) return;
+      if (data?.rider_id && data.rider_id !== user.id) {
+        showAlert('Unavailable', 'This delivery is assigned to another rider.');
+        router.replace('/(rider)/dashboard');
+        return;
+      }
+      if (data) {
+        setJob(
+          buildRiderJobPayload({
+            id: data.id,
+            total_cost: data.total_cost,
+            parcel_size: data.parcel_size,
+            pickup_address: data.pickup_address,
+            dropoff_address: data.dropoff_address,
+            distance: data.distance,
+            estimated_time: data.estimated_time,
+            senderName: data.users?.full_name ?? 'Customer',
+            pickup_lat: data.pickup_lat,
+            pickup_lng: data.pickup_lng,
+            dropoff_lat: data.dropoff_lat,
+            dropoff_lng: data.dropoff_lng,
+          }),
+        );
+        setDelivery({ id: data.id, status: data.status });
+      }
+      setJobLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [job, jobId, user]);
 
   // Geocode pickup and dropoff addresses (like user tracking screen)
   useEffect(() => {
@@ -385,7 +442,9 @@ export default function ActiveDeliveryScreen() {
       setDeliveryStatus(startedPickupNav ? 'at_pickup' : 'heading_to_pickup');
     } else if (s === 'picked_up') {
       setRouteTarget('dropoff');
-      setDeliveryStatus(startedDropoffNav ? 'at_dropoff' : 'heading_to_dropoff');
+      setDeliveryStatus(
+        startedDropoffNav ? 'at_dropoff' : 'heading_to_dropoff',
+      );
     } else if (s === 'delivered' || s === 'completed') {
       setRouteTarget(null);
       setDeliveryStatus('delivered');
@@ -393,7 +452,8 @@ export default function ActiveDeliveryScreen() {
   }, [delivery?.status, startedPickupNav, startedDropoffNav]);
 
   useEffect(() => {
-    if (delivery?.status !== 'delivered' && delivery?.status !== 'completed') return;
+    if (delivery?.status !== 'delivered' && delivery?.status !== 'completed')
+      return;
     let cancelled = false;
     (async () => {
       const { data } = await (supabase as any)
@@ -434,11 +494,15 @@ export default function ActiveDeliveryScreen() {
           .eq('status', 'rider_assigned')
           .select('user_id');
         if (!d2?.length) {
+          if (delivery?.status === 'picked_up') {
+            return;
+          }
           showAlert('Error', 'Invalid state. Cannot confirm pickup.');
           return;
         }
         customerUserId = d2[0]?.user_id ?? null;
       }
+      setDelivery({ id: jobId, status: 'picked_up' });
       if (customerUserId) {
         await (supabase as any).from('notifications').insert({
           user_id: customerUserId,
@@ -728,7 +792,8 @@ export default function ActiveDeliveryScreen() {
 
   const openMapsTo = (kind: 'pickup' | 'dropoff') => {
     const coords = kind === 'pickup' ? pickupCoordsState : dropoffCoordsState;
-    const address = kind === 'pickup' ? job?.pickupAddress : job?.dropoffAddress;
+    const address =
+      kind === 'pickup' ? job?.pickupAddress : job?.dropoffAddress;
     const dest =
       coords && Number.isFinite(coords.latitude)
         ? `${coords.latitude},${coords.longitude}`
@@ -740,7 +805,9 @@ export default function ActiveDeliveryScreen() {
           ? `google.navigation:q=${dest}`
           : `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
     Linking.openURL(url).catch(() => {
-      Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${dest}`).catch(() => {});
+      Linking.openURL(
+        `https://www.google.com/maps/dir/?api=1&destination=${dest}`,
+      ).catch(() => {});
     });
     if (kind === 'pickup') setStartedPickupNav(true);
     else setStartedDropoffNav(true);
@@ -749,11 +816,20 @@ export default function ActiveDeliveryScreen() {
   const primaryForStep = () => {
     switch (riderStep) {
       case 'go_pickup':
-        return { text: 'Navigate to pickup', action: () => openMapsTo('pickup') };
+        return {
+          text: 'Navigate to pickup',
+          action: () => openMapsTo('pickup'),
+        };
       case 'confirm_pickup':
-        return { text: confirming ? 'Confirming…' : 'Confirm pickup', action: handleConfirmPickup };
+        return {
+          text: confirming ? 'Confirming…' : 'Confirm pickup',
+          action: handleConfirmPickup,
+        };
       case 'go_dropoff':
-        return { text: 'Navigate to dropoff', action: () => openMapsTo('dropoff') };
+        return {
+          text: 'Navigate to dropoff',
+          action: () => openMapsTo('dropoff'),
+        };
       case 'handoff':
         return { text: 'Enter handoff code', action: openConfirmDeliverySheet };
       default:
@@ -806,6 +882,18 @@ export default function ActiveDeliveryScreen() {
     ]);
   };
 
+  if (jobLoading) {
+    return (
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: theme.colors.background }]}
+      >
+        <View style={styles.errorContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (!job) {
     return (
       <SafeAreaView
@@ -832,9 +920,7 @@ export default function ActiveDeliveryScreen() {
   const nextAction = primaryForStep();
   const stepIndex = STEPPER_STEPS.findIndex((s) => s.key === riderStep);
   const netDisplay =
-    earnedNet != null
-      ? earnedNet
-      : Number(job.reward || 0) * 0.85;
+    earnedNet != null ? earnedNet : Number(job.reward || 0) * 0.85;
 
   return (
     <SafeAreaView
@@ -1066,13 +1152,17 @@ export default function ActiveDeliveryScreen() {
                       },
                     ]}
                   >
-                    <Text style={styles.stepDotText}>{done ? '✓' : index + 1}</Text>
+                    <Text style={styles.stepDotText}>
+                      {done ? '✓' : index + 1}
+                    </Text>
                   </View>
                   <Text
                     style={[
                       styles.stepLabel,
                       {
-                        color: current ? theme.colors.text : theme.colors.textTertiary,
+                        color: current
+                          ? theme.colors.text
+                          : theme.colors.textTertiary,
                         fontWeight: current ? '700' : '500',
                       },
                     ]}
@@ -1085,7 +1175,10 @@ export default function ActiveDeliveryScreen() {
             })}
           </View>
 
-          <Text style={[styles.stepAddress, { color: theme.colors.textSecondary }]} numberOfLines={2}>
+          <Text
+            style={[styles.stepAddress, { color: theme.colors.textSecondary }]}
+            numberOfLines={2}
+          >
             {riderStep === 'go_dropoff' || riderStep === 'handoff'
               ? job.dropoffAddress
               : job.pickupAddress}
@@ -1093,14 +1186,24 @@ export default function ActiveDeliveryScreen() {
 
           <View style={styles.stepActions}>
             <AnimatedPressable
-              style={[styles.chatIconBtn, { backgroundColor: theme.colors.background }]}
+              style={[
+                styles.chatIconBtn,
+                { backgroundColor: theme.colors.background },
+              ]}
               onPress={handleContactSender}
             >
-              <MessageCircle size={20} color={theme.colors.primary} strokeWidth={2} />
+              <MessageCircle
+                size={20}
+                color={theme.colors.primary}
+                strokeWidth={2}
+              />
             </AnimatedPressable>
             {nextAction ? (
               <AnimatedPressable
-                style={[styles.primaryStepBtn, { backgroundColor: theme.colors.primary }]}
+                style={[
+                  styles.primaryStepBtn,
+                  { backgroundColor: theme.colors.primary },
+                ]}
                 onPress={nextAction.action}
                 disabled={confirming}
               >
@@ -1110,19 +1213,43 @@ export default function ActiveDeliveryScreen() {
           </View>
         </View>
       ) : (
-        <View style={[styles.earnedSheet, { backgroundColor: theme.colors.surface }, theme.shadows.large]}>
+        <View
+          style={[
+            styles.earnedSheet,
+            { backgroundColor: theme.colors.surface },
+            theme.shadows.large,
+          ]}
+        >
           <CheckCircle size={48} color={theme.colors.success} strokeWidth={2} />
-          <Text style={[styles.earnedEyebrow, { color: theme.colors.textSecondary }]}>
+          <Text
+            style={[
+              styles.earnedEyebrow,
+              { color: theme.colors.textSecondary },
+            ]}
+          >
             Delivery complete
           </Text>
           <Text style={[styles.earnedTitle, { color: theme.colors.text }]}>
-            You earned ₦{netDisplay.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            You earned ₦
+            {netDisplay.toLocaleString('en-NG', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
           </Text>
-          <Text style={[styles.earnedSub, { color: theme.colors.textSecondary }]}>
+          <Text
+            style={[styles.earnedSub, { color: theme.colors.textSecondary }]}
+          >
             Added to your available earnings
           </Text>
           <AnimatedPressable
-            style={[styles.primaryStepBtn, { backgroundColor: theme.colors.primary, marginTop: 20, alignSelf: 'stretch' }]}
+            style={[
+              styles.primaryStepBtn,
+              {
+                backgroundColor: theme.colors.primary,
+                marginTop: 20,
+                alignSelf: 'stretch',
+              },
+            ]}
             onPress={() => router.replace('/(rider)/earnings')}
           >
             <Text style={styles.primaryStepText}>View earnings</Text>
@@ -1131,7 +1258,9 @@ export default function ActiveDeliveryScreen() {
             style={{ marginTop: 12, padding: 8 }}
             onPress={() => router.replace('/(rider)/dashboard')}
           >
-            <Text style={{ color: theme.colors.textSecondary, fontWeight: '600' }}>
+            <Text
+              style={{ color: theme.colors.textSecondary, fontWeight: '600' }}
+            >
               Back to dashboard
             </Text>
           </TouchableOpacity>

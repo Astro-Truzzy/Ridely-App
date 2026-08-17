@@ -149,7 +149,7 @@ export default function SignupScreen() {
     setIsLoading(true);
 
     try {
-      await signUp(
+      const result = await signUp(
         formData.email,
         formData.password,
         {
@@ -158,6 +158,11 @@ export default function SignupScreen() {
         },
         userType,
       );
+
+      if (!result.needsEmailConfirmation) {
+        router.replace('/');
+        return;
+      }
 
       const goToLogin = () =>
         router.replace({
@@ -231,12 +236,14 @@ export default function SignupScreen() {
             ...prev,
             form: error.message || 'An unexpected error occurred. Please try again.',
           }));
+          setTouchedFields((prev) => new Set(prev).add('form'));
         }
       } else {
         setValidationErrors((prev) => ({
           ...prev,
           form: 'An unexpected error occurred. Please try again.',
         }));
+        setTouchedFields((prev) => new Set(prev).add('form'));
       }
 
       setIsLoading(false);
@@ -266,6 +273,7 @@ export default function SignupScreen() {
   };
 
   const getFieldError = (field: string): string | null => {
+    if (field === 'form') return validationErrors.form || null;
     if (!touchedFields.has(field)) return null;
     return validationErrors[field] || null;
   };

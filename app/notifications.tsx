@@ -25,6 +25,7 @@ interface Notification {
   timestamp: Date;
   read: boolean;
   actionable?: boolean;
+  deliveryId?: string | null;
 }
 
 export default function NotificationsScreen() {
@@ -122,7 +123,7 @@ export default function NotificationsScreen() {
       
       const formattedNotifications: Notification[] = (data ?? [])
         .filter((item: { type: string }) => receiptNotifications || item.type !== 'payment')
-        .map((item: { id: string; type: string; title: string; message: string; created_at: string; read: boolean; actionable?: boolean }) => ({
+        .map((item: { id: string; type: string; title: string; message: string; created_at: string; read: boolean; actionable?: boolean; delivery_id?: string | null }) => ({
         id: item.id,
         type: item.type,
         title: item.title,
@@ -130,6 +131,7 @@ export default function NotificationsScreen() {
         timestamp: new Date(item.created_at),
         read: item.read,
         actionable: item.actionable ?? false,
+        deliveryId: item.delivery_id ?? null,
       }));
       
       setNotifications(formattedNotifications);
@@ -399,7 +401,12 @@ export default function NotificationsScreen() {
                     style={[styles.actionButton, { backgroundColor: theme.colors.primary }]}
                     onPress={() => {
                       markAsRead(notification.id);
-                      router.push('/tracking');
+                      router.push({
+                        pathname: '/tracking',
+                        params: notification.deliveryId
+                          ? { deliveryId: notification.deliveryId }
+                          : {},
+                      });
                     }}>
                     <Text style={styles.actionText}>Open map</Text>
                   </TouchableOpacity>

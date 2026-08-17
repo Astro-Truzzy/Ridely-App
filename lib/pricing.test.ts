@@ -5,6 +5,7 @@ import {
   estimateRoadDistanceKm,
   haversineKm,
   nairaToKobo,
+  cardPaymentMatchesQuote,
 } from './pricing';
 
 describe('pricing', () => {
@@ -32,5 +33,18 @@ describe('pricing', () => {
     const road = estimateRoadDistanceKm(6.5244, 3.3792, 6.4281, 3.4219);
     expect(HAVERSINE_ROAD_FACTOR).toBe(1.4);
     expect(road).toBeCloseTo(straight * 1.4, 5);
+  });
+
+  it('accepts quoted card payments within route jitter', () => {
+    const server = nairaToKobo(1000);
+    expect(
+      cardPaymentMatchesQuote({ paidKobo: nairaToKobo(1000), serverKobo: server, quotedKobo: nairaToKobo(1000) })
+    ).toBe(true);
+    expect(
+      cardPaymentMatchesQuote({ paidKobo: nairaToKobo(1100), serverKobo: server, quotedKobo: nairaToKobo(1100) })
+    ).toBe(true);
+    expect(
+      cardPaymentMatchesQuote({ paidKobo: nairaToKobo(100), serverKobo: server, quotedKobo: nairaToKobo(100) })
+    ).toBe(false);
   });
 });

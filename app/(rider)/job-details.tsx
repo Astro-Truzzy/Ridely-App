@@ -30,6 +30,7 @@ import { AnimatedPressable } from '@/components/rider/AnimatedPressable';
 import { useAvailableJobs } from '@/hooks/useAvailableJobs';
 import { useDeliveries } from '@/hooks/useDeliveries';
 import type { AvailableJob } from '@/hooks/useAvailableJobs';
+import { buildRiderJobPayload, isRiderActiveStatus } from '@/lib/screenContracts';
 
 export default function JobDetailsScreen() {
   const insets = useSafeAreaInsets();
@@ -37,7 +38,7 @@ export default function JobDetailsScreen() {
   const { userProfile } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { jobs, loading, refetch } = useAvailableJobs();
-  const { acceptDelivery } = useDeliveries();
+  const { deliveries, acceptDelivery } = useDeliveries();
   const { animations: animationsEnabled } = useAppSettings();
   const { showAlert } = useAlert();
   const [accepting, setAccepting] = useState(false);
@@ -62,22 +63,31 @@ export default function JobDetailsScreen() {
       );
       return;
     }
+    if (deliveries.some((d) => isRiderActiveStatus(d.status))) {
+      showAlert(
+        'Finish your current delivery',
+        'Complete or cancel your active job before accepting another.'
+      );
+      return;
+    }
     setAccepting(true);
     try {
       await acceptDelivery(job.id);
-      const jobData = {
+      const jobData = buildRiderJobPayload({
         id: job.id,
-        reward: job.total_cost,
-        parcelSize: job.parcel_size,
-        pickupAddress: job.pickup_address,
-        dropoffAddress: job.dropoff_address,
+        total_cost: job.total_cost,
+        parcel_size: job.parcel_size,
+        pickup_address: job.pickup_address,
+        dropoff_address: job.dropoff_address,
         distance: job.distance,
-        estimatedTime: job.estimated_time,
+        estimated_time: job.estimated_time,
         senderName:
           (job.users as { full_name?: string } | null)?.full_name ?? 'Customer',
-        pickupCoords: null,
-        dropoffCoords: null,
-      };
+        pickup_lat: job.pickup_lat,
+        pickup_lng: job.pickup_lng,
+        dropoff_lat: job.dropoff_lat,
+        dropoff_lng: job.dropoff_lng,
+      });
       router.replace({
         pathname: '/(rider)/active-delivery',
         params: {

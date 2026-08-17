@@ -22,6 +22,7 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { fetchGoogleDirections } from '@/lib/googleDirections';
 import { PRICE_PER_KM, estimateRoadDistanceKm } from '@/lib/pricing';
+import { canContinueBookingPricing } from '@/lib/screenContracts';
 
 interface PricingBreakdown {
   basePrice: number;
@@ -145,6 +146,9 @@ export default function PricingScreen() {
   }, [pickupLat, pickupLon, dropoffLat, dropoffLon]);
 
   const handleConfirmBooking = () => {
+    if (!canContinueBookingPricing(pricing?.total)) {
+      return;
+    }
     if (pricing) {
       router.push({
         pathname: '/booking/confirmation',
@@ -329,8 +333,16 @@ export default function PricingScreen() {
           borderTopColor: theme.colors.border,
         }]}>
           <TouchableOpacity
-            style={[styles.confirmButton, { backgroundColor: theme.colors.primary }]}
-            onPress={handleConfirmBooking}>
+            style={[
+              styles.confirmButton,
+              {
+                backgroundColor: canContinueBookingPricing(pricing?.total)
+                  ? theme.colors.primary
+                  : theme.colors.textTertiary,
+              },
+            ]}
+            onPress={handleConfirmBooking}
+            disabled={!canContinueBookingPricing(pricing?.total)}>
             <Text style={styles.confirmText}>Confirm Booking</Text>
             <ChevronRight size={20} color="#FFFFFF" strokeWidth={2} />
           </TouchableOpacity>

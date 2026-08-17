@@ -41,6 +41,7 @@ import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { CardSkeletonList } from '@/components/Skeleton';
 import { tapLight, tapMedium, notifySuccess, notifyWarning, notifyError } from '@/lib/haptics';
 import type { AvailableJob } from '@/hooks/useAvailableJobs';
+import { buildRiderJobPayload, isRiderActiveStatus } from '@/lib/screenContracts';
 
 export default function RiderDashboard() {
   const insets = useSafeAreaInsets();
@@ -58,7 +59,7 @@ export default function RiderDashboard() {
   const statEnter = (i: number) => (animationsEnabled ? staggeredCardEnter(i) : undefined);
   const jobEnter = (i: number) => (animationsEnabled ? staggeredCardEnter(i) : undefined);
   const headerEnter = animationsEnabled ? heroEnter() : undefined;
-  const [isOnline, setIsOnline] = useState(true);
+  const [isOnline, setIsOnline] = useState(false);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -82,7 +83,7 @@ export default function RiderDashboard() {
         // RPC not inferred from Database type; cast to bypass strict RPC typings
         await (supabase as any).rpc('update_rider_location', { lat: latitude, lng: longitude });
       }
-      await (supabase as any).from('riders').update({ is_online: value }).eq('id', user.id);
+      await (supabase as any).from('riders').update({ is_online: value, is_available: value }).eq('id', user.id);
     } catch (e) {
       console.warn('Failed to update rider online status:', e);
       setIsOnline(!value);
@@ -114,13 +115,7 @@ export default function RiderDashboard() {
   const isVerified = accountVerificationStatus === 'verified';
 
   const riderStats = useMemo(() => {
-    const active = deliveries.filter(
-      (d) =>
-        d.status !== 'delivered' &&
-        d.status !== 'cancelled' &&
-        d.status !== 'completed' &&
-        d.status !== 'cancelled_no_rider'
-    ).length;
+    const active = deliveries.filter((d) => isRiderActiveStatus(d.status)).length;
     const today = new Date().toISOString().split('T')[0];
     const completedToday = deliveries.filter(
       (d) => d.status === 'delivered' && d.completed_at?.startsWith(today)
@@ -137,25 +132,34 @@ export default function RiderDashboard() {
 
   const handleAcceptJob = async (job: AvailableJob) => {
     tapMedium();
+    if (riderStats.activeJobs > 0) {
+      showAlert(
+        'Finish your current delivery',
+        'Complete or cancel your active job before accepting another.'
+      );
+      return;
+    }
     setAcceptingId(job.id);
     try {
       await acceptDelivery(job.id);
       // Optimistically drop it from the available list so it can't linger.
       removeJob(job.id);
       notifySuccess();
-      const jobData = {
+      const jobData = buildRiderJobPayload({
         id: job.id,
-        reward: job.total_cost,
-        parcelSize: job.parcel_size,
-        pickupAddress: job.pickup_address,
-        dropoffAddress: job.dropoff_address,
+        total_cost: job.total_cost,
+        parcel_size: job.parcel_size,
+        pickup_address: job.pickup_address,
+        dropoff_address: job.dropoff_address,
         distance: job.distance,
-        estimatedTime: job.estimated_time,
+        estimated_time: job.estimated_time,
         senderName:
           (job.users as { full_name?: string } | null)?.full_name ?? 'Customer',
-        pickupCoords: null,
-        dropoffCoords: null,
-      };
+        pickup_lat: job.pickup_lat,
+        pickup_lng: job.pickup_lng,
+        dropoff_lat: job.dropoff_lat,
+        dropoff_lng: job.dropoff_lng,
+      });
       router.replace({
         pathname: '/(rider)/active-delivery',
         params: {
@@ -189,13 +193,7 @@ export default function RiderDashboard() {
   };
 
   const handleNavigate = () => {
-    const activeDelivery = deliveries.find(
-      (d) =>
-        d.status !== 'delivered' &&
-        d.status !== 'cancelled' &&
-        d.status !== 'completed' &&
-        d.status !== 'cancelled_no_rider'
-    );
+    const activeDelivery = deliveries.find((d) => isRiderActiveStatus(d.status));
     if (!activeDelivery) {
       showAlert(
         'No active delivery',
@@ -203,18 +201,20 @@ export default function RiderDashboard() {
       );
       return;
     }
-    const jobData = {
+    const jobData = buildRiderJobPayload({
       id: activeDelivery.id,
-      reward: activeDelivery.total_cost,
-      parcelSize: activeDelivery.parcel_size,
-      pickupAddress: activeDelivery.pickup_address,
-      dropoffAddress: activeDelivery.dropoff_address,
+      total_cost: activeDelivery.total_cost,
+      parcel_size: activeDelivery.parcel_size,
+      pickup_address: activeDelivery.pickup_address,
+      dropoff_address: activeDelivery.dropoff_address,
       distance: activeDelivery.distance,
-      estimatedTime: activeDelivery.estimated_time,
+      estimated_time: activeDelivery.estimated_time,
       senderName: 'Customer',
-      pickupCoords: null,
-      dropoffCoords: null,
-    };
+      pickup_lat: activeDelivery.pickup_lat,
+      pickup_lng: activeDelivery.pickup_lng,
+      dropoff_lat: activeDelivery.dropoff_lat,
+      dropoff_lng: activeDelivery.dropoff_lng,
+    });
     router.push({
       pathname: '/(rider)/active-delivery',
       params: { jobId: activeDelivery.id, jobData: JSON.stringify(jobData) },

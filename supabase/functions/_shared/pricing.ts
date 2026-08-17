@@ -47,6 +47,27 @@ export function nairaToKobo(naira: number): number {
   return Math.round(naira * 100);
 }
 
+/** Allow route jitter between client quote and server recompute. */
+export const FARE_QUOTE_TOLERANCE_KOBO = 10_000; // ₦100
+export const FARE_QUOTE_TOLERANCE_RATIO = 0.2;
+
+export function cardPaymentMatchesQuote(opts: {
+  paidKobo: number;
+  serverKobo: number;
+  quotedKobo?: number | null;
+}): boolean {
+  const quote =
+    opts.quotedKobo != null && Number.isFinite(opts.quotedKobo)
+      ? opts.quotedKobo
+      : opts.serverKobo;
+  const maxDrift = Math.max(
+    FARE_QUOTE_TOLERANCE_KOBO,
+    Math.round(opts.serverKobo * FARE_QUOTE_TOLERANCE_RATIO)
+  );
+  if (Math.abs(quote - opts.serverKobo) > maxDrift) return false;
+  return Math.abs(opts.paidKobo - quote) <= 100;
+}
+
 export async function fetchDirectionsDistanceKm(
   originLat: number,
   originLng: number,

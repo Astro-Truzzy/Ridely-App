@@ -2,6 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import {
   computeServerFare,
   nairaToKobo,
+  cardPaymentMatchesQuote,
 } from '../_shared/pricing.ts';
 
 const corsHeaders = {
@@ -199,8 +200,17 @@ Deno.serve(async (req) => {
 
     const paidKobo = Number(tx.amount) || 0;
     const expectedKobo = nairaToKobo(totalCost);
-    // Allow ±₦1 for Directions rounding / route jitter between quote and create
-    if (Math.abs(paidKobo - expectedKobo) > 100) {
+    const quotedKobo =
+      body.total_cost != null && Number.isFinite(Number(body.total_cost))
+        ? nairaToKobo(Number(body.total_cost))
+        : expectedKobo;
+    if (
+      !cardPaymentMatchesQuote({
+        paidKobo,
+        serverKobo: expectedKobo,
+        quotedKobo,
+      })
+    ) {
       return json(
         {
           error: `Paid amount (₦${(paidKobo / 100).toFixed(2)}) does not match booking total (₦${totalCost.toFixed(2)})`,

@@ -35,7 +35,7 @@ import { useVoiceCall } from '@/contexts/VoiceCallContext';
 import { useDeliveries, type Delivery } from '@/hooks/useDeliveries';
 import { useAutoCancelPendingDelivery } from '@/hooks/useAutoCancelPendingDelivery';
 import { fetchGoogleDirections, geocodeAddress } from '@/lib/googleDirections';
-import { getDeliveryProofSignedUrl } from '@/lib/deliveryProofUpload';
+import { firstParam } from '@/lib/screenContracts';
 
 interface RiderInfo {
   name: string;
@@ -322,11 +322,12 @@ export default function TrackingScreen() {
   const { showAlert } = useAlert();
   const { startCall } = useVoiceCall();
   const { deliveries } = useDeliveries();
-  const params = useLocalSearchParams<{ deliveryId?: string }>();
+  const params = useLocalSearchParams<{ deliveryId?: string | string[] }>();
+  const requestedDeliveryId = firstParam(params.deliveryId);
 
   // Get active delivery - from params or most recent non-completed (including pending "searching for rider")
-  const activeDeliveryFromList = params.deliveryId
-    ? deliveries.find((d) => d.id === params.deliveryId)
+  const activeDeliveryFromList = requestedDeliveryId
+    ? deliveries.find((d) => d.id === requestedDeliveryId)
     : deliveries.find(
         (d) =>
           d.status !== 'delivered' &&

@@ -15,12 +15,14 @@ import { router } from 'expo-router';
 import * as Location from 'expo-location';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAlert } from '@/contexts/AlertContext';
 import { useDeliveries } from '@/hooks/useDeliveries';
 import { useAvailableJobCacheVersion, getCachedAvailableJob, type AvailableJob } from '@/hooks/useAvailableJobs';
 import { rejectDelivery } from '@/lib/deliveryRejections';
 import { withRetry } from '@/lib/retry';
 import { tapLight, notifyWarning, notifySuccess, tapMedium } from '@/lib/haptics';
 import { supabase } from '@/lib/supabase';
+import { buildRiderJobPayload, isRiderActiveStatus } from '@/lib/screenContracts';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = Math.min(width - 32, 400);
@@ -45,6 +47,8 @@ interface DeliveryDetails {
   rider_id: string | null;
   pickup_lat?: number | null;
   pickup_lng?: number | null;
+  dropoff_lat?: number | null;
+  dropoff_lng?: number | null;
   users?: { full_name?: string } | null;
 }
 
@@ -60,11 +64,12 @@ const DELIVERY_SELECT = `
   rider_id,
   pickup_lat,
   pickup_lng,
+  dropoff_lat,
+  dropoff_lng,
   users:user_id ( full_name )
 `;
 
 function jobToDeliveryDetails(job: AvailableJob): DeliveryDetails {
-  const row = job as AvailableJob & { pickup_lat?: number | null; pickup_lng?: number | null };
   return {
     id: job.id,
     pickup_address: job.pickup_address,
@@ -75,8 +80,10 @@ function jobToDeliveryDetails(job: AvailableJob): DeliveryDetails {
     estimated_time: job.estimated_time,
     status: job.status ?? 'pending',
     rider_id: job.rider_id ?? null,
-    pickup_lat: row.pickup_lat ?? null,
-    pickup_lng: row.pickup_lng ?? null,
+    pickup_lat: job.pickup_lat ?? null,
+    pickup_lng: job.pickup_lng ?? null,
+    dropoff_lat: job.dropoff_lat ?? null,
+    dropoff_lng: job.dropoff_lng ?? null,
     users: job.users ?? null,
   };
 }
@@ -98,8 +105,9 @@ function formatKm(km: number) {
 
 export function DeliveryRequestModal({ visible, deliveryId, onClose }: DeliveryRequestModalProps) {
   const { theme } = useTheme();
-  const { user } = useAuth();
-  const { acceptDelivery } = useDeliveries();
+  const { user, userProfile } = useAuth();
+  const { showAlert } = useAlert();
+  const { deliveries, acceptDelivery } = useDeliveries();
   useAvailableJobCacheVersion();
   const [delivery, setDelivery] = useState<DeliveryDetails | null>(null);
   const [loading, setLoading] = useState(false);
@@ -224,34 +232,56 @@ export function DeliveryRequestModal({ visible, deliveryId, onClose }: DeliveryR
 
   const handleAccept = async () => {
     if (!deliveryId || !user || !delivery || closedRef.current) return;
+    const isVerified =
+      (userProfile as { account_verification_status?: string } | null)
+        ?.account_verification_status === 'verified';
+    if (!isVerified) {
+      showAlert(
+        'Verification required',
+        'You must be verified to accept deliveries. Go to Profile → Apply for verification and submit your documents.'
+      );
+      onClose();
+      return;
+    }
+    if (deliveries.some((d) => isRiderActiveStatus(d.status))) {
+      showAlert(
+        'Finish your current delivery',
+        'Complete or cancel your active job before accepting another.'
+      );
+      onClose();
+      return;
+    }
     setAccepting(true);
     tapMedium();
     try {
       await acceptDelivery(deliveryId);
       notifySuccess();
-      const jobData = {
+      const jobData = buildRiderJobPayload({
         id: delivery.id,
-        reward: delivery.total_cost,
-        parcelSize: delivery.parcel_size,
-        pickupAddress: delivery.pickup_address,
-        dropoffAddress: delivery.dropoff_address,
+        total_cost: delivery.total_cost,
+        parcel_size: delivery.parcel_size,
+        pickup_address: delivery.pickup_address,
+        dropoff_address: delivery.dropoff_address,
         distance: delivery.distance,
-        estimatedTime: delivery.estimated_time,
+        estimated_time: delivery.estimated_time,
         senderName: (delivery.users as { full_name?: string } | null)?.full_name ?? 'Customer',
-        pickupCoords:
-          delivery.pickup_lat != null && delivery.pickup_lng != null
-            ? { latitude: Number(delivery.pickup_lat), longitude: Number(delivery.pickup_lng) }
-            : null,
-        dropoffCoords: null,
-      };
+        pickup_lat: delivery.pickup_lat,
+        pickup_lng: delivery.pickup_lng,
+        dropoff_lat: delivery.dropoff_lat,
+        dropoff_lng: delivery.dropoff_lng,
+      });
       closedRef.current = true;
       onClose();
       router.replace({
         pathname: '/(rider)/active-delivery',
         params: { jobId: delivery.id, jobData: JSON.stringify(jobData) },
       });
-    } catch {
+    } catch (err) {
       setAccepting(false);
+      showAlert(
+        'Could not accept',
+        err instanceof Error ? err.message : 'This job may have already been taken.'
+      );
       onClose();
       router.push('/(rider)/dashboard');
     }

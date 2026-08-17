@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { withRetry } from '@/lib/retry';
+import { isRiderActiveStatus } from '@/lib/screenContracts';
 
 export interface Delivery {
   id: string;
@@ -192,6 +193,11 @@ export function useDeliveries() {
 
   const acceptDelivery = async (deliveryId: string) => {
     if (!user || userType !== 'rider') throw new Error('Only riders can accept deliveries');
+
+    const alreadyActive = deliveries.some((d) => isRiderActiveStatus(d.status));
+    if (alreadyActive) {
+      throw new Error('You already have an active delivery. Complete it before accepting another.');
+    }
 
     const { data, error } = await supabase.rpc('accept_delivery', {
       p_delivery_id: deliveryId,

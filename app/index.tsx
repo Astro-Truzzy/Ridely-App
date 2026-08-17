@@ -24,9 +24,22 @@ export default function Index() {
     return <Redirect href="/(auth)/loading" />;
   }
 
-  if (userType === 'rider') {
-    return <Redirect href="/(rider)/dashboard" />;
-  }
+    if (userType === 'rider') {
+      return <Redirect href="/(rider)/dashboard" />;
+    }
 
-  return <Redirect href="/(tabs)" />;
+    if (userType === 'user') {
+      return <Redirect href="/(tabs)" />;
+    }
+
+    return (
+      <View style={{
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: theme.colors.background
+      }}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
 }

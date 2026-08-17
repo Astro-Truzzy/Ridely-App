@@ -9,6 +9,10 @@ export interface AvailableJob {
   user_id: string;
   pickup_address: string;
   dropoff_address: string;
+  pickup_lat?: number | null;
+  pickup_lng?: number | null;
+  dropoff_lat?: number | null;
+  dropoff_lng?: number | null;
   parcel_size: 'small' | 'medium' | 'large';
   total_cost: number;
   distance: number;

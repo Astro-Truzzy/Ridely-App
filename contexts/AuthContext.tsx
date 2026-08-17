@@ -3,6 +3,7 @@ import React, {
   useContext,
   useState,
   useEffect,
+  useRef,
   ReactNode,
 } from 'react';
 import { useRouter } from 'expo-router';
@@ -34,7 +35,7 @@ interface AuthContextType {
     password: string,
     userData: any,
     userType: 'user' | 'rider'
-  ) => Promise<void>;
+  ) => Promise<{ needsEmailConfirmation: boolean }>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (updates: ProfileUpdates) => Promise<void>;
@@ -53,6 +54,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [userProfile, setUserProfile] = useState<any | null>(null);
   const [userType, setUserType] = useState<'user' | 'rider' | null>(null);
   const [loading, setLoading] = useState(true);
+  const lockedRoleRef = useRef<'user' | 'rider' | null>(null);
 
   // Read role from JWT app_metadata when set by Custom Access Token hook (avoids DB hit for redirect)
   const getRoleFromSession = (s: Session | null): 'user' | 'rider' | null => {
@@ -66,6 +68,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUser(session?.user ?? null);
       if (session?.user) {
         const jwtRole = getRoleFromSession(session);
+        lockedRoleRef.current = jwtRole;
         if (jwtRole) {
           setUserType(jwtRole);
           setLoading(false);
@@ -76,6 +79,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setLoading(false);
         }
       } else {
+        lockedRoleRef.current = null;
         setUserProfile(null);
         setUserType(null);
         setLoading(false);
@@ -89,6 +93,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUser(session?.user ?? null);
       if (session?.user) {
         const jwtRole = getRoleFromSession(session);
+        lockedRoleRef.current = jwtRole;
         if (jwtRole) {
           setUserType(jwtRole);
           setLoading(false);
@@ -99,6 +104,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setLoading(false);
         }
       } else {
+        lockedRoleRef.current = null;
         setUserProfile(null);
         setUserType(null);
         setLoading(false);
@@ -109,34 +115,40 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   const loadUserProfile = async (userId: string): Promise<'user' | 'rider' | null> => {
+    const locked = lockedRoleRef.current;
     try {
-      const { data: riderData, error: riderError } = await supabase
-        .from('riders')
-        .select('*')
-        .eq('id', userId)
-        .single();
+      if (locked !== 'user') {
+        const { data: riderData, error: riderError } = await supabase
+          .from('riders')
+          .select('*')
+          .eq('id', userId)
+          .single();
 
-      if (riderData && !riderError) {
-        setUserProfile(riderData);
-        setUserType('rider');
-        return 'rider';
+        if (riderData && !riderError) {
+          setUserProfile(riderData);
+          if (!locked) setUserType('rider');
+          return 'rider';
+        }
       }
 
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .single();
+      if (locked !== 'rider') {
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', userId)
+          .single();
 
-      if (userData && !userError) {
-        setUserProfile(userData);
-        setUserType('user');
-        return 'user';
+        if (userData && !userError) {
+          setUserProfile(userData);
+          if (!locked) setUserType('user');
+          return 'user';
+        }
       }
-      return null;
+
+      return locked;
     } catch (error) {
       console.error('Error loading user profile:', error);
-      return null;
+      return locked;
     }
   };
 
@@ -145,7 +157,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     password: string,
     userData: any,
     userType: 'user' | 'rider'
-  ) => {
+  ): Promise<{ needsEmailConfirmation: boolean }> => {
     setLoading(true);
 
     try {
@@ -218,7 +230,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setSession(existingSignInData.session);
           setUser(existingSignInData.user);
           setLoading(false);
-          return;
+          return { needsEmailConfirmation: false };
         }
         
         // Handle other errors
@@ -244,8 +256,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Email confirmation is enabled - this is normal for first-time signups
         // Profile will be created automatically via database trigger when email is confirmed
         setLoading(false);
-        // Return a special success indicator instead of throwing an error
-        return; // Success - user needs to check email
+        return { needsEmailConfirmation: true };
       }
 
       // We have a session, proceed with profile creation
@@ -333,6 +344,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       // Set loading to false before returning
       setLoading(false);
+      return { needsEmailConfirmation: false };
     } catch (error) {
       console.error('Signup error:', error);
 

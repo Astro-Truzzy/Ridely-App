@@ -60,7 +60,7 @@ export default function RiderProfileScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
   const { user, userProfile, loading: authLoading, signOut, refreshProfile } = useAuth();
-  const [isAvailable, setIsAvailable] = useState(true);
+  const [isAvailable, setIsAvailable] = useState(false);
 
   const profile = userProfile ? riderRowToProfile(userProfile, user?.email) : null;
   const { showAlert } = useAlert();
@@ -82,7 +82,7 @@ export default function RiderProfileScreen() {
     if (!user?.id) return;
     setIsAvailable(value);
     try {
-      await (supabase as any).from('riders').update({ is_available: value }).eq('id', user.id);
+      await (supabase as any).from('riders').update({ is_available: value, is_online: value }).eq('id', user.id);
       await refreshProfile();
     } catch (e) {
       setIsAvailable(!value);

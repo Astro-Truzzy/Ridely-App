@@ -21,6 +21,10 @@ import { useDeliveryRatings } from '@/hooks/useDeliveryRatings';
 import { geocodeAddress } from '@/lib/googleDirections';
 import { CardSkeletonList } from '@/components/Skeleton';
 import { tapLight, notifyWarning, notifySuccess, notifyError } from '@/lib/haptics';
+import {
+  mapCustomerBookingStatus,
+  canCustomerCancelDelivery,
+} from '@/lib/screenContracts';
 
 interface Booking {
   id: string;
@@ -72,25 +76,7 @@ export default function BookingsScreen() {
   };
 
   // Map delivery status to booking status
-  const mapDeliveryStatus = (status: string): 'delivered' | 'in_transit' | 'pending' | 'cancelled' => {
-    switch (status) {
-      case 'delivered':
-      case 'completed':
-        return 'delivered';
-      case 'in_transit':
-      case 'picked_up':
-      case 'rider_assigned':
-      case 'accepted':
-        return 'in_transit';
-      case 'pending':
-        return 'pending';
-      case 'cancelled':
-      case 'cancelled_no_rider':
-        return 'cancelled';
-      default:
-        return 'pending';
-    }
-  };
+  const mapDeliveryStatus = mapCustomerBookingStatus;
 
   // Convert deliveries to bookings format
   const bookings: Booking[] = deliveries.map((delivery) => ({
@@ -647,11 +633,14 @@ export default function BookingsScreen() {
           <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
             {getFilteredBookings().map(booking => (
               <TouchableOpacity
-                key={booking.id}
+                key={booking.deliveryId}
                 style={styles.bookingCard}
                 onPress={() => {
-                  if (booking.status === 'in_transit') {
-                    router.push('/tracking');
+                  if (booking.status === 'in_transit' || booking.status === 'pending') {
+                    router.push({
+                      pathname: '/tracking',
+                      params: { deliveryId: booking.deliveryId },
+                    });
                   }
                 }}>
                 <View style={styles.bookingHeader}>
@@ -707,7 +696,10 @@ export default function BookingsScreen() {
                   </View>
                 )}
 
-                {booking.status === 'pending' && (
+                {canCustomerCancelDelivery(
+                  deliveries.find((d) => d.id === booking.deliveryId)?.status ?? '',
+                  booking.riderId
+                ) && (
                   <View style={styles.actionContainer}>
                     <TouchableOpacity
                       style={[styles.cancelButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.error }]}

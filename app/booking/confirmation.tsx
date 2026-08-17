@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -90,6 +90,7 @@ export default function ConfirmationScreen() {
   const [paystackAuthUrl, setPaystackAuthUrl] = useState<string | null>(null);
   const [paystackLoading, setPaystackLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const handledPaymentRef = useRef<string | null>(null);
 
   useEffect(() => {
     addPlaceholderMethodsIfEmpty();
@@ -104,7 +105,7 @@ export default function ConfirmationScreen() {
 
     const options: PaymentOption[] = savedMethods
       .filter(
-        (m) => m.type === 'card' || m.type === 'cash' || m.type === 'wallet',
+        (m) => m.type === 'card' || m.type === 'cash',
       )
       .map((m) => ({
         ...m,
@@ -361,6 +362,8 @@ export default function ConfirmationScreen() {
       const url = navState?.url || '';
       const success = await handlePaystackCallback(url);
       if (!success) return;
+      if (handledPaymentRef.current === success) return;
+      handledPaymentRef.current = success;
       closePaystackWebView();
       setIsBooking(true);
       try {

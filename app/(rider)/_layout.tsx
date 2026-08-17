@@ -13,7 +13,7 @@ export default function RiderLayout() {
       router.replace('/(auth)/loading');
       return;
     }
-    if (userType === 'user') {
+    if (userType !== 'rider') {
       router.replace('/(tabs)');
     }
   }, [session, userType, loading]);
