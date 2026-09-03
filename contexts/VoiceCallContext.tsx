@@ -8,14 +8,20 @@ import React, {
   useState,
   type ReactNode,
 } from 'react';
-import { Modal, Platform, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import {
+  Modal,
+  Platform,
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+} from 'react-native';
 import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
-import { AudioSession, LiveKitRoom } from '@livekit/react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAlert } from '@/contexts/AlertContext';
-import { VoiceCallSession } from '@/components/VoiceCallSession';
 import {
   fetchLiveKitToken,
   isVoiceCallSupported,
@@ -23,6 +29,10 @@ import {
   resolveVoiceCallPeerTargets,
   type LiveKitCredentials,
 } from '@/lib/voiceCall';
+import {
+  getLiveKitNative,
+  isLiveKitRuntimeAvailable,
+} from '@/lib/livekitSetup';
 import {
   setNotificationResponseHandler,
   type PushNotificationData,
@@ -50,7 +60,66 @@ interface VoiceCallContextValue {
   toggleMute: () => void;
 }
 
-const VoiceCallContext = createContext<VoiceCallContextValue | undefined>(undefined);
+const VoiceCallContext = createContext<VoiceCallContextValue | undefined>(
+  undefined,
+);
+
+type VoiceCallSessionComponent =
+  typeof import('@/components/VoiceCallSession').VoiceCallSession;
+
+let VoiceCallSessionComp: VoiceCallSessionComponent | null = null;
+
+function getVoiceCallSession(): VoiceCallSessionComponent | null {
+  if (!isLiveKitRuntimeAvailable()) return null;
+  if (!VoiceCallSessionComp) {
+    VoiceCallSessionComp = (
+      require('@/components/VoiceCallSession') as typeof import('@/components/VoiceCallSession')
+    ).VoiceCallSession;
+  }
+  return VoiceCallSessionComp;
+}
+
+function NativeVoiceCallRoom({
+  serverUrl,
+  token,
+  peerName,
+  muted,
+  onHangUp,
+  onConnected,
+  onToggleMute,
+}: {
+  serverUrl: string;
+  token: string;
+  peerName: string;
+  muted: boolean;
+  onHangUp: () => void;
+  onConnected: () => void;
+  onToggleMute: () => void;
+}) {
+  const livekit = getLiveKitNative();
+  const Session = getVoiceCallSession();
+  if (!livekit || !Session) return null;
+
+  const { LiveKitRoom } = livekit;
+  return (
+    <LiveKitRoom
+      serverUrl={serverUrl}
+      token={token}
+      connect
+      audio
+      video={false}
+      onDisconnected={onHangUp}
+    >
+      <Session
+        peerName={peerName}
+        muted={muted}
+        onHangUp={onHangUp}
+        onConnected={onConnected}
+        onToggleMute={onToggleMute}
+      />
+    </LiveKitRoom>
+  );
+}
 
 export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -60,7 +129,9 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<CallPhase>('idle');
   const [peerName, setPeerName] = useState('');
   const [deliveryId, setDeliveryId] = useState<string | null>(null);
-  const [credentials, setCredentials] = useState<LiveKitCredentials | null>(null);
+  const [credentials, setCredentials] = useState<LiveKitCredentials | null>(
+    null,
+  );
   const [incoming, setIncoming] = useState<IncomingCall | null>(null);
   const [muted, setMuted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,20 +161,23 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
 
   const ensureSupported = useCallback(() => {
     if (Platform.OS === 'web') {
-      showAlert('Voice calls', 'In-app voice calls are only available in the mobile app.');
+      showAlert(
+        'Voice calls',
+        'In-app voice calls are only available in the mobile app.',
+      );
       return false;
     }
     if (Constants.appOwnership === 'expo') {
       showAlert(
         'Development build required',
-        'Voice calls need a custom development build. They are not available in Expo Go.'
+        'Voice calls need a custom development build. They are not available in Expo Go.',
       );
       return false;
     }
     if (!isVoiceCallSupported()) {
       showAlert(
         'Voice calls unavailable',
-        'LiveKit is not configured. Add EXPO_PUBLIC_LIVEKIT_URL to your environment.'
+        'LiveKit is not configured. Add EXPO_PUBLIC_LIVEKIT_URL to your environment.',
       );
       return false;
     }
@@ -111,9 +185,16 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   }, [showAlert]);
 
   const connectToDelivery = useCallback(
-    async (targetDeliveryId: string, targetPeerName: string, notifyPeer: boolean) => {
+    async (
+      targetDeliveryId: string,
+      targetPeerName: string,
+      notifyPeer: boolean,
+    ) => {
       if (!user?.id) {
-        showAlert('Sign in required', 'You must be signed in to start a voice call.');
+        showAlert(
+          'Sign in required',
+          'You must be signed in to start a voice call.',
+        );
         return;
       }
       if (!ensureSupported()) return;
@@ -128,7 +209,10 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
         setCredentials(creds);
 
         if (notifyPeer) {
-          const targets = await resolveVoiceCallPeerTargets(targetDeliveryId, user.id);
+          const targets = await resolveVoiceCallPeerTargets(
+            targetDeliveryId,
+            user.id,
+          );
           const callerName =
             user.user_metadata?.full_name ||
             user.user_metadata?.name ||
@@ -141,20 +225,21 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
           });
         }
       } catch (e) {
-        const message = e instanceof Error ? e.message : 'Could not start voice call';
+        const message =
+          e instanceof Error ? e.message : 'Could not start voice call';
         setError(message);
         resetCall();
         showAlert('Voice call failed', message);
       }
     },
-    [user, ensureSupported, showAlert, resetCall]
+    [user, ensureSupported, showAlert, resetCall],
   );
 
   const startCall = useCallback(
     async (targetDeliveryId: string, targetPeerName: string) => {
       await connectToDelivery(targetDeliveryId, targetPeerName, true);
     },
-    [connectToDelivery]
+    [connectToDelivery],
   );
 
   const acceptIncoming = useCallback(async () => {
@@ -196,13 +281,15 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
   }, [deliveryId, phase, user?.id]);
 
   useEffect(() => {
-    if (Platform.OS === 'web') return;
+    if (!isLiveKitRuntimeAvailable()) return;
+    const livekit = getLiveKitNative();
+    if (!livekit) return;
 
     const startAudio = async () => {
       if (!credentials || audioStartedRef.current) return;
       audioStartedRef.current = true;
       try {
-        await AudioSession.startAudioSession();
+        await livekit.AudioSession.startAudioSession();
       } catch {
         // LiveKit may still connect; ignore session start failures.
       }
@@ -212,7 +299,7 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       startAudio();
     } else if (audioStartedRef.current) {
       audioStartedRef.current = false;
-      AudioSession.stopAudioSession().catch(() => {});
+      livekit.AudioSession.stopAudioSession().catch(() => {});
     }
   }, [credentials]);
 
@@ -223,16 +310,20 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
 
       setIncoming({
         deliveryId: String(data.deliveryId),
-        callerName: typeof data.callerName === 'string' ? data.callerName : 'Ridely user',
+        callerName:
+          typeof data.callerName === 'string' ? data.callerName : 'Ridely user',
       });
     };
 
     setNotificationResponseHandler(handlePush);
 
-    const receivedSub = Notifications.addNotificationReceivedListener((notification) => {
-      const data = (notification.request.content.data || {}) as PushNotificationData;
-      handlePush(data);
-    });
+    const receivedSub = Notifications.addNotificationReceivedListener(
+      (notification) => {
+        const data = (notification.request.content.data ||
+          {}) as PushNotificationData;
+        handlePush(data);
+      },
+    );
 
     return () => {
       setNotificationResponseHandler(null);
@@ -253,7 +344,18 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       setConnected,
       toggleMute,
     }),
-    [phase, deliveryId, peerName, muted, startCall, hangUp, acceptIncoming, declineIncoming, setConnected, toggleMute]
+    [
+      phase,
+      deliveryId,
+      peerName,
+      muted,
+      startCall,
+      hangUp,
+      acceptIncoming,
+      declineIncoming,
+      setConnected,
+      toggleMute,
+    ],
   );
 
   const showCallModal = Boolean(credentials) || Boolean(incoming);
@@ -262,49 +364,76 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
     <VoiceCallContext.Provider value={value}>
       {children}
 
-      <Modal visible={showCallModal} animationType="slide" presentationStyle="fullScreen">
+      <Modal
+        visible={showCallModal}
+        animationType="slide"
+        presentationStyle="fullScreen"
+      >
         {credentials ? (
-          <LiveKitRoom
+          <NativeVoiceCallRoom
             serverUrl={credentials.serverUrl}
             token={credentials.token}
-            connect
-            audio
-            video={false}
-            onDisconnected={hangUp}
-          >
-            <VoiceCallSession
-              peerName={peerName}
-              muted={muted}
-              onHangUp={hangUp}
-              onConnected={setConnected}
-              onToggleMute={toggleMute}
-            />
-          </LiveKitRoom>
+            peerName={peerName}
+            muted={muted}
+            onHangUp={hangUp}
+            onConnected={setConnected}
+            onToggleMute={toggleMute}
+          />
         ) : incoming ? (
-          <View style={[styles.incomingWrap, { backgroundColor: theme.colors.background }]}>
+          <View
+            style={[
+              styles.incomingWrap,
+              { backgroundColor: theme.colors.background },
+            ]}
+          >
             <View style={styles.incomingCenter}>
-              <View style={[styles.incomingAvatar, { backgroundColor: theme.colors.primary }]}>
+              <View
+                style={[
+                  styles.incomingAvatar,
+                  { backgroundColor: theme.colors.primary },
+                ]}
+              >
                 <Phone size={36} color="#FFFFFF" strokeWidth={2} />
               </View>
-              <Text style={[styles.incomingTitle, { color: theme.colors.text }]}>Incoming call</Text>
-              <Text style={[styles.incomingName, { color: theme.colors.text }]}>{incoming.callerName}</Text>
-              <Text style={[styles.incomingSub, { color: theme.colors.textSecondary }]}>
+              <Text
+                style={[styles.incomingTitle, { color: theme.colors.text }]}
+              >
+                Incoming call
+              </Text>
+              <Text style={[styles.incomingName, { color: theme.colors.text }]}>
+                {incoming.callerName}
+              </Text>
+              <Text
+                style={[
+                  styles.incomingSub,
+                  { color: theme.colors.textSecondary },
+                ]}
+              >
                 Ridely delivery voice call
               </Text>
             </View>
             <View style={styles.incomingActions}>
               <TouchableOpacity
-                style={[styles.declineBtn, { backgroundColor: theme.colors.error }]}
+                style={[
+                  styles.declineBtn,
+                  { backgroundColor: theme.colors.error },
+                ]}
                 onPress={declineIncoming}
               >
                 <PhoneOff size={28} color="#FFFFFF" strokeWidth={2} />
                 <Text style={styles.actionLabel}>Decline</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.acceptBtn, { backgroundColor: theme.colors.success }]}
+                style={[
+                  styles.acceptBtn,
+                  { backgroundColor: theme.colors.success },
+                ]}
                 onPress={() => {
                   acceptIncoming().catch(() => {
-                    showAlert('Voice call failed', error ?? 'Could not join the call.');
+                    showAlert(
+                      'Voice call failed',
+                      error ?? 'Could not join the call.',
+                    );
                   });
                 }}
               >
@@ -313,7 +442,11 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
               </TouchableOpacity>
             </View>
             {phase === 'connecting' ? (
-              <ActivityIndicator size="small" color={theme.colors.primary} style={styles.connecting} />
+              <ActivityIndicator
+                size="small"
+                color={theme.colors.primary}
+                style={styles.connecting}
+              />
             ) : null}
           </View>
         ) : null}

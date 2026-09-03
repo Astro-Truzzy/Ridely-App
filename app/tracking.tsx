@@ -35,6 +35,7 @@ import { useVoiceCall } from '@/contexts/VoiceCallContext';
 import { useDeliveries, type Delivery } from '@/hooks/useDeliveries';
 import { useAutoCancelPendingDelivery } from '@/hooks/useAutoCancelPendingDelivery';
 import { fetchGoogleDirections, geocodeAddress } from '@/lib/googleDirections';
+import { getDeliveryProofSignedUrl } from '@/lib/deliveryProofUpload';
 import { firstParam } from '@/lib/screenContracts';
 
 interface RiderInfo {
@@ -116,14 +117,14 @@ function getProgressIndex(status: Delivery['status'] | undefined): number {
 
 const MARKER_IMAGES = {
   rider: require('@/assets/markers/marker-rider.png'),
-  pickup: require('@/assets/markers/marker-pickup.png'),
-  dropoff: require('@/assets/markers/marker-dropoff.png'),
+  pickup: require('@/assets/markers/ridely_brand_pin_256.png'),
+  dropoff: require('@/assets/markers/ridely_dropoff_pin_green_256.png'),
 };
 
-/** Pin markers tip at the bottom; rider is a centered circular badge. */
+/** All markers are teardrop pins; the tip sits on the coordinate. */
 const MARKER_ANCHOR = {
   pin: { x: 0.5, y: 1 },
-  rider: { x: 0.5, y: 0.5 },
+  rider: { x: 0.5, y: 1 },
 } as const;
 
 type LatLng = { latitude: number; longitude: number };

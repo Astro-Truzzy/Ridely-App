@@ -5,7 +5,8 @@ import { supabase } from './supabase';
  * Google Maps web-service client.
  *
  * Routes through the authenticated `google-maps` Edge Function (server key).
- * Falls back to a direct request on native if the proxy is unavailable.
+ * Falls back to a direct request on native if the proxy is unavailable
+ * or Google denies the server key.
  */
 
 type GoogleMapsPath =
@@ -15,10 +16,28 @@ type GoogleMapsPath =
   | 'directions/json';
 
 function getApiKey(): string {
-  return (
-    process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ||
-    process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY ||
-    ''
+  const shared = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || '';
+  const android = process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY || '';
+  const ios = process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_API_KEY || '';
+  if (Platform.OS === 'ios') return shared || ios || android;
+  return shared || android || ios;
+}
+
+function isDeniedMapsPayload(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return true;
+  const payload = data as { error?: unknown; status?: string; error_message?: string };
+  if (payload.error && !payload.status) return true;
+  return payload.status === 'REQUEST_DENIED';
+}
+
+function logMapsFailure(source: string, path: GoogleMapsPath, data: unknown) {
+  const payload = data as { status?: string; error?: unknown; error_message?: string } | null;
+  console.warn(
+    'Google Maps request failed',
+    source,
+    path,
+    payload?.status || payload?.error || 'no payload',
+    payload?.error_message || '',
   );
 }
 
@@ -53,8 +72,12 @@ async function fetchViaProxy(
     body: JSON.stringify({ path, params }),
     signal,
   });
-  if (!response.ok) return null;
-  return response.json();
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    logMapsFailure('proxy-http', path, data);
+    return null;
+  }
+  return data;
 }
 
 async function fetchDirect(
@@ -78,8 +101,12 @@ async function fetchDirect(
     headers: { Accept: 'application/json' },
     signal,
   });
-  if (!response.ok) return null;
-  return response.json();
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    logMapsFailure('direct-http', path, data);
+    return null;
+  }
+  return data;
 }
 
 /**
@@ -91,9 +118,14 @@ export async function googleMapsRequest(
   signal?: AbortSignal
 ): Promise<any | null> {
   const proxied = await fetchViaProxy(path, params, signal);
-  if (proxied != null) return proxied;
+  if (proxied != null && !isDeniedMapsPayload(proxied)) return proxied;
+  if (proxied != null) logMapsFailure('proxy', path, proxied);
+
   if (Platform.OS !== 'web') {
-    return fetchDirect(path, params, signal);
+    const direct = await fetchDirect(path, params, signal);
+    if (direct != null && !isDeniedMapsPayload(direct)) return direct;
+    if (direct != null) logMapsFailure('direct', path, direct);
+    return direct ?? proxied;
   }
-  return null;
+  return proxied;
 }

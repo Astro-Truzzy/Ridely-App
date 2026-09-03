@@ -19,18 +19,24 @@ export interface AddressSuggestion {
 const DEBOUNCE_DELAY = 250;
 const MIN_QUERY_LENGTH = 2;
 
-export function useAddressAutocomplete() {
+type LocationBias = { latitude: number; longitude: number } | null;
+
+export function useAddressAutocomplete(locationBias?: LocationBias) {
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastQueryRef = useRef<string>('');
   const abortControllerRef = useRef<AbortController | null>(null);
+  const biasRef = useRef<LocationBias>(locationBias ?? null);
+  biasRef.current = locationBias ?? null;
 
   const searchAddresses = async (query: string) => {
     const trimmed = (query || '').trim();
     if (trimmed.length < MIN_QUERY_LENGTH) {
       lastQueryRef.current = '';
       setSuggestions([]);
+      setSearchError(null);
       return;
     }
 
@@ -43,11 +49,20 @@ export function useAddressAutocomplete() {
     lastQueryRef.current = trimmed;
 
     setLoading(true);
+    setSearchError(null);
     try {
-      // No 'types' restriction so we get both addresses and establishments (malls, shops, landmarks e.g. Shoprite, Market Square, Hypercity in Port Harcourt)
+      const bias = biasRef.current;
+      const autocompleteParams: Record<string, string> = {
+        input: trimmed,
+        components: 'country:ng',
+      };
+      if (bias) {
+        autocompleteParams.location = `${bias.latitude},${bias.longitude}`;
+        autocompleteParams.radius = '25000';
+      }
       const data = await googleMapsRequest(
         'place/autocomplete/json',
-        { input: trimmed, components: 'country:ng' },
+        autocompleteParams,
         signal
       );
 
@@ -56,6 +71,7 @@ export function useAddressAutocomplete() {
       }
 
       let formatted: AddressSuggestion[] = [];
+      let denied = false;
       if (data && (data.status === 'OK' || data.status === 'ZERO_RESULTS')) {
         formatted = (data.predictions || []).map((p: { place_id: string; description: string }) => ({
           display_name: p.description.replace(/, Nigeria$/, '').trim(),
@@ -64,17 +80,24 @@ export function useAddressAutocomplete() {
           place_id: p.place_id,
           address: {},
         }));
+      } else if (data?.status === 'REQUEST_DENIED' || data?.error) {
+        denied = true;
       }
 
-      // Geocoding still works when Places Autocomplete is denied or empty.
       if (formatted.length === 0) {
-        const geo = await googleMapsRequest(
-          'geocode/json',
-          { address: trimmed, components: 'country:NG' },
-          signal
-        );
+        const geoParams: Record<string, string> = {
+          address: trimmed,
+          components: 'country:NG',
+        };
+        if (bias) {
+          geoParams.location = `${bias.latitude},${bias.longitude}`;
+        }
+        const geo = await googleMapsRequest('geocode/json', geoParams, signal);
         if (lastQueryRef.current !== trimmed) {
           return;
+        }
+        if (geo?.status === 'REQUEST_DENIED' || geo?.error) {
+          denied = true;
         }
         formatted = (geo?.results || []).slice(0, 6).map((r: {
           place_id?: string;
@@ -89,12 +112,19 @@ export function useAddressAutocomplete() {
         }));
       }
 
+      if (lastQueryRef.current !== trimmed) {
+        return;
+      }
+      if (denied && formatted.length === 0) {
+        setSearchError('Address search is unavailable right now.');
+      }
       setSuggestions(formatted);
     } catch (error) {
       if ((error as Error).name === 'AbortError') return;
       console.error('Error fetching address suggestions:', error);
       if (lastQueryRef.current === trimmed) {
         setSuggestions([]);
+        setSearchError('Address search is unavailable right now.');
       }
     } finally {
       if (lastQueryRef.current === trimmed) {
@@ -159,11 +189,13 @@ export function useAddressAutocomplete() {
 
   const clearSuggestions = () => {
     setSuggestions([]);
+    setSearchError(null);
   };
 
   return {
     suggestions,
     loading,
+    searchError,
     searchAddresses: debouncedSearch,
     clearSuggestions,
     getPlaceDetails,

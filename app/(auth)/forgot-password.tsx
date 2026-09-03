@@ -21,6 +21,7 @@ import { useAlert } from '@/contexts/AlertContext';
 import { supabase } from '@/lib/supabase';
 import { getAuthRedirectUrl } from '@/lib/authRedirect';
 import { FormError } from '@/components/FormError';
+import { AuthBackgroundLines } from '@/components/AuthBackgroundLines';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -61,7 +62,9 @@ export default function ForgotPasswordScreen() {
 
       if (error) throw error;
 
-      showToast("If an account exists for that email, we've sent a reset link.");
+      showToast(
+        "If an account exists for that email, we've sent a reset link.",
+      );
       router.back();
     } catch (err) {
       setFormError(
@@ -97,6 +100,7 @@ export default function ForgotPasswordScreen() {
     },
     keyboardAvoidingView: {
       flex: 1,
+      zIndex: 1,
     },
     header: {
       paddingHorizontal: 20,
@@ -105,8 +109,8 @@ export default function ForgotPasswordScreen() {
     },
     backButton: {
       width: 44,
-    height: 44,
-    borderRadius: 22,
+      height: 44,
+      borderRadius: 22,
       backgroundColor: theme.colors.surface,
       justifyContent: 'center',
       alignItems: 'center',
@@ -204,6 +208,7 @@ export default function ForgotPasswordScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
+      <AuthBackgroundLines />
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -238,10 +243,17 @@ export default function ForgotPasswordScreen() {
           <View style={styles.form}>
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Email Address</Text>
-              <View style={styles.inputContainer}>
+              <View
+                style={[
+                  styles.inputContainer,
+                  formError ? { borderColor: theme.colors.error } : null,
+                ]}
+              >
                 <Mail
                   size={20}
-                  color={theme.colors.textSecondary}
+                  color={
+                    formError ? theme.colors.error : theme.colors.textSecondary
+                  }
                   strokeWidth={2}
                 />
                 <TextInput
@@ -253,9 +265,18 @@ export default function ForgotPasswordScreen() {
                     setEmail(t);
                     setFormError(null);
                   }}
+                  onBlur={() => {
+                    const trimmed = email.trim();
+                    if (!trimmed) {
+                      setFormError('Please enter your email address');
+                    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+                      setFormError('Please enter a valid email address');
+                    }
+                  }}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
+                  autoComplete="email"
                   editable={!isLoading}
                 />
               </View>

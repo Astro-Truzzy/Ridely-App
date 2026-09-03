@@ -110,13 +110,42 @@ export async function geocodeAddress(
 /**
  * Reverse geocode coordinates to a formatted address using Google Geocoding API.
  */
+const PREFERRED_GEOCODE_TYPES = [
+  'street_address',
+  'premise',
+  'subpremise',
+  'route',
+  'intersection',
+  'establishment',
+  'point_of_interest',
+  'neighborhood',
+  'sublocality',
+  'sublocality_level_1',
+];
+
+function pickGeocodeResult(
+  results: Array<{ formatted_address?: string; types?: string[] }> | undefined
+) {
+  if (!Array.isArray(results) || results.length === 0) return null;
+  const notPlusOnly = results.filter((r) => {
+    const types = r.types || [];
+    return !(types.length === 1 && types[0] === 'plus_code');
+  });
+  const pool = notPlusOnly.length ? notPlusOnly : results;
+  for (const type of PREFERRED_GEOCODE_TYPES) {
+    const match = pool.find((r) => (r.types || []).includes(type));
+    if (match) return match;
+  }
+  return pool[0];
+}
+
 export async function reverseGeocodeCoords(
   latitude: number,
   longitude: number
 ): Promise<string | null> {
   try {
     const data = await googleMapsRequest('geocode/json', { latlng: `${latitude},${longitude}` });
-    const formatted = data?.results?.[0]?.formatted_address;
+    const formatted = pickGeocodeResult(data?.results)?.formatted_address;
     if (typeof formatted === 'string' && formatted.trim()) {
       return formatted.replace(/, Nigeria$/, '').trim();
     }

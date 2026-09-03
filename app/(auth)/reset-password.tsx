@@ -30,6 +30,7 @@ import { useAlert } from '@/contexts/AlertContext';
 import { supabase } from '@/lib/supabase';
 import { createSessionFromRedirectUrl } from '@/lib/socialAuth';
 import { FormError } from '@/components/FormError';
+import { AuthBackgroundLines } from '@/components/AuthBackgroundLines';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -158,6 +159,7 @@ export default function ResetPasswordScreen() {
     },
     keyboardAvoidingView: {
       flex: 1,
+      zIndex: 1,
     },
     header: {
       paddingHorizontal: 20,
@@ -397,6 +399,7 @@ export default function ResetPasswordScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
+      <AuthBackgroundLines />
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}

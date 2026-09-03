@@ -1,0 +1,32 @@
+Ridely — Content rating (IARC questionnaire)
+Play Console → App content → Content ratings. Complete the IARC form with these answers, then use whatever rating IARC returns. Do not guess a PEGI/ESRB label yourself.
+
+App type
+- Category: Utility / Productivity / Other  (Maps & Navigation is fine if offered)
+- Not a game
+
+Typical answers for Ridely as it works today
+- Violence: No
+- Sexuality / nudity: No
+- Language: No (in-app chat is unmoderated user-to-user — if the form asks about user-generated content, say YES to users communicating)
+- Controlled substances: No
+- Gambling: No
+- User interaction: YES — users can chat and voice-call each other (customer ↔ rider)
+- Shares location: YES — live tracking during a delivery
+- Digital purchases: YES if customers pay in-app via Paystack; this is a real-world service payment, not Google Play Billing. Answer the "unrestricted internet" / "users can purchase" questions honestly. You are NOT using Play Billing for deliveries.
+- Age restriction: Riders must be 18+. The customer app is used by adults sending packages. Target age group: 18 and over is the safe choice.
+- Appeals to children: NO. Do not include Ridely in Designed for Families.
+
+Expected outcome
+Utility apps with chat + location sharing often land around PEGI 3 / ESRB Everyone or Teen. Submit the questionnaire and accept the official rating.
+
+News / COVID / government / health
+- News app: No
+- COVID-19 app: No
+- Government app: No
+- Health app: No
+- Financial features: Yes — you process payments and rider payouts. Complete the financial features declaration. This is a payments-facilitated marketplace, not a bank or crypto app.
+
+Target audience and content
+- Target age: 18 and up
+- Store presence: not made for kids

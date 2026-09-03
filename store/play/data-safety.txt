@@ -1,0 +1,80 @@
+Ridely — Play Console Data safety form
+Open Play Console → App content → Data safety. Use these answers, then confirm they still match the live app before you publish.
+
+Overview
+- App collects user data: YES
+- App shares user data with third parties: YES (payment processor, maps, crash reporting, the other party on a delivery)
+- Data is encrypted in transit: YES (HTTPS)
+- Users can request that data is deleted: YES (in-app support / privacy@ridely.com)
+
+Account required: YES
+
+Collected data (mark as collected)
+
+1. Personal info
+   - Name: Collected. Required. App functionality.
+   - Email address: Collected. Required. App functionality / account.
+   - Phone number: Collected. Required. App functionality.
+   - User IDs: Collected. Required. App functionality.
+   - Address: Collected (pickup / drop-off / saved places). Required. App functionality.
+
+2. Location
+   - Approximate location: Collected. Required. App functionality.
+   - Precise location: Collected. Required. App functionality.
+   Customers: used while booking and tracking a delivery.
+   Riders: used while online / on a job, including background location so nearby jobs and live tracking work.
+   Shared with the other party on an active delivery (customer sees rider location; rider sees pickup/drop-off).
+
+3. Financial info
+   - Purchase history: Collected (delivery payments, rider earnings). App functionality.
+   - Other financial: rider bank account (for payouts). Required for riders. App functionality.
+   Card numbers are processed by Paystack. Do not claim Ridely stores full card numbers unless you actually do.
+
+4. Photos and videos
+   - Photos: Collected (profile photo; rider verification documents). Optional for customers, required for rider verification. App functionality.
+
+5. Audio
+   - Voice or sound recordings: Collected only for in-app voice calls (LiveKit). Optional. App functionality. Not stored as a call-recording product unless you add that later.
+
+6. Messages
+   - In-app messages: Collected (customer ↔ rider chat). Required for coordination. App functionality.
+   Shared with the other party on that delivery only.
+
+7. App activity
+   - App interactions / in-app search (addresses): Collected. App functionality and analytics.
+   - Other user-generated content: delivery notes, support messages. App functionality.
+
+8. App info and performance
+   - Crash logs: Collected (Sentry). Analytics.
+   - Diagnostics: Collected (Sentry). Analytics.
+
+9. Device or other IDs
+   - Device IDs: Collected (push notifications, auth). App functionality.
+
+Data sharing (mark as shared)
+
+- Other users (rider or customer on the same delivery): name, approximate/precise location during the trip, in-app messages, phone if you expose it in-app.
+- Paystack: payment amount, email, and payment references. Purpose: App functionality.
+- Google Maps / Places: location and address queries. Purpose: App functionality.
+- Sentry: crash/diagnostic data. Purpose: Analytics.
+- Supabase (backend/hosting): account, deliveries, chat. This is your own infrastructure — Play usually treats first-party backend as "collected", not a third-party share. Do not list it as a third party.
+
+Security practices
+- Data is encrypted in transit: YES
+- Users can request deletion: YES
+- Committed to Play Families Policy: NO (not a kids app)
+- Independent security review: NO (unless you have one)
+
+Ads
+- App contains ads: NO (update this if you add ads)
+
+Data deletion
+Play will ask for a deletion URL or in-app path. Use:
+  In-app: Settings → Support (or account deletion if you add a dedicated flow)
+  Email:  privacy@ridely.com
+If you do not yet have an automated delete-account button, add one before launch. Play expects a working path, not only an email.
+
+Review these before submit
+- Background location: Play requires a prominent in-app disclosure and a video if you use background location. Riders need this. Prepare a short screen-record of the rider going online and the location prompt.
+- Photo/video permissions: use the Android Photo Picker / limited access. Do not request broad storage if you only need a profile photo.
+- Voice calls: microphone is for calls with the rider/customer, matching the permission string in the app.

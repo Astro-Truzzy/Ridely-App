@@ -1,15 +1,20 @@
 import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-} from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import Animated from 'react-native-reanimated';
-import { ArrowLeft, Bell, Package, DollarSign, CircleAlert as AlertCircle, CircleCheck as CheckCircle, Trash2 } from 'lucide-react-native';
+import {
+  ArrowLeft,
+  Bell,
+  Package,
+  DollarSign,
+  CircleAlert as AlertCircle,
+  CircleCheck as CheckCircle,
+  Trash2,
+} from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -19,6 +24,7 @@ import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { useDeliveries } from '@/hooks/useDeliveries';
 import { staggeredCardEnter } from '@/lib/riderAnimations';
 import { AnimatedPressable } from '@/components/rider/AnimatedPressable';
+import { NotificationCard } from '@/components/NotificationCard';
 import { supabase } from '@/lib/supabase';
 
 interface Notification {
@@ -35,13 +41,17 @@ export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
   const { user } = useAuth();
-  const { refetchUnreadCount, decrementUnreadCount, clearUnreadCount } = useNotifications();
+  const { refetchUnreadCount, decrementUnreadCount, clearUnreadCount } =
+    useNotifications();
   const { showAlert, showToast } = useAlert();
   const { deliveries } = useDeliveries();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
-  const { animations: animationsEnabled, receiptNotifications } = useAppSettings();
-  const enterItem = (i: number) => (animationsEnabled ? staggeredCardEnter(i) : undefined);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const { animations: animationsEnabled, receiptNotifications } =
+    useAppSettings();
+  const enterItem = (i: number) =>
+    animationsEnabled ? staggeredCardEnter(i) : undefined;
 
   useEffect(() => {
     if (user) {
@@ -59,7 +69,8 @@ export default function NotificationsScreen() {
           },
           (payload) => {
             if (payload.new) {
-              if (payload.new.type === 'payment' && !receiptNotifications) return;
+              if (payload.new.type === 'payment' && !receiptNotifications)
+                return;
               const newNotification: Notification = {
                 id: payload.new.id,
                 type: payload.new.type,
@@ -69,9 +80,9 @@ export default function NotificationsScreen() {
                 read: payload.new.read,
                 actionable: payload.new.actionable,
               };
-              setNotifications(prev => [newNotification, ...prev]);
+              setNotifications((prev) => [newNotification, ...prev]);
             }
-          }
+          },
         )
         .on(
           'postgres_changes',
@@ -85,11 +96,13 @@ export default function NotificationsScreen() {
             if (payload.new) {
               setNotifications((prev) =>
                 prev.map((notif) =>
-                  notif.id === payload.new.id ? { ...notif, read: payload.new.read } : notif
-                )
+                  notif.id === payload.new.id
+                    ? { ...notif, read: payload.new.read }
+                    : notif,
+                ),
               );
             }
-          }
+          },
         )
         .on(
           'postgres_changes',
@@ -100,9 +113,11 @@ export default function NotificationsScreen() {
           },
           (payload) => {
             if (payload.old?.id) {
-              setNotifications((prev) => prev.filter((notif) => notif.id !== payload.old.id));
+              setNotifications((prev) =>
+                prev.filter((notif) => notif.id !== payload.old.id),
+              );
             }
-          }
+          },
         )
         .subscribe();
 
@@ -125,26 +140,29 @@ export default function NotificationsScreen() {
       if (error) throw error;
 
       const formattedNotifications: Notification[] = (data ?? [])
-        .filter((item: { type: string }) => receiptNotifications || item.type !== 'payment')
+        .filter(
+          (item: { type: string }) =>
+            receiptNotifications || item.type !== 'payment',
+        )
         .map(
-        (item: {
-          id: string;
-          type: string;
-          title: string;
-          message: string;
-          created_at: string;
-          read: boolean;
-          actionable?: boolean;
-        }) => ({
-          id: item.id,
-          type: item.type,
-          title: item.title,
-          message: item.message,
-          timestamp: new Date(item.created_at),
-          read: item.read,
-          actionable: item.actionable ?? false,
-        })
-      );
+          (item: {
+            id: string;
+            type: string;
+            title: string;
+            message: string;
+            created_at: string;
+            read: boolean;
+            actionable?: boolean;
+          }) => ({
+            id: item.id,
+            type: item.type,
+            title: item.title,
+            message: item.message,
+            timestamp: new Date(item.created_at),
+            read: item.read,
+            actionable: item.actionable ?? false,
+          }),
+        );
 
       setNotifications(formattedNotifications);
     } catch (error) {
@@ -155,32 +173,63 @@ export default function NotificationsScreen() {
   };
 
   const getNotificationIcon = (type: string) => {
+    const stroke = 1.75;
     switch (type) {
       case 'job_request':
-        return <Package size={24} color={theme.colors.primary} strokeWidth={2} />;
+        return (
+          <Package
+            size={18}
+            color={theme.colors.primary}
+            strokeWidth={stroke}
+          />
+        );
       case 'payment':
-        return <DollarSign size={24} color={theme.colors.success} strokeWidth={2} />;
+        return (
+          <DollarSign
+            size={18}
+            color={theme.colors.success}
+            strokeWidth={stroke}
+          />
+        );
       case 'delivery_update':
-        return <CheckCircle size={24} color={theme.colors.success} strokeWidth={2} />;
+        return (
+          <CheckCircle
+            size={18}
+            color={theme.colors.success}
+            strokeWidth={stroke}
+          />
+        );
       case 'system':
-        return <AlertCircle size={24} color={theme.colors.warning} strokeWidth={2} />;
+        return (
+          <AlertCircle
+            size={18}
+            color={theme.colors.warning}
+            strokeWidth={stroke}
+          />
+        );
       default:
-        return <Bell size={24} color={theme.colors.textSecondary} strokeWidth={2} />;
+        return (
+          <Bell
+            size={18}
+            color={theme.colors.textTertiary}
+            strokeWidth={stroke}
+          />
+        );
     }
   };
 
   const getNotificationColor = (type: string) => {
     switch (type) {
       case 'job_request':
-        return `${theme.colors.primary}20`;
+        return `${theme.colors.primary}18`;
       case 'payment':
-        return `${theme.colors.success}20`;
+        return `${theme.colors.success}18`;
       case 'delivery_update':
-        return `${theme.colors.success}20`;
+        return `${theme.colors.success}18`;
       case 'system':
-        return `${theme.colors.warning}20`;
+        return `${theme.colors.warning}18`;
       default:
-        return `${theme.colors.textSecondary}20`;
+        return `${theme.colors.textTertiary}18`;
     }
   };
 
@@ -201,10 +250,8 @@ export default function NotificationsScreen() {
     const target = notifications.find((n) => n.id === id);
     if (!target || target.read) return;
 
-    setNotifications(prev =>
-      prev.map(notif =>
-        notif.id === id ? { ...notif, read: true } : notif
-      )
+    setNotifications((prev) =>
+      prev.map((notif) => (notif.id === id ? { ...notif, read: true } : notif)),
     );
     decrementUnreadCount(1);
 
@@ -215,10 +262,10 @@ export default function NotificationsScreen() {
 
     if (error) {
       console.error('Error marking notification as read:', error);
-      setNotifications(prev =>
-        prev.map(notif =>
-          notif.id === id ? { ...notif, read: false } : notif
-        )
+      setNotifications((prev) =>
+        prev.map((notif) =>
+          notif.id === id ? { ...notif, read: false } : notif,
+        ),
       );
       await refetchUnreadCount();
       return;
@@ -230,7 +277,7 @@ export default function NotificationsScreen() {
   const markAllAsRead = async () => {
     if (notifications.every((n) => n.read)) return;
 
-    setNotifications(prev => prev.map(notif => ({ ...notif, read: true })));
+    setNotifications((prev) => prev.map((notif) => ({ ...notif, read: true })));
     clearUnreadCount();
 
     if (user?.id) {
@@ -279,7 +326,11 @@ export default function NotificationsScreen() {
   const confirmDeleteNotification = (id: string) => {
     showAlert('Delete Notification', 'Remove this notification?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => deleteNotification(id) },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => deleteNotification(id),
+      },
     ]);
   };
 
@@ -316,7 +367,7 @@ export default function NotificationsScreen() {
         d.status !== 'delivered' &&
         d.status !== 'cancelled' &&
         d.status !== 'completed' &&
-        d.status !== 'cancelled_no_rider'
+        d.status !== 'cancelled_no_rider',
     );
     if (activeDelivery) {
       const jobData = {
@@ -340,7 +391,27 @@ export default function NotificationsScreen() {
     }
   };
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const getActionLabel = (notification: Notification) => {
+    if (!notification.actionable) return null;
+    if (notification.type === 'payment') return 'View receipt';
+    if (notification.type === 'delivery_update') return 'Open map';
+    return 'View Jobs';
+  };
+
+  const handleAction = (notification: Notification) => {
+    markAsRead(notification.id);
+    if (notification.type === 'payment') {
+      router.push('/(rider)/earnings');
+      return;
+    }
+    if (notification.type === 'delivery_update') {
+      handleOpenMap();
+      return;
+    }
+    router.push('/(rider)/dashboard');
+  };
 
   return (
     <SafeAreaView
@@ -350,19 +421,38 @@ export default function NotificationsScreen() {
       <StatusBar style={isDark ? 'light' : 'dark'} />
       {/* Header */}
       <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
-        <AnimatedPressable style={styles.backButton} onPress={() => router.back()}>
+        <AnimatedPressable
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </AnimatedPressable>
-        <Text style={[styles.title, { color: theme.colors.text }]}>Notifications</Text>
+        <Text style={[styles.title, { color: theme.colors.text }]}>
+          Notifications
+        </Text>
         <View style={styles.headerActions}>
           {unreadCount > 0 && (
-            <AnimatedPressable style={styles.markAllButton} onPress={markAllAsRead}>
-              <Text style={[styles.markAllText, { color: theme.colors.primary }]}>Mark All Read</Text>
+            <AnimatedPressable
+              style={styles.markAllButton}
+              onPress={markAllAsRead}
+            >
+              <Text
+                style={[styles.markAllText, { color: theme.colors.primary }]}
+              >
+                Mark All Read
+              </Text>
             </AnimatedPressable>
           )}
           {notifications.length > 0 && (
-            <AnimatedPressable style={styles.clearAllButton} onPress={confirmClearAll}>
-              <Text style={[styles.clearAllText, { color: theme.colors.error }]}>Clear All</Text>
+            <AnimatedPressable
+              style={styles.clearAllButton}
+              onPress={confirmClearAll}
+            >
+              <Text
+                style={[styles.clearAllText, { color: theme.colors.error }]}
+              >
+                Clear All
+              </Text>
             </AnimatedPressable>
           )}
         </View>
@@ -371,100 +461,52 @@ export default function NotificationsScreen() {
       {/* Unread Count */}
       {unreadCount > 0 && (
         <View style={styles.unreadContainer}>
-          <Text style={[styles.unreadText, { color: theme.colors.textSecondary }]}>
+          <Text
+            style={[styles.unreadText, { color: theme.colors.textSecondary }]}
+          >
             {unreadCount} unread notification{unreadCount > 1 ? 's' : ''}
           </Text>
         </View>
       )}
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+      >
         {notifications.map((notification, index) => (
           <Animated.View key={notification.id} entering={enterItem(index)}>
-            <AnimatedPressable
-              style={[
-                styles.notificationCard,
-                { backgroundColor: theme.colors.surface },
-                !notification.read && { borderLeftWidth: 4, borderLeftColor: theme.colors.primary },
-                theme.shadows.small,
-              ]}
-              onPress={() => {
+            <NotificationCard
+              title={notification.title}
+              message={notification.message}
+              timeLabel={formatTime(notification.timestamp)}
+              read={notification.read}
+              expanded={expandedId === notification.id}
+              icon={getNotificationIcon(notification.type)}
+              iconBackground={getNotificationColor(notification.type)}
+              actionLabel={getActionLabel(notification)}
+              onToggle={() => {
+                setExpandedId((current) =>
+                  current === notification.id ? null : notification.id,
+                );
                 markAsRead(notification.id);
-                if (notification.type === 'payment') {
-                  router.push('/(rider)/earnings');
-                }
               }}
-            >
-            <View style={styles.notificationHeader}>
-              <View style={[styles.iconContainer, { backgroundColor: getNotificationColor(notification.type) }]}>
-                {getNotificationIcon(notification.type)}
-              </View>
-              <View style={styles.notificationInfo}>
-                <Text style={[styles.notificationTitle, { color: theme.colors.text }]}>
-                  {notification.title}
-                </Text>
-                <Text style={[styles.notificationMessage, { color: theme.colors.textSecondary }]}>
-                  {notification.message}
-                </Text>
-                <Text style={[styles.notificationTime, { color: theme.colors.textTertiary }]}>
-                  {formatTime(notification.timestamp)}
-                </Text>
-              </View>
-              <View style={styles.notificationRight}>
-                {!notification.read && (
-                  <View style={[styles.unreadDot, { backgroundColor: theme.colors.primary }]} />
-                )}
-                <TouchableOpacity
-                  style={styles.deleteButton}
-                  onPress={() => confirmDeleteNotification(notification.id)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Trash2 size={18} color={theme.colors.textTertiary} strokeWidth={2} />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {notification.actionable && (
-              <View style={[styles.actionContainer, { borderTopColor: theme.colors.border }]}>
-                {notification.type === 'payment' ? (
-                  <AnimatedPressable
-                    style={[styles.actionButton, { backgroundColor: theme.colors.primary }]}
-                    onPress={() => {
-                      markAsRead(notification.id);
-                      router.push('/(rider)/earnings');
-                    }}
-                  >
-                    <Text style={styles.actionText}>View receipt</Text>
-                  </AnimatedPressable>
-                ) : notification.type === 'delivery_update' ? (
-                  <AnimatedPressable
-                    style={[styles.actionButton, { backgroundColor: theme.colors.primary }]}
-                    onPress={() => {
-                      markAsRead(notification.id);
-                      handleOpenMap();
-                    }}
-                  >
-                    <Text style={styles.actionText}>Open map</Text>
-                  </AnimatedPressable>
-                ) : (
-                  <AnimatedPressable
-                    style={[styles.actionButton, { backgroundColor: theme.colors.primary }]}
-                    onPress={() => router.push('/(rider)/dashboard')}
-                  >
-                    <Text style={styles.actionText}>View Jobs</Text>
-                  </AnimatedPressable>
-                )}
-              </View>
-            )}
-            </AnimatedPressable>
+              onDelete={() => confirmDeleteNotification(notification.id)}
+              onAction={() => handleAction(notification)}
+            />
           </Animated.View>
         ))}
 
         {notifications.length === 0 && !loading && (
           <View style={styles.emptyState}>
             <Bell size={48} color={theme.colors.textTertiary} strokeWidth={2} />
-            <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No notifications</Text>
-            <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
-              You'll receive notifications about new jobs, payments, and updates here
+            <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>
+              No notifications
+            </Text>
+            <Text
+              style={[styles.emptyText, { color: theme.colors.textSecondary }]}
+            >
+              You'll receive notifications about new jobs, payments, and updates
+              here
             </Text>
           </View>
         )}
@@ -514,14 +556,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  notificationRight: {
-    alignItems: 'center',
-    marginLeft: 12,
-  },
-  deleteButton: {
-    padding: 4,
-    marginTop: 6,
-  },
   unreadContainer: {
     paddingHorizontal: 20,
     paddingBottom: 16,
@@ -533,62 +567,6 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
     paddingHorizontal: 20,
-  },
-  notificationCard: {
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-  },
-  notificationHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  notificationInfo: {
-    flex: 1,
-  },
-  notificationTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  notificationMessage: {
-    fontSize: 14,
-    marginBottom: 8,
-    lineHeight: 20,
-  },
-  notificationTime: {
-    fontSize: 12,
-  },
-  unreadDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginTop: 6,
-  },
-  actionContainer: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-  },
-  actionButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  actionText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
   },
   emptyState: {
     flex: 1,

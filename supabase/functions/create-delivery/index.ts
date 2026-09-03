@@ -3,6 +3,7 @@ import {
   computeServerFare,
   nairaToKobo,
   cardPaymentMatchesQuote,
+  fareQuoteWithinServerBand,
 } from '../_shared/pricing.ts';
 
 const corsHeaders = {
@@ -22,7 +23,11 @@ type CreateDeliveryBody = {
   dropoff_lat?: number | null;
   dropoff_lng?: number | null;
   parcel_size: 'small' | 'medium' | 'large';
-  /** Ignored for pricing — server recomputes. Kept for backward compatibility. */
+  /**
+   * Client fare quote (from the Google Directions road distance) shown to the
+   * customer. Stored as the authoritative fare when it is within a sane band of
+   * the server recompute; otherwise the server figure is used.
+   */
   total_cost?: number;
   distance?: number;
   estimated_time?: string;
@@ -121,9 +126,9 @@ Deno.serve(async (req) => {
     Deno.env.get('GOOGLE_MAPS_API_KEY') ||
     null;
 
-  let fare: { distanceKm: number; totalCost: number };
+  let serverFare: { distanceKm: number; totalCost: number };
   try {
-    fare = await computeServerFare({
+    serverFare = await computeServerFare({
       pickupLat,
       pickupLng,
       dropoffLat,
@@ -135,12 +140,33 @@ Deno.serve(async (req) => {
     return json({ error: 'Failed to calculate fare' }, 500);
   }
 
-  const totalCost = fare.totalCost;
-  const distance = fare.distanceKm;
-
-  if (!(totalCost > 0)) {
+  if (!(serverFare.totalCost > 0)) {
     return json({ error: 'Calculated fare is invalid' }, 400);
   }
+
+  // The customer was shown — and, for card, charged — a fare computed on the
+  // client from the Google Directions road distance. This server recompute is
+  // an independent anti-tampering reference; when Directions is unavailable
+  // server-side it falls back to a straight-line estimate that reads lower,
+  // which is why the booked fare used to come out below the quote. Store the
+  // quoted fare so the price stays consistent end to end, but only when it is
+  // within a sane band of this reference; otherwise fall back to the server
+  // figure.
+  const serverKobo = nairaToKobo(serverFare.totalCost);
+  const quotedCost = Number(body.total_cost);
+  const quotedDistance = Number(body.distance);
+  const useQuote =
+    Number.isFinite(quotedCost) &&
+    quotedCost > 0 &&
+    fareQuoteWithinServerBand(nairaToKobo(quotedCost), serverKobo);
+
+  const totalCost = useQuote
+    ? Number(quotedCost.toFixed(2))
+    : serverFare.totalCost;
+  const distance =
+    useQuote && Number.isFinite(quotedDistance) && quotedDistance >= 0
+      ? Number(quotedDistance.toFixed(2))
+      : serverFare.distanceKm;
 
   const admin = createClient(supabaseUrl, serviceRoleKey);
 
@@ -199,16 +225,15 @@ Deno.serve(async (req) => {
     }
 
     const paidKobo = Number(tx.amount) || 0;
-    const expectedKobo = nairaToKobo(totalCost);
-    const quotedKobo =
-      body.total_cost != null && Number.isFinite(Number(body.total_cost))
-        ? nairaToKobo(Number(body.total_cost))
-        : expectedKobo;
+    // Paid amount must match the fare we are about to store (the quote when it
+    // is trusted, otherwise the server figure), and that fare must sit within
+    // the sane band of the server recompute.
+    const bookingKobo = nairaToKobo(totalCost);
     if (
       !cardPaymentMatchesQuote({
         paidKobo,
-        serverKobo: expectedKobo,
-        quotedKobo,
+        serverKobo,
+        quotedKobo: bookingKobo,
       })
     ) {
       return json(

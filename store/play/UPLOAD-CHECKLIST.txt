@@ -1,0 +1,69 @@
+Ridely — Play Store upload checklist
+Work top to bottom. Graphics and listing copy in this folder are ready to paste.
+
+BEFORE YOU OPEN PLAY CONSOLE
+[ ] Create a Google Play Developer account ($25 one-time, identity verification required)
+[ ] Decide the legal entity name and a physical address (needed for the store and the privacy policy)
+[ ] Host privacy-policy.html and terms-of-service.html on a public https URL
+    (GitHub Pages, your domain, or any static host). Play rejects a file:// or app-only policy.
+[ ] Fill in the legal-entity / address placeholders in those HTML files before hosting
+[ ] Confirm package name stays com.deliveryapp.ridely — you cannot change it after the first upload
+
+STORE LISTING  (Play Console → Store presence → Main store listing)
+[ ] App name: Ridely
+[ ] Paste short + full description from listing.txt
+[ ] Upload graphics/icon-512.png
+[ ] Upload graphics/feature-graphic-1024x500.png
+[ ] Upload all 6 phone screenshots in graphics/screenshots/phone/
+[ ] Optional: 7-inch and 10-inch screenshots in the tablet folders
+[ ] Category: Maps & Navigation
+[ ] Contact email: support@ridely.com
+[ ] Privacy policy URL: your hosted https link
+
+APP CONTENT DECLARATIONS
+[ ] Data safety — follow data-safety.txt
+[ ] Content rating — follow content-rating.txt
+[ ] Target audience: 18+
+[ ] Ads: No
+[ ] News / COVID / government / health: No
+[ ] Financial features: Yes (Paystack payments + rider payouts)
+[ ] Data deletion: working in-app path or URL
+[ ] Location permission justification, especially background location for riders
+[ ] Photo/video permissions policy
+
+RELEASE  (Play Console → Production, or start with Internal testing / Closed testing)
+[ ] Build a production Android App Bundle (.aab), not an APK
+      eas build --platform android --profile production
+[ ] First upload goes to Internal testing so you can install from Play and sanity-check
+[ ] Play App Signing: accept Google's signing key (EAS handles the upload key)
+[ ] Countries: start with Nigeria if that is the launch market
+[ ] Production release notes (example):
+      "Ridely 1.0 — book local deliveries, track your rider live, pay with card or cash, or earn as a rider."
+
+TECH CHECKS THAT BLOCK REVIEW
+[ ] Target API level meets the current Play requirement (Android 15 / API 35 as of 2025–26)
+[ ] 16 KB page-size compatibility (Android 15 devices)
+[ ] Remove unused broad storage permissions if Play flags READ/WRITE_EXTERNAL_STORAGE
+[ ] Foreground service types declared for location / microphone if those services run in background
+[ ] Privacy policy URL loads without a login
+[ ] App does not crash on first launch on a clean device
+[ ] Location, camera, mic, and notifications each have a clear in-app reason
+[ ] Rider background-location flow has a prominent disclosure
+
+EXPO / APP ICONS (already wired in app.config.js)
+    assets/images/icon.png                 1024 app icon
+    assets/images/adaptive-icon.png        adaptive foreground
+    assets/images/splash-icon.png          splash
+    assets/images/favicon.png              web
+    assets/images/notification-icon.png    status-bar silhouette
+Rebuild the native Android project after these icons (npx expo prebuild --platform android, or the next EAS build) so mipmap/ic_launcher updates.
+
+OPTIONAL LATER
+[ ] Promo YouTube video
+[ ] Localized listing (if you add more countries)
+[ ] Replace marketing screenshots with captures from a real device once the UI is final
+      Real screenshots convert better. Keep these graphics as a fallback.
+[ ] Custom store listing experiments
+
+Regenerate graphics after a brand change:
+    python scripts/generate-store-assets.py

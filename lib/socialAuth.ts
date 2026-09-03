@@ -56,6 +56,14 @@ function parseRedirectParams(url: string): Record<string, string> {
 }
 
 export async function createSessionFromRedirectUrl(url: string): Promise<void> {
+  // The oauth-callback deep-link route and the openAuthSessionAsync result can both
+  // observe the same redirect; whichever runs second must be a no-op since the PKCE
+  // code is single-use and re-exchanging it throws.
+  const {
+    data: { session: existingSession },
+  } = await supabase.auth.getSession();
+  if (existingSession) return;
+
   const params = parseRedirectParams(url);
 
   if (params.error) {
@@ -183,9 +191,39 @@ export async function startOAuth(
   if (error) throw error;
   if (!data?.url) throw new Error('No OAuth URL returned by Supabase.');
 
-  const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+  // openAuthSessionAsync's own promise can fail to resolve on Android when the
+  // redirect URL also matches an app route (expo-router navigates to it via the
+  // same deep link), which otherwise leaves this stuck awaiting forever. Racing it
+  // against the raw redirect event guarantees we move on as soon as the OS actually
+  // delivers the deep link, regardless of whether the browser promise ever settles.
+  let resolveRedirect: (url: string) => void = () => {};
+  const redirectUrlPromise = new Promise<string>((resolve) => {
+    resolveRedirect = resolve;
+  });
+  const redirectSub = Linking.addEventListener('url', ({ url }) => {
+    if (url.startsWith(redirectTo)) resolveRedirect(url);
+  });
 
-  if (result.type === 'cancel' || result.type === 'dismiss') {
+  const browserResultPromise = WebBrowser.openAuthSessionAsync(data.url, redirectTo).catch(
+    () => null,
+  );
+
+  const outcome = await Promise.race([
+    redirectUrlPromise.then((url) => ({ kind: 'redirect' as const, url })),
+    browserResultPromise.then((result) => ({ kind: 'browser' as const, result })),
+  ]);
+
+  redirectSub.remove();
+  await WebBrowser.dismissBrowser().catch(() => {});
+
+  if (outcome.kind === 'redirect') {
+    await createSessionFromRedirectUrl(outcome.url);
+    await ensureOAuthProfile(options.userType);
+    return 'success';
+  }
+
+  const result = outcome.result;
+  if (!result || result.type === 'cancel' || result.type === 'dismiss') {
     await AsyncStorage.removeItem(OAUTH_USER_TYPE_KEY);
     return 'cancel';
   }

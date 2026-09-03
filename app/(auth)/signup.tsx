@@ -24,29 +24,30 @@ import {
   Lock,
   Eye,
   EyeOff,
-  Package,
   ShoppingBag,
   Bike,
   CheckCircle,
-  AlertCircle,
 } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAlert } from '@/contexts/AlertContext';
 import { useLogo } from '@/hooks/useLogo';
+import { AuthBackgroundLines } from '@/components/AuthBackgroundLines';
+import { FormError } from '@/components/FormError';
 import {
   validateEmail,
   validatePhone,
   formatPhoneNumber,
   getPasswordStrength,
+  getPhoneError,
+  FORMATTED_PHONE_MAX_LENGTH,
 } from '@/utils/validation';
 import { GoogleLogo, FacebookLogo, AppleLogo } from '@/lib/SocialIcons';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
-  FadeInDown,
 } from 'react-native-reanimated';
 import {
   getEnabledOAuthProviders,
@@ -54,6 +55,15 @@ import {
   startOAuth,
 } from '@/lib/socialAuth';
 import { openEmailApp } from '@/lib/emailInbox';
+
+const SIGNUP_FIELDS = [
+  'fullName',
+  'email',
+  'phone',
+  'password',
+  'confirmPassword',
+  'terms',
+] as const;
 
 export default function SignupScreen() {
   const insets = useSafeAreaInsets();
@@ -80,6 +90,7 @@ export default function SignupScreen() {
 
   const passwordStrength = getPasswordStrength(formData.password);
   const enabledProviders = getEnabledOAuthProviders();
+  const phoneDigitCount = formData.phone.replace(/\D/g, '').length;
 
   const handleSocialSignup = async (provider: OAuthProvider) => {
     setIsLoading(true);
@@ -100,45 +111,58 @@ export default function SignupScreen() {
     }
   };
 
+  const getValidationError = (field: string): string | undefined => {
+    switch (field) {
+      case 'fullName': {
+        const name = formData.fullName.trim();
+        if (!name) return 'Full name is required';
+        if (name.length < 2) return 'Enter at least 2 characters';
+        return undefined;
+      }
+      case 'email': {
+        const email = formData.email.trim();
+        if (!email) return 'Email is required';
+        if (!validateEmail(email)) return 'Enter a valid email address';
+        return undefined;
+      }
+      case 'phone':
+        return getPhoneError(formData.phone);
+      case 'password': {
+        if (!formData.password) return 'Password is required';
+        if (formData.password.length < 6) {
+          return 'Password must be at least 6 characters';
+        }
+        if (passwordStrength.strength === 'weak') {
+          const hint = passwordStrength.feedback[0];
+          return hint
+            ? `Password is too weak — ${hint.toLowerCase()}`
+            : 'Password is too weak';
+        }
+        return undefined;
+      }
+      case 'confirmPassword': {
+        if (!formData.confirmPassword) return 'Please confirm your password';
+        if (formData.password !== formData.confirmPassword) {
+          return 'Passwords do not match';
+        }
+        return undefined;
+      }
+      case 'terms':
+        if (!acceptTerms) return 'Please accept the terms and conditions';
+        return undefined;
+      default:
+        return undefined;
+    }
+  };
+
   const validateForm = (): boolean => {
-    const errors: Record<string, string> = {};
-
-    if (!formData.fullName.trim()) {
-      errors.fullName = 'Full name is required';
-    }
-
-    if (!formData.email.trim()) {
-      errors.email = 'Email is required';
-    } else if (!validateEmail(formData.email)) {
-      errors.email = 'Please enter a valid email address';
-    }
-
-    if (!formData.phone.trim()) {
-      errors.phone = 'Phone number is required';
-    } else if (!validatePhone(formData.phone)) {
-      errors.phone = 'Please enter a valid phone number';
-    }
-
-    if (!formData.password) {
-      errors.password = 'Password is required';
-    } else if (formData.password.length < 6) {
-      errors.password = 'Password must be at least 6 characters';
-    } else if (passwordStrength.strength === 'weak') {
-      errors.password = 'Password is too weak';
-    }
-
-    if (!formData.confirmPassword) {
-      errors.confirmPassword = 'Please confirm your password';
-    } else if (formData.password !== formData.confirmPassword) {
-      errors.confirmPassword = 'Passwords do not match';
-    }
-
-    if (!acceptTerms) {
-      errors.terms = 'Please accept the terms and conditions';
-    }
-
-    setValidationErrors(errors);
-    return Object.keys(errors).length === 0;
+    setTouchedFields(new Set(SIGNUP_FIELDS));
+    setValidationErrors((prev) => {
+      const next = { ...prev };
+      delete next.form;
+      return next;
+    });
+    return SIGNUP_FIELDS.every((field) => !getValidationError(field));
   };
 
   const handleSignup = async () => {
@@ -154,7 +178,7 @@ export default function SignupScreen() {
         formData.password,
         {
           fullName: formData.fullName,
-          phone: formData.phone,
+          phone: formData.phone.replace(/\D/g, ''),
         },
         userType,
       );
@@ -234,7 +258,9 @@ export default function SignupScreen() {
         } else {
           setValidationErrors((prev) => ({
             ...prev,
-            form: error.message || 'An unexpected error occurred. Please try again.',
+            form:
+              error.message ||
+              'An unexpected error occurred. Please try again.',
           }));
           setTouchedFields((prev) => new Set(prev).add('form'));
         }
@@ -253,29 +279,27 @@ export default function SignupScreen() {
   };
 
   const updateFormData = (key: string, value: string) => {
-    setFormData((prev) => {
-      const updated = { ...prev, [key]: value };
-      if (key === 'phone') {
-        updated[key] = formatPhoneNumber(value);
-      }
-      return updated;
-    });
-
-    setTouchedFields((prev) => new Set(prev).add(key));
-
-    if (validationErrors[key]) {
+    setFormData((prev) => ({
+      ...prev,
+      [key]: key === 'phone' ? formatPhoneNumber(value) : value,
+    }));
+    if (validationErrors.form) {
       setValidationErrors((prev) => {
         const next = { ...prev };
-        delete next[key];
+        delete next.form;
         return next;
       });
     }
   };
 
+  const markFieldTouched = (field: string) => {
+    setTouchedFields((prev) => new Set(prev).add(field));
+  };
+
   const getFieldError = (field: string): string | null => {
     if (field === 'form') return validationErrors.form || null;
     if (!touchedFields.has(field)) return null;
-    return validationErrors[field] || null;
+    return getValidationError(field) || null;
   };
 
   // Animated scale for button
@@ -293,6 +317,7 @@ export default function SignupScreen() {
       edges={['left', 'right', 'bottom']}
     >
       <StatusBar style={isDark ? 'light' : 'dark'} />
+      <AuthBackgroundLines />
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -500,29 +525,12 @@ export default function SignupScreen() {
                       placeholderTextColor={theme.colors.textTertiary}
                       value={formData.fullName}
                       onChangeText={(text) => updateFormData('fullName', text)}
-                      onBlur={() =>
-                        setTouchedFields((prev) =>
-                          new Set(prev).add('fullName'),
-                        )
-                      }
+                      onBlur={() => markFieldTouched('fullName')}
+                      autoComplete="name"
+                      textContentType="name"
                     />
                   </View>
-                  {getFieldError('fullName') && (
-                    <Animated.View
-                      entering={FadeInDown}
-                      style={styles.errorContainer}
-                    >
-                      <AlertCircle size={14} color={theme.colors.error} />
-                      <Text
-                        style={[
-                          styles.errorText,
-                          { color: theme.colors.error },
-                        ]}
-                      >
-                        {getFieldError('fullName')}
-                      </Text>
-                    </Animated.View>
-                  )}
+                  <FormError message={getFieldError('fullName')} />
                 </View>
 
                 <View style={styles.inputGroup}>
@@ -560,9 +568,9 @@ export default function SignupScreen() {
                       keyboardType="email-address"
                       autoCapitalize="none"
                       autoCorrect={false}
-                      onBlur={() =>
-                        setTouchedFields((prev) => new Set(prev).add('email'))
-                      }
+                      autoComplete="email"
+                      textContentType="emailAddress"
+                      onBlur={() => markFieldTouched('email')}
                     />
                     {formData.email &&
                       !getFieldError('email') &&
@@ -570,22 +578,7 @@ export default function SignupScreen() {
                         <CheckCircle size={18} color={theme.colors.success} />
                       )}
                   </View>
-                  {getFieldError('email') && (
-                    <Animated.View
-                      entering={FadeInDown}
-                      style={styles.errorContainer}
-                    >
-                      <AlertCircle size={14} color={theme.colors.error} />
-                      <Text
-                        style={[
-                          styles.errorText,
-                          { color: theme.colors.error },
-                        ]}
-                      >
-                        {getFieldError('email')}
-                      </Text>
-                    </Animated.View>
-                  )}
+                  <FormError message={getFieldError('email')} />
                 </View>
 
                 <View style={styles.inputGroup}>
@@ -616,15 +609,15 @@ export default function SignupScreen() {
                     />
                     <TextInput
                       style={[styles.input, { color: theme.colors.text }]}
-                      placeholder="080 123 4567"
+                      placeholder="0803 123 4567"
                       placeholderTextColor={theme.colors.textTertiary}
                       value={formData.phone}
                       onChangeText={(text) => updateFormData('phone', text)}
                       keyboardType="phone-pad"
-                      maxLength={15}
-                      onBlur={() =>
-                        setTouchedFields((prev) => new Set(prev).add('phone'))
-                      }
+                      maxLength={FORMATTED_PHONE_MAX_LENGTH}
+                      autoComplete="tel"
+                      textContentType="telephoneNumber"
+                      onBlur={() => markFieldTouched('phone')}
                     />
                     {formData.phone &&
                       !getFieldError('phone') &&
@@ -632,22 +625,19 @@ export default function SignupScreen() {
                         <CheckCircle size={18} color={theme.colors.success} />
                       )}
                   </View>
-                  {getFieldError('phone') && (
-                    <Animated.View
-                      entering={FadeInDown}
-                      style={styles.errorContainer}
+                  <FormError message={getFieldError('phone')} />
+                  {!getFieldError('phone') && !validatePhone(formData.phone) ? (
+                    <Text
+                      style={[
+                        styles.hintText,
+                        { color: theme.colors.textTertiary },
+                      ]}
                     >
-                      <AlertCircle size={14} color={theme.colors.error} />
-                      <Text
-                        style={[
-                          styles.errorText,
-                          { color: theme.colors.error },
-                        ]}
-                      >
-                        {getFieldError('phone')}
-                      </Text>
-                    </Animated.View>
-                  )}
+                      {phoneDigitCount
+                        ? `${phoneDigitCount} of 11 digits`
+                        : '11-digit Nigerian mobile number'}
+                    </Text>
+                  ) : null}
                 </View>
 
                 <View style={styles.inputGroup}>
@@ -686,11 +676,9 @@ export default function SignupScreen() {
                       value={formData.password}
                       onChangeText={(text) => updateFormData('password', text)}
                       secureTextEntry={!showPassword}
-                      onBlur={() =>
-                        setTouchedFields((prev) =>
-                          new Set(prev).add('password'),
-                        )
-                      }
+                      autoComplete="new-password"
+                      textContentType="newPassword"
+                      onBlur={() => markFieldTouched('password')}
                     />
                     <TouchableOpacity
                       style={styles.eyeButton}
@@ -751,22 +739,7 @@ export default function SignupScreen() {
                       </Text>
                     </View>
                   )}
-                  {getFieldError('password') && (
-                    <Animated.View
-                      entering={FadeInDown}
-                      style={styles.errorContainer}
-                    >
-                      <AlertCircle size={14} color={theme.colors.error} />
-                      <Text
-                        style={[
-                          styles.errorText,
-                          { color: theme.colors.error },
-                        ]}
-                      >
-                        {getFieldError('password')}
-                      </Text>
-                    </Animated.View>
-                  )}
+                  <FormError message={getFieldError('password')} />
                 </View>
 
                 <View style={styles.inputGroup}>
@@ -807,11 +780,9 @@ export default function SignupScreen() {
                         updateFormData('confirmPassword', text)
                       }
                       secureTextEntry={!showConfirmPassword}
-                      onBlur={() =>
-                        setTouchedFields((prev) =>
-                          new Set(prev).add('confirmPassword'),
-                        )
-                      }
+                      autoComplete="new-password"
+                      textContentType="newPassword"
+                      onBlur={() => markFieldTouched('confirmPassword')}
                     />
                     <TouchableOpacity
                       style={styles.eyeButton}
@@ -839,29 +810,17 @@ export default function SignupScreen() {
                         <CheckCircle size={18} color={theme.colors.success} />
                       )}
                   </View>
-                  {getFieldError('confirmPassword') && (
-                    <Animated.View
-                      entering={FadeInDown}
-                      style={styles.errorContainer}
-                    >
-                      <AlertCircle size={14} color={theme.colors.error} />
-                      <Text
-                        style={[
-                          styles.errorText,
-                          { color: theme.colors.error },
-                        ]}
-                      >
-                        {getFieldError('confirmPassword')}
-                      </Text>
-                    </Animated.View>
-                  )}
+                  <FormError message={getFieldError('confirmPassword')} />
                 </View>
 
                 {/* Terms and Conditions */}
                 <View style={styles.termsSection}>
                   <TouchableOpacity
                     style={styles.termsContainer}
-                    onPress={() => setAcceptTerms(!acceptTerms)}
+                    onPress={() => {
+                      setAcceptTerms(!acceptTerms);
+                      markFieldTouched('terms');
+                    }}
                   >
                     <View
                       style={[
@@ -906,32 +865,10 @@ export default function SignupScreen() {
                       </Text>
                     </Text>
                   </TouchableOpacity>
-                  {getFieldError('terms') && (
-                    <Animated.View
-                      entering={FadeInDown}
-                      style={styles.errorContainer}
-                    >
-                      <AlertCircle size={14} color={theme.colors.error} />
-                      <Text
-                        style={[
-                          styles.errorText,
-                          { color: theme.colors.error },
-                        ]}
-                      >
-                        {getFieldError('terms')}
-                      </Text>
-                    </Animated.View>
-                  )}
+                  <FormError message={getFieldError('terms')} />
                 </View>
 
-                {getFieldError('form') ? (
-                  <Animated.View entering={FadeInDown} style={styles.errorContainer}>
-                    <AlertCircle size={14} color={theme.colors.error} />
-                    <Text style={[styles.errorText, { color: theme.colors.error }]}>
-                      {getFieldError('form')}
-                    </Text>
-                  </Animated.View>
-                ) : null}
+                <FormError message={getFieldError('form')} />
 
                 <Pressable
                   onPressIn={() => (scale.value = 0.95)}
@@ -1068,6 +1005,7 @@ const styles = StyleSheet.create({
   },
   keyboardAvoidingView: {
     flex: 1,
+    zIndex: 1,
   },
   header: {
     paddingHorizontal: 20,
@@ -1268,14 +1206,9 @@ const styles = StyleSheet.create({
     top: 8,
     right: 8,
   },
-  errorContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  hintText: {
+    fontSize: 12,
     marginTop: 6,
-    gap: 6,
-  },
-  errorText: {
-    fontSize: 13,
   },
   passwordStrengthContainer: {
     flexDirection: 'row',

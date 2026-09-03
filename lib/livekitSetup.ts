@@ -1,10 +1,24 @@
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
-/**
- * Required once before any LiveKit usage. Skipped on web (voice calls are native-only).
- */
-if (Platform.OS !== 'web') {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { registerGlobals } = require('@livekit/react-native') as typeof import('@livekit/react-native');
-  registerGlobals();
+type LiveKitNative = typeof import('@livekit/react-native');
+
+let liveKitNative: LiveKitNative | null = null;
+
+/** LiveKit WebRTC is not present in Expo Go; only load it in a native/dev build. */
+export function isLiveKitRuntimeAvailable(): boolean {
+  return Platform.OS !== 'web' && Constants.appOwnership !== 'expo';
+}
+
+export function getLiveKitNative(): LiveKitNative | null {
+  if (!isLiveKitRuntimeAvailable()) return null;
+  if (!liveKitNative) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    liveKitNative = require('@livekit/react-native') as LiveKitNative;
+  }
+  return liveKitNative;
+}
+
+if (isLiveKitRuntimeAvailable()) {
+  getLiveKitNative()?.registerGlobals();
 }

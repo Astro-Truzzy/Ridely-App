@@ -1,0 +1,64 @@
+Ridely — Google Play store listing
+Copy these fields into Play Console → Store presence → Main store listing.
+
+================================================================
+App name (max 30 characters) — 6 / 30
+================================================================
+Ridely
+
+================================================================
+Short description (max 80 characters) — 74 / 80
+================================================================
+Fast local deliveries. Book, track live, pay securely, or earn as a rider.
+
+================================================================
+Full description (max 4000 characters)
+================================================================
+Ridely is the simple way to send a package across town — and a flexible way to earn as a rider.
+
+Book a delivery in seconds. A nearby rider picks up your package, you watch it move on a live map, and a one-time handoff code keeps pickup and drop-off safe. Pay by card through Paystack or with cash when the rider arrives.
+
+CUSTOMERS
+• Book a delivery now, or schedule one for later
+• Live tracking with ETA so you always know where your package is
+• Safe handoff codes at pickup and drop-off
+• Chat or voice-call your rider in the app
+• Pay by card (Paystack) or cash on delivery
+• Save favorite addresses and reorder in a tap
+• Share a tracking link with the person receiving the package
+
+RIDERS
+• Go online and accept nearby jobs when it suits you
+• See distance, payout, and route before you accept
+• In-app navigation, chat, and voice calls with the customer
+• Track earnings and request payouts to your Nigerian bank account
+• Heatmap to find busier areas
+• Verification and vehicle details so customers can trust the ride
+
+Built for Nigerian cities, with prices in naira and payouts through Paystack.
+
+Download Ridely and send your next package the simple way — or hop on as a rider and start earning.
+
+================================================================
+Category
+================================================================
+App category:     Maps & Navigation
+Tags (optional):  delivery, courier, logistics, rider, tracking
+
+================================================================
+Contact details (Play Console → Store settings)
+================================================================
+Email:            support@ridely.com
+Phone:            +15551234357
+Website:          https://ridely.com          ← use your live site when you have one
+Privacy policy:   MUST be a public https URL (see legal/privacy-policy.html)
+
+================================================================
+Graphic files to upload
+================================================================
+Hi-res icon          store/play/graphics/icon-512.png                 512 × 512   PNG-32
+Feature graphic      store/play/graphics/feature-graphic-1024x500.png 1024 × 500  PNG-24
+Phone screenshots    store/play/graphics/screenshots/phone/*.png      1080 × 1920 (upload all 6, min 2)
+7-inch tablet        store/play/graphics/screenshots/tablet-7/*.png   1200 × 1920 (optional, min 2)
+10-inch tablet       store/play/graphics/screenshots/tablet-10/*.png  1600 × 2560 (optional, min 2)
+Promo video          optional YouTube URL

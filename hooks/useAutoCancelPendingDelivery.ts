@@ -2,17 +2,42 @@ import { useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 
 const AUTO_CANCEL_AFTER_MS = 2 * 60 * 1000; // 2 minutes
+const invokedDeliveryIds = new Set<string>();
+
+async function functionErrorDetail(error: { message: string; context?: Response }): Promise<string> {
+  const context = error.context;
+  if (context) {
+    try {
+      const body = await context.clone().json();
+      if (body && typeof body === 'object' && 'error' in body && body.error) {
+        return `${error.message}: ${String(body.error)}`;
+      }
+    } catch {
+      try {
+        const text = await context.clone().text();
+        if (text) return `${error.message}: ${text.slice(0, 200)}`;
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return error.message;
+}
 
 /** Call the Edge Function that cancels pending deliveries older than 2 minutes. */
 async function invokeAutoCancel(deliveryId: string): Promise<void> {
+  if (invokedDeliveryIds.has(deliveryId)) return;
+  invokedDeliveryIds.add(deliveryId);
   try {
     const { error } = await supabase.functions.invoke('auto-cancel-pending-deliveries', {
       body: { delivery_id: deliveryId },
     });
     if (error) {
-      console.warn('auto-cancel-pending-deliveries failed', error.message);
+      invokedDeliveryIds.delete(deliveryId);
+      console.warn('auto-cancel-pending-deliveries failed', await functionErrorDetail(error));
     }
   } catch (e) {
+    invokedDeliveryIds.delete(deliveryId);
     console.warn('auto-cancel-pending-deliveries error', e);
   }
 }
@@ -31,7 +56,6 @@ export interface PendingDelivery {
  */
 export function useAutoCancelPendingDelivery(delivery: PendingDelivery | null | undefined): void {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const invokedRef = useRef(false);
 
   useEffect(() => {
     if (!delivery || delivery.status !== 'pending' || delivery.rider_id) {
@@ -39,7 +63,6 @@ export function useAutoCancelPendingDelivery(delivery: PendingDelivery | null | 
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
-      invokedRef.current = false;
       return;
     }
 
@@ -49,17 +72,12 @@ export function useAutoCancelPendingDelivery(delivery: PendingDelivery | null | 
     const remaining = Math.max(0, deadline - now);
 
     if (remaining === 0) {
-      if (!invokedRef.current) {
-        invokedRef.current = true;
-        invokeAutoCancel(delivery.id);
-      }
+      invokeAutoCancel(delivery.id);
       return;
     }
 
-    invokedRef.current = false;
     timeoutRef.current = setTimeout(() => {
       timeoutRef.current = null;
-      invokedRef.current = true;
       invokeAutoCancel(delivery.id);
     }, remaining);
 

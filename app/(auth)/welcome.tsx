@@ -10,8 +10,17 @@ import {
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLogo } from '@/hooks/useLogo';
-import Animated, { FadeInUp, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AuthBackgroundLines } from '@/components/AuthBackgroundLines';
+import Animated, {
+  FadeInUp,
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 
 export default function WelcomeScreen() {
@@ -35,20 +44,30 @@ export default function WelcomeScreen() {
       edges={['left', 'right', 'bottom']}
     >
       <StatusBar style={isDark ? 'light' : 'dark'} />
+      <AuthBackgroundLines />
       <View style={[styles.content, { paddingTop: insets.top }]}>
         {/* Logo Section */}
         <View style={styles.logoSection}>
           <Image source={logo} style={styles.logoImage} />
-          <Text style={[styles.logoText, { color: theme.colors.text }]}>Ridely</Text>
-          <Text style={[styles.tagline, { color: theme.colors.textThird }]}>Fast. Reliable. Delivered.</Text>
+          <Text style={[styles.logoText, { color: theme.colors.text }]}>
+            Ridely
+          </Text>
+          <Text style={[styles.tagline, { color: theme.colors.textThird }]}>
+            Fast. Reliable. Delivered.
+          </Text>
         </View>
 
         {/* CTA Section */}
-        <Animated.View entering={FadeInUp.duration(600).delay(200)} style={styles.ctaSection}>
+        <Animated.View
+          entering={FadeInUp.duration(600).delay(200)}
+          style={styles.ctaSection}
+        >
           <Text style={[styles.ctaTitle, { color: theme.colors.text }]}>
             Ready to get started?
           </Text>
-          <Text style={[styles.ctaSubtitle, { color: theme.colors.textSecondary }]}>
+          <Text
+            style={[styles.ctaSubtitle, { color: theme.colors.textSecondary }]}
+          >
             Join thousands of users sending packages across the city
           </Text>
         </Animated.View>
@@ -70,9 +89,7 @@ export default function WelcomeScreen() {
           </Pressable>
         </Animated.View>
 
-        <TouchableOpacity
-          onPress={() => router.push('/(auth)/login')}
-        >
+        <TouchableOpacity onPress={() => router.push('/(auth)/login')}>
           <Text style={[styles.loginText, { color: theme.colors.primary }]}>
             Already have an account? Sign In
           </Text>
@@ -96,6 +113,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 28,
     paddingTop: 48,
+    zIndex: 1,
   },
   logoSection: {
     alignItems: 'center',

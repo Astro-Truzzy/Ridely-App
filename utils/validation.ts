@@ -1,19 +1,47 @@
 export function validateEmail(email: string): boolean {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
+  return emailRegex.test(email.trim());
+}
+
+/** Local Nigerian mobiles are 11 digits, e.g. 0803 123 4567. */
+const NIGERIAN_MOBILE = /^0(70|80|81|90|91)\d{8}$/;
+export const NIGERIAN_PHONE_DIGITS = 11;
+export const FORMATTED_PHONE_MAX_LENGTH = 13; // "0803 123 4567"
+
+export function getPhoneDigits(phone: string): string {
+  let digits = phone.replace(/\D/g, '');
+
+  if (digits.startsWith('2340') && digits.length >= 14) {
+    digits = digits.slice(3);
+  } else if (digits.startsWith('234') && digits.length >= 13) {
+    digits = `0${digits.slice(3)}`;
+  }
+
+  return digits.slice(0, NIGERIAN_PHONE_DIGITS);
 }
 
 export function validatePhone(phone: string): boolean {
-  const phoneRegex = /^[\d\s\-\+\(\)]+$/;
-  return phoneRegex.test(phone) && phone.replace(/\D/g, '').length >= 10;
+  return NIGERIAN_MOBILE.test(getPhoneDigits(phone));
+}
+
+export function getPhoneError(phone: string): string | undefined {
+  const digits = getPhoneDigits(phone);
+  if (!digits) return 'Phone number is required';
+  if (digits.length < NIGERIAN_PHONE_DIGITS) {
+    return `Nigerian numbers are 11 digits (${digits.length}/11)`;
+  }
+  if (!NIGERIAN_MOBILE.test(digits)) {
+    return 'Enter a valid Nigerian number, like 0803 123 4567';
+  }
+  return undefined;
 }
 
 export function formatPhoneNumber(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
+  const digits = getPhoneDigits(phone);
   if (digits.length === 0) return '';
-  if (digits.length <= 3) return digits;
-  if (digits.length <= 6) return `${digits.slice(0, 3)} ${digits.slice(3)}`;
-  return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 10)}`;
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 7) return `${digits.slice(0, 4)} ${digits.slice(4)}`;
+  return `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}`;
 }
 
 export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';

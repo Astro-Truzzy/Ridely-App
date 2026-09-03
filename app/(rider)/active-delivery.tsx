@@ -78,13 +78,13 @@ const DEFAULT_DELTA = { latitudeDelta: 0.05, longitudeDelta: 0.05 };
 
 const MARKER_IMAGES = {
   rider: require('@/assets/markers/marker-rider.png'),
-  pickup: require('@/assets/markers/marker-pickup.png'),
-  dropoff: require('@/assets/markers/marker-dropoff.png'),
+  pickup: require('@/assets/markers/ridely_brand_pin_256.png'),
+  dropoff: require('@/assets/markers/ridely_dropoff_pin_green_256.png'),
 };
 
 const MARKER_ANCHOR = {
   pin: { x: 0.5, y: 1 },
-  rider: { x: 0.5, y: 0.5 },
+  rider: { x: 0.5, y: 1 },
 } as const;
 
 function getZoomForSpeed(speedKmh: number): number {

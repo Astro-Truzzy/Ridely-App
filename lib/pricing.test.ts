@@ -6,6 +6,7 @@ import {
   haversineKm,
   nairaToKobo,
   cardPaymentMatchesQuote,
+  fareQuoteWithinServerBand,
 } from './pricing';
 
 describe('pricing', () => {
@@ -46,5 +47,12 @@ describe('pricing', () => {
     expect(
       cardPaymentMatchesQuote({ paidKobo: nairaToKobo(100), serverKobo: server, quotedKobo: nairaToKobo(100) })
     ).toBe(false);
+  });
+
+  it('trusts a client quote within the server drift band', () => {
+    const server = nairaToKobo(1000);
+    expect(fareQuoteWithinServerBand(nairaToKobo(1200), server)).toBe(true);
+    expect(fareQuoteWithinServerBand(nairaToKobo(800), server)).toBe(true);
+    expect(fareQuoteWithinServerBand(nairaToKobo(1300), server)).toBe(false);
   });
 });

@@ -194,10 +194,11 @@ export default function AddressScreen() {
   const {
     suggestions: pickupSuggestions,
     loading: pickupLoading,
+    searchError: pickupSearchError,
     searchAddresses: searchPickupAddresses,
     clearSuggestions: clearPickupSuggestions,
     getPlaceDetails: getPickupPlaceDetails,
-  } = useAddressAutocomplete();
+  } = useAddressAutocomplete(pickupCoords);
 
   // Address autocomplete for dropoff
   const [showDropoffSuggestions, setShowDropoffSuggestions] = useState(false);
@@ -206,10 +207,11 @@ export default function AddressScreen() {
   const {
     suggestions: dropoffSuggestions,
     loading: dropoffLoading,
+    searchError: dropoffSearchError,
     searchAddresses: searchDropoffAddresses,
     clearSuggestions: clearDropoffSuggestions,
     getPlaceDetails: getDropoffPlaceDetails,
-  } = useAddressAutocomplete();
+  } = useAddressAutocomplete(pickupCoords || dropoffCoords);
 
   const { addresses: savedAddressesFromDb } = useSavedAddresses();
 
@@ -296,7 +298,7 @@ export default function AddressScreen() {
       }
 
       const loc = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
+        accuracy: Location.Accuracy.Highest,
       });
       const { latitude, longitude } = loc.coords;
 
@@ -308,7 +310,15 @@ export default function AddressScreen() {
         });
         if (results.length > 0) {
           const r = results[0];
-          address = [r.name, r.street, r.city, r.region]
+          const streetLine = [r.streetNumber, r.street].filter(Boolean).join(' ').trim();
+          const nameLooksLikePlusCode = /\+[A-Z0-9]{2,}\b/i.test(r.name || '');
+          address = [
+            streetLine || (nameLooksLikePlusCode ? '' : r.name),
+            r.district,
+            r.city,
+            r.subregion,
+            r.region,
+          ]
             .filter(Boolean)
             .join(', ');
         }
@@ -717,7 +727,8 @@ export default function AddressScreen() {
                           { color: theme.colors.textSecondary },
                         ]}
                       >
-                        No matches. Try a street name or landmark.
+                        {pickupSearchError ||
+                          'No matches. Try a street name or landmark.'}
                       </Text>
                     ) : null}
                     {pickupSuggestions.length === 1 ? (
@@ -997,7 +1008,8 @@ export default function AddressScreen() {
                             { color: theme.colors.textSecondary },
                           ]}
                         >
-                          No matches. Try a street name or landmark.
+                          {dropoffSearchError ||
+                            'No matches. Try a street name or landmark.'}
                         </Text>
                       ) : null}
                       {dropoffSuggestions.length === 1 ? (

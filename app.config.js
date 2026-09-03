@@ -12,6 +12,11 @@ export default {
     icon: './assets/images/icon.png',
     scheme: 'Ridely',
     userInterfaceStyle: 'automatic',
+    splash: {
+      image: './assets/images/splash-icon.png',
+      resizeMode: 'contain',
+      backgroundColor: '#174AFF',
+    },
     // react-native-maps v1.20.x does not expose an Expo config plugin.
     // Keep native Google Maps keys below; do not add react-native-maps to plugins.
     plugins: [
@@ -29,7 +34,7 @@ export default {
       [
         'expo-notifications',
         {
-          icon: './assets/images/icon.png',
+          icon: './assets/images/notification-icon.png',
           color: '#174AFF',
           sounds: [],
           mode: 'production',
@@ -62,6 +67,10 @@ export default {
     experiments: { typedRoutes: true },
     android: {
       package: 'com.deliveryapp.ridely',
+      adaptiveIcon: {
+        foregroundImage: './assets/images/adaptive-icon.png',
+        backgroundColor: '#0B1040',
+      },
       permissions: [
         'android.permission.RECORD_AUDIO',
         'android.permission.MODIFY_AUDIO_SETTINGS',

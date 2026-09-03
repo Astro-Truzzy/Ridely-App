@@ -39,13 +39,16 @@ Deno.serve(async (req) => {
     const token = authHeader.slice('Bearer '.length);
     const isServiceCaller = token === supabaseServiceKey;
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
     let actorUserId: string | null = null;
     if (!isServiceCaller) {
       const authClient = createClient(supabaseUrl, supabaseAnonKey, {
         global: { headers: { Authorization: authHeader } },
+        auth: { persistSession: false, autoRefreshToken: false },
       });
-      const { data, error } = await authClient.auth.getUser();
+      const { data, error } = await authClient.auth.getUser(token);
       if (error || !data.user) {
         return jsonResponse({ error: 'Unauthorized' }, 401);
       }

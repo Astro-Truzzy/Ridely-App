@@ -1,6 +1,6 @@
 /** Shared fare rules — must match supabase/functions/_shared/pricing.ts */
 
-export const PRICE_PER_KM = 250;
+export const PRICE_PER_KM = 300;
 export const HAVERSINE_ROAD_FACTOR = 1.4;
 
 export function computeFareFromDistanceKm(distanceKm: number): {
@@ -55,6 +55,24 @@ export const FARE_QUOTE_TOLERANCE_KOBO = 10_000; // ₦100
 export const FARE_QUOTE_TOLERANCE_RATIO = 0.2;
 
 /**
+ * True when a client-quoted fare is close enough to the server's independent
+ * recompute to be trusted — route jitter between two Directions calls, or the
+ * server falling back to the straight-line estimate when Directions is
+ * unavailable. Used both to accept card payments and to decide whether the
+ * quoted fare may be stored as the authoritative booking total.
+ */
+export function fareQuoteWithinServerBand(
+  quotedKobo: number,
+  serverKobo: number
+): boolean {
+  const maxDrift = Math.max(
+    FARE_QUOTE_TOLERANCE_KOBO,
+    Math.round(serverKobo * FARE_QUOTE_TOLERANCE_RATIO)
+  );
+  return Math.abs(quotedKobo - serverKobo) <= maxDrift;
+}
+
+/**
  * Card charges the quoted fare. Server fare must be in the same ballpark;
  * paid kobo must match the quote (±₦1).
  */
@@ -67,10 +85,6 @@ export function cardPaymentMatchesQuote(opts: {
     opts.quotedKobo != null && Number.isFinite(opts.quotedKobo)
       ? opts.quotedKobo
       : opts.serverKobo;
-  const maxDrift = Math.max(
-    FARE_QUOTE_TOLERANCE_KOBO,
-    Math.round(opts.serverKobo * FARE_QUOTE_TOLERANCE_RATIO)
-  );
-  if (Math.abs(quote - opts.serverKobo) > maxDrift) return false;
+  if (!fareQuoteWithinServerBand(quote, opts.serverKobo)) return false;
   return Math.abs(opts.paidKobo - quote) <= 100;
 }
