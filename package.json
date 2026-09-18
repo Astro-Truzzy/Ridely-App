@@ -14,7 +14,7 @@
     "qa:agent:sandbox": "node qa-agent/run.mjs --sandbox",
     "qa:smoke": "node qa-agent/smoke.mjs",
     "android": "expo run:android",
-    "android:clean": "cd android && gradlew.bat clean && cd ..",
+    "android:clean": "expo prebuild --platform android --clean",
     "ios": "expo run:ios",
     "eas-build-on-complete": "sentry-eas-build-on-complete"
   },

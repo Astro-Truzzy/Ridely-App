@@ -17,8 +17,11 @@ export default {
       resizeMode: 'contain',
       backgroundColor: '#174AFF',
     },
-    // react-native-maps v1.20.x does not expose an Expo config plugin.
-    // Keep native Google Maps keys below; do not add react-native-maps to plugins.
+    // Do not add 'react-native-maps' to plugins. v1.27.2 ships a config plugin, but its
+    // Android handler *removes* com.google.android.geo.API_KEY from the manifest unless
+    // passed androidGoogleMapsApiKey — listing it bare would silently break map tiles.
+    // The keys below are the supported path: prebuild writes them straight into
+    // AndroidManifest.xml and Info.plist.
     plugins: [
       'expo-router',
       'expo-font',
