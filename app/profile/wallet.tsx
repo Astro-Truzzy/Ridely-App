@@ -18,8 +18,7 @@ import {
   Lock,
   ChevronRight,
 } from 'lucide-react-native';
-import { router } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
+import { router, useFocusEffect } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useWallet } from '@/hooks/useWallet';
 import { useTransactions } from '@/hooks/useTransactions';

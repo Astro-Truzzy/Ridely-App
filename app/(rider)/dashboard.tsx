@@ -23,8 +23,7 @@ import {
   X,
   Flame,
 } from 'lucide-react-native';
-import { router, type Href } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
+import { router, useFocusEffect, type Href } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAlert } from '@/contexts/AlertContext';

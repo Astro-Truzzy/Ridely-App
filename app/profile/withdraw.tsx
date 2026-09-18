@@ -15,8 +15,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, ChevronDown, Search, X, CheckCircle } from 'lucide-react-native';
-import { router } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
+import { router, useFocusEffect } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAlert } from '@/contexts/AlertContext';
 import { useWallet } from '@/hooks/useWallet';
