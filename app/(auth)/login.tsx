@@ -630,7 +630,7 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   sheetBackground: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderTopLeftRadius: 36,
     borderTopRightRadius: 36,
   },

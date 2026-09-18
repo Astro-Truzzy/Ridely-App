@@ -88,7 +88,7 @@ function AuthBackgroundLinesComponent() {
 
 const styles = StyleSheet.create({
   wrap: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 0,
   },
 });
