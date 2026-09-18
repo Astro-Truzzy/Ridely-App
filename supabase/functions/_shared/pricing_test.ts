@@ -6,13 +6,13 @@ import {
 } from './pricing.ts';
 import { assertEquals, assertThrows } from 'jsr:@std/assert@1';
 
-Deno.test('PRICE_PER_KM is 250', () => {
-  assertEquals(PRICE_PER_KM, 250);
+Deno.test('PRICE_PER_KM is 300', () => {
+  assertEquals(PRICE_PER_KM, 300);
 });
 
 Deno.test('computeFareFromDistanceKm matches client formula', () => {
   const fare = computeFareFromDistanceKm(2);
-  assertEquals(fare.totalCost, 500);
+  assertEquals(fare.totalCost, 600);
   assertEquals(fare.distanceKm, 2);
 });
 

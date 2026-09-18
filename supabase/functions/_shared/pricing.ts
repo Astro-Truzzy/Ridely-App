@@ -1,6 +1,6 @@
 /** Shared fare rules — must match lib/pricing.ts in the mobile app */
 
-export const PRICE_PER_KM = 250;
+export const PRICE_PER_KM = 300;
 export const HAVERSINE_ROAD_FACTOR = 1.4;
 
 export function computeFareFromDistanceKm(distanceKm: number): {
@@ -116,7 +116,11 @@ export async function computeServerFare(opts: {
   dropoffLat: number;
   dropoffLng: number;
   mapsApiKey?: string | null;
-}): Promise<{ distanceKm: number; totalCost: number }> {
+}): Promise<{
+  distanceKm: number;
+  totalCost: number;
+  source: 'directions' | 'estimate';
+}> {
   let distanceKm: number | null = null;
   if (opts.mapsApiKey) {
     distanceKm = await fetchDirectionsDistanceKm(
@@ -127,6 +131,10 @@ export async function computeServerFare(opts: {
       opts.mapsApiKey
     );
   }
+  // Directions gave us a real road distance only when distanceKm is set here;
+  // otherwise we fall back to the straight-line estimate (reads lower).
+  const source: 'directions' | 'estimate' =
+    distanceKm == null ? 'estimate' : 'directions';
   if (distanceKm == null) {
     distanceKm = estimateRoadDistanceKm(
       opts.pickupLat,
@@ -135,5 +143,5 @@ export async function computeServerFare(opts: {
       opts.dropoffLng
     );
   }
-  return computeFareFromDistanceKm(distanceKm);
+  return { ...computeFareFromDistanceKm(distanceKm), source };
 }

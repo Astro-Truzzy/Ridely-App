@@ -126,7 +126,11 @@ Deno.serve(async (req) => {
     Deno.env.get('GOOGLE_MAPS_API_KEY') ||
     null;
 
-  let serverFare: { distanceKm: number; totalCost: number };
+  let serverFare: {
+    distanceKm: number;
+    totalCost: number;
+    source: 'directions' | 'estimate';
+  };
   try {
     serverFare = await computeServerFare({
       pickupLat,
@@ -167,6 +171,24 @@ Deno.serve(async (req) => {
     useQuote && Number.isFinite(quotedDistance) && quotedDistance >= 0
       ? Number(quotedDistance.toFixed(2))
       : serverFare.distanceKm;
+
+  // Observability: confirm the server key is actually reaching Google
+  // Directions. source:'estimate' means it fell back to the straight-line
+  // haversine (key missing / app-restricted / API not enabled), which reads
+  // lower than the road distance the customer was quoted.
+  console.log(
+    'create-delivery fare',
+    JSON.stringify({
+      source: serverFare.source,
+      serverDistanceKm: serverFare.distanceKm,
+      serverTotal: serverFare.totalCost,
+      quotedTotal: Number.isFinite(quotedCost) ? quotedCost : null,
+      quotedDistance: Number.isFinite(quotedDistance) ? quotedDistance : null,
+      usedQuote: useQuote,
+      storedTotal: totalCost,
+      storedDistance: distance,
+    })
+  );
 
   const admin = createClient(supabaseUrl, serviceRoleKey);
 
