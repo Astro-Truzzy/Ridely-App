@@ -11,12 +11,10 @@ import { StatusBar } from 'expo-status-bar';
 import {
   Package,
   Clock,
-  MapPin,
   Bell,
   User,
   MessageCircle,
   Star,
-  KeyRound,
 } from 'lucide-react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -29,18 +27,9 @@ import { supabase } from '@/lib/supabase';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import {
   isCustomerActiveStatus,
-  isCompletedDeliveryStatus,
-  homeActiveDeliveryBadge,
+  mapCustomerBookingStatus,
 } from '@/lib/screenContracts';
-
-interface ActiveDelivery {
-  id: string;
-  status: 'picked_up' | 'in_transit' | 'nearby';
-  riderName: string;
-  estimatedArrival: string;
-  fromAddress: string;
-  toAddress: string;
-}
+import { ActiveDeliveryCard } from '@/components/ActiveDeliveryCard';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -90,16 +79,6 @@ export default function HomeScreen() {
     activeDeliveryData?.status === 'pending' && !activeDeliveryData?.rider_id ? activeDeliveryData : null
   );
 
-  const activeDelivery: ActiveDelivery | null = activeDeliveryData ? {
-    id: activeDeliveryData.id,
-    status: activeDeliveryData.status === 'picked_up' ? 'picked_up' :
-            activeDeliveryData.status === 'rider_assigned' || activeDeliveryData.status === 'accepted' ? 'in_transit' : 'in_transit',
-    riderName: isSearchingForRider ? 'Searching for rider…' : 'Rider',
-    estimatedArrival: activeDeliveryData.estimated_time || '15 mins',
-    fromAddress: activeDeliveryData.pickup_address,
-    toAddress: activeDeliveryData.dropoff_address,
-  } : null;
-
   // Display name: profile first, then sign-up metadata, then email, then fallback
   useEffect(() => {
     const fromProfile = userProfile?.full_name;
@@ -140,27 +119,44 @@ export default function HomeScreen() {
     },
   ];
 
-  // Get recent completed deliveries (last 2)
+  // Two most recent deliveries of any status, excluding the one shown in the active card
+  const recentStatusDisplay = (status: string) => {
+    if (status === 'cancelled_no_rider') return { label: 'No rider found', color: theme.colors.error };
+    switch (mapCustomerBookingStatus(status)) {
+      case 'delivered':
+        return { label: 'Delivered', color: theme.colors.success };
+      case 'cancelled':
+        return { label: 'Cancelled', color: theme.colors.error };
+      case 'in_transit':
+        return { label: 'In progress', color: theme.colors.primary };
+      default:
+        return { label: 'Pending', color: theme.colors.warning };
+    }
+  };
   const recentDeliveries = deliveries
-    .filter(d => isCompletedDeliveryStatus(d.status))
+    .filter(d => d.id !== activeDeliveryData?.id)
     .slice(0, 2)
     .map(d => {
       const fromPart = (d.pickup_address || '').trim().split(',')[0] || 'Pickup';
       const toPart = (d.dropoff_address || '').trim().split(',')[0] || 'Dropoff';
+      const { label, color } = recentStatusDisplay(d.status);
       return {
         id: d.id,
         date: `${new Date(d.created_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}, ${new Date(d.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`,
         from: fromPart,
         to: toPart,
-        status: 'Delivered',
-        price: `₦${d.total_cost.toLocaleString('en-NG')}`,
+        status: label,
+        statusColor: color,
+        // Cancelled bookings have nothing to track; send them to the bookings list instead
+        cancelled: mapCustomerBookingStatus(d.status) === 'cancelled',
+        price: `₦${Number(d.total_cost || 0).toLocaleString('en-NG')}`,
       };
     });
 
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
-      edges={['left', 'right', 'bottom']}
+      edges={['left', 'right']}
     >
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <ScrollView
@@ -201,74 +197,18 @@ export default function HomeScreen() {
         </View>
 
         {/* Active Delivery Card */}
-        {activeDelivery && (
-          <TouchableOpacity
-            style={[
-              styles.activeDeliveryCard,
-              {
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.primary,
-              },
-              theme.shadows.large,
-            ]}
+        {activeDeliveryData && (
+          <ActiveDeliveryCard
+            delivery={activeDeliveryData}
+            searching={!!isSearchingForRider}
+            handoffCode={handoffCode}
             onPress={() =>
               router.push({
                 pathname: '/tracking',
                 params: { deliveryId: activeDeliveryData.id },
               })
             }
-          >
-            <View style={styles.deliveryHeader}>
-              <View
-                style={[
-                  styles.statusBadge,
-                  { backgroundColor: isSearchingForRider ? theme.colors.textSecondary : theme.colors.success },
-                ]}
-              >
-                <Text style={styles.statusText}>
-                  {homeActiveDeliveryBadge(
-                    activeDeliveryData.status,
-                    !!isSearchingForRider
-                  )}
-                </Text>
-              </View>
-              <Text
-                style={[styles.estimatedTime, { color: theme.colors.primary }]}
-              >
-                {activeDelivery.estimatedArrival}
-              </Text>
-            </View>
-            <Text style={[styles.riderName, { color: theme.colors.text }]}>
-              Rider: {activeDelivery.riderName}
-            </Text>
-            <View style={styles.addressContainer}>
-              <MapPin
-                size={16}
-                color={theme.colors.textSecondary}
-                strokeWidth={2}
-              />
-              <Text
-                style={[
-                  styles.addressText,
-                  { color: theme.colors.textSecondary },
-                ]}
-                numberOfLines={1}
-              >
-                {activeDelivery.fromAddress} → {activeDelivery.toAddress}
-              </Text>
-            </View>
-            <Text style={[styles.trackText, { color: theme.colors.primary }]}>
-              Tap to track live →
-            </Text>
-            {handoffCode ? (
-              <View style={[styles.handoffRow, { backgroundColor: `${theme.colors.primary}18` }]}>
-                <KeyRound size={16} color={theme.colors.primary} strokeWidth={2} />
-                <Text style={[styles.handoffText, { color: theme.colors.primary }]}>
-                  Handoff code: <Text style={styles.handoffCode}>{handoffCode}</Text>
-                </Text>
-              </View>
-            ) : null}
-          </TouchableOpacity>
+          />
         )}
 
         {/* Quick Actions */}
@@ -334,6 +274,10 @@ export default function HomeScreen() {
           </View>
           {deliveriesLoading ? (
             <CardSkeletonList count={3} />
+          ) : recentDeliveries.length === 0 ? (
+            <Text style={[styles.emptyRecent, { color: theme.colors.textSecondary }]}>
+              No deliveries yet. Your recent bookings will show up here.
+            </Text>
           ) : (
           recentDeliveries.map((delivery) => (
             <TouchableOpacity
@@ -348,13 +292,15 @@ export default function HomeScreen() {
                 theme.shadows.small,
               ]}
               onPress={() =>
-                router.push({
-                  pathname: '/tracking',
-                  params: { deliveryId: delivery.id },
-                })
+                delivery.cancelled
+                  ? router.push('/(tabs)/bookings')
+                  : router.push({
+                      pathname: '/tracking',
+                      params: { deliveryId: delivery.id },
+                    })
               }
             >
-              <Animated.View entering={FadeInUp.duration(300)}>
+              <Animated.View entering={FadeInUp.duration(300)} style={styles.deliveryRow}>
                 <View style={styles.deliveryInfo}>
                   <Text
                     style={[
@@ -370,10 +316,10 @@ export default function HomeScreen() {
                   <Text
                     style={[
                       styles.deliveryStatus,
-                      { color: theme.colors.success },
+                      { color: delivery.statusColor },
                     ]}
                   >
-                    ✅ {delivery.status}
+                    {delivery.status}
                   </Text>
                 </View>
                 <Text
@@ -437,70 +383,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '700',
-  },
-  activeDeliveryCard: {
-    marginHorizontal: 20,
-    borderRadius: 20,
-    padding: 24,
-    marginBottom: 28,
-    borderWidth: 2,
-  },
-  deliveryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  statusText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  estimatedTime: {
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  riderName: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  addressContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  addressText: {
-    fontSize: 14,
-    marginLeft: 8,
-    flex: 1,
-  },
-  trackText: {
-    fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  handoffRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 12,
-    padding: 10,
-    borderRadius: 10,
-  },
-  handoffText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  handoffCode: {
-    fontSize: 18,
-    fontWeight: '800',
-    letterSpacing: 3,
   },
   section: {
     paddingHorizontal: 20,
@@ -566,8 +448,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  deliveryRow: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
   deliveryInfo: {
     flex: 1,
+  },
+  emptyRecent: {
+    fontSize: 14,
+    textAlign: 'center',
+    paddingVertical: 16,
   },
   deliveryDate: {
     fontSize: 12,

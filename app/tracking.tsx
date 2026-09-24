@@ -20,12 +20,15 @@ import {
   Phone,
   Package,
   User,
+  UserX,
   Shield,
   MapPin,
   CreditCard,
   Crosshair,
   Share2,
   KeyRound,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Constants from 'expo-constants';
@@ -925,19 +928,34 @@ export default function TrackingScreen() {
     riderCoords?.longitude,
   ]);
 
+  const isEnded =
+    displayStatus === 'cancelled' ||
+    displayStatus === 'delivered' ||
+    displayStatus === 'completed';
+  // Once the delivery ends, freeze the timer at the moment it ended.
+  const endedAt = isEnded
+    ? (activeDelivery?.completed_at ?? activeDelivery?.updated_at ?? null)
+    : null;
+
   useEffect(() => {
     if (!activeDelivery?.created_at) {
       setElapsedTime(0);
       return;
     }
     const startMs = new Date(activeDelivery.created_at).getTime();
-    const tick = () => {
-      setElapsedTime(Math.max(0, Math.floor((Date.now() - startMs) / 1000)));
-    };
+    const secondsUntil = (ms: number) =>
+      Math.max(0, Math.floor((ms - startMs) / 1000));
+    if (isEnded) {
+      setElapsedTime(
+        secondsUntil(endedAt ? new Date(endedAt).getTime() : Date.now()),
+      );
+      return;
+    }
+    const tick = () => setElapsedTime(secondsUntil(Date.now()));
     tick();
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [activeDelivery?.created_at]);
+  }, [activeDelivery?.created_at, isEnded, endedAt]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -1086,11 +1104,23 @@ export default function TrackingScreen() {
       : primaryAction === 'chat'
         ? MessageCircle
         : Share2;
-  const statusTitle = isSearchingForRider
-    ? 'Finding your rider'
-    : getStatusText(displayStatus);
-  const etaLabel = isSearchingForRider
-    ? 'ETA —'
+  const cancelledWithoutRider =
+    displayStatus === 'cancelled' && isSearchingForRider;
+  const statusTitle =
+    displayStatus === 'cancelled'
+      ? activeDelivery?.status === 'cancelled_no_rider'
+        ? 'No rider found'
+        : 'Delivery cancelled'
+      : isSearchingForRider
+        ? 'Finding your rider'
+        : getStatusText(displayStatus);
+  const etaLabel =
+    displayStatus === 'cancelled'
+      ? 'This delivery was cancelled'
+      : displayStatus === 'delivered' || displayStatus === 'completed'
+        ? 'Delivered'
+        : isSearchingForRider
+          ? 'ETA —'
     : rider.estimatedArrival && rider.estimatedArrival !== 'Calculating...'
       ? `ETA ${rider.estimatedArrival}`
       : 'ETA calculating…';
@@ -1234,7 +1264,16 @@ export default function TrackingScreen() {
                 {statusTitle}
               </Text>
             </View>
-            <Text style={[styles.etaText, { color: theme.colors.primary }]}>
+            <Text
+              style={[
+                styles.etaText,
+                {
+                  color: isEnded
+                    ? theme.colors.textSecondary
+                    : theme.colors.primary,
+                },
+              ]}
+            >
               {etaLabel}
             </Text>
           </View>
@@ -1321,12 +1360,33 @@ export default function TrackingScreen() {
         </View>
 
         <TouchableOpacity
+          style={styles.detailsToggle}
           onPress={() => setDetailsOpen((open) => !open)}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: detailsOpen }}
         >
-          <Text style={[styles.detailsToggle, { color: theme.colors.primary }]}>
+          <Text
+            style={[
+              styles.detailsToggleText,
+              { color: theme.colors.textSecondary },
+            ]}
+          >
             {detailsOpen ? 'Hide details' : 'Delivery details'}
           </Text>
+          {detailsOpen ? (
+            <ChevronDown
+              size={16}
+              color={theme.colors.textSecondary}
+              strokeWidth={2.25}
+            />
+          ) : (
+            <ChevronUp
+              size={16}
+              color={theme.colors.textSecondary}
+              strokeWidth={2.25}
+            />
+          )}
         </TouchableOpacity>
 
         {detailsOpen ? (
@@ -1345,18 +1405,41 @@ export default function TrackingScreen() {
                 <View
                   style={[
                     styles.riderAvatar,
-                    { backgroundColor: theme.colors.primary },
+                    {
+                      backgroundColor: cancelledWithoutRider
+                        ? theme.colors.border
+                        : theme.colors.primary,
+                    },
                   ]}
                 >
-                  <User size={22} color="#FFFFFF" strokeWidth={2} />
+                  {cancelledWithoutRider ? (
+                    <UserX size={22} color="#FFFFFF" strokeWidth={2} />
+                  ) : (
+                    <User size={22} color="#FFFFFF" strokeWidth={2} />
+                  )}
                 </View>
                 <View style={styles.riderInfo}>
                   <Text
                     style={[styles.riderName, { color: theme.colors.text }]}
                   >
-                    {isSearchingForRider ? 'Looking for a rider…' : rider.name}
+                    {cancelledWithoutRider
+                      ? 'No rider assigned'
+                      : isSearchingForRider
+                        ? 'Looking for a rider…'
+                        : rider.name}
                   </Text>
-                  {!isSearchingForRider ? (
+                  {cancelledWithoutRider ? (
+                    <Text
+                      style={[
+                        styles.riderMeta,
+                        { color: theme.colors.textSecondary },
+                      ]}
+                    >
+                      {activeDelivery?.status === 'cancelled_no_rider'
+                        ? 'No rider accepted this delivery in time'
+                        : 'Cancelled before a rider accepted'}
+                    </Text>
+                  ) : !isSearchingForRider ? (
                     <Text
                       style={[
                         styles.riderMeta,
@@ -1633,6 +1716,9 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   sheet: {
+    // Overlap the map by the corner radius so the map (not the screen
+    // background) shows behind the rounded corners.
+    marginTop: -24,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 20,
@@ -1710,10 +1796,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   detailsToggle: {
-    marginTop: 14,
+    marginTop: 6,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  detailsToggleText: {
     fontSize: 14,
     fontWeight: '600',
-    textAlign: 'center',
   },
   detailsScroll: {
     marginTop: 12,

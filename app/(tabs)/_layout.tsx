@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { Tabs, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { House as Home, Package, User, Settings } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -9,6 +10,7 @@ export default function TabLayout() {
   const { theme } = useTheme();
   const { session, userType, loading } = useAuth();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (loading) return;
@@ -32,9 +34,10 @@ export default function TabLayout() {
           backgroundColor: theme.colors.surface,
           borderTopColor: theme.colors.border,
           borderTopWidth: 1,
+          // Grow with the home indicator / Android system nav so labels never sit behind it
           paddingTop: 8,
-          paddingBottom: 8,
-          height: 80,
+          paddingBottom: 8 + insets.bottom,
+          height: 64 + insets.bottom,
         },
         tabBarLabelStyle: {
           fontSize: 12,
