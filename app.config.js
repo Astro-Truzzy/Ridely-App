@@ -44,7 +44,7 @@ export default {
         },
       ],
       [
-        '@livekit/react-native-expo-plugin',
+        '@livekit/react-native',
         {
           android: { audioType: 'communication' },
           ios: { enableMultitaskingCameraAccess: false },
@@ -107,5 +107,22 @@ export default {
       router: {},
       eas: { projectId: 'f6270d95-21c0-4912-9e17-db7b676f0a7a' },
     },
+    "ios": {
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "expo": {
+        "name": "Ridely",
+        "slug": "ridely",
+        "version": "1.0.0",
+        "ios": {
+          "supportsTablet": true,
+          "bundleIdentifier": "com.deliveryapp.ridely"
+        },
+        "android": {
+          "package": "com.deliveryapp.ridely"
+        }
+      }
+    }
   },
 };
