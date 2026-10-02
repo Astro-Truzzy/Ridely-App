@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
-  Text,
   Modal,
   TouchableOpacity,
   StyleSheet,
@@ -10,6 +9,7 @@ import {
   Dimensions,
   Vibration,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { MapPin, Navigation } from 'lucide-react-native';
 import { router } from 'expo-router';
 import * as Location from 'expo-location';

@@ -1,13 +1,13 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
   Modal,
   ActivityIndicator,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import {
   SafeAreaView,
   useSafeAreaInsets,

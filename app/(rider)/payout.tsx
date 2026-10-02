@@ -7,7 +7,6 @@ import React, {
 } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   TouchableOpacity,
   TextInput,
@@ -18,6 +17,7 @@ import {
   Modal,
   FlatList,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import {
   SafeAreaView,
   useSafeAreaInsets,

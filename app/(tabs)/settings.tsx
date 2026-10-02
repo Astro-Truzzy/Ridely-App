@@ -1,12 +1,13 @@
 import React from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
   Switch,
 } from 'react-native';
+import { Text } from '@/components/Text';
+import { FontSizeSetting } from '@/components/FontSizeSetting';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Bell, Moon, Globe, Zap, CircleHelp as HelpCircle, FileText, Shield, LogOut, ChevronRight, Smartphone, Receipt, MessageSquare, Sun, Monitor } from 'lucide-react-native';
@@ -253,6 +254,9 @@ export default function SettingsScreen() {
                 />
               </View>
             ))}
+            <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+              <FontSizeSetting />
+            </View>
           </View>
         </View>
 

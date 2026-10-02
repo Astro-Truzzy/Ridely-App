@@ -1,11 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ActivityIndicator,
-  Platform,
-} from 'react-native';
+import { View, StyleSheet, ActivityIndicator, Platform } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, Flame, MapPin } from 'lucide-react-native';
@@ -94,6 +89,31 @@ export default function RiderHeatmapScreen() {
 
   const totalDemand = points.reduce((sum, p) => sum + p.weight, 0);
 
+  // Open on where the demand actually is; Lagos is only the empty-state default.
+  const initialRegion = useMemo(() => {
+    const valid = points.filter(
+      (p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude),
+    );
+    if (valid.length === 0) return LAGOS_REGION;
+    const lats = valid.map((p) => p.latitude);
+    const lngs = valid.map((p) => p.longitude);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    return {
+      latitude: (minLat + maxLat) / 2,
+      longitude: (minLng + maxLng) / 2,
+      latitudeDelta: Math.max((maxLat - minLat) * 1.4, 0.05),
+      longitudeDelta: Math.max((maxLng - minLng) * 1.4, 0.05),
+    };
+    // Only the first load frames the map; later refreshes keep the rider's pan/zoom.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
+
+  // The native heatmap layer only exists on Google Maps; on iOS (Apple Maps) it crashes.
+  const canShowHeatmap = Platform.OS === 'android' && !!RNMaps?.Heatmap;
+
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
@@ -112,7 +132,11 @@ export default function RiderHeatmapScreen() {
       >
         <AnimatedPressable
           style={[styles.backButton, { backgroundColor: isDark ? theme.colors.surface : '#F3F4F6' }]}
-          onPress={() => router.back()}
+          onPress={() =>
+            router.canGoBack()
+              ? router.back()
+              : router.replace('/(rider)/dashboard')
+          }
         >
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </AnimatedPressable>
@@ -138,11 +162,12 @@ export default function RiderHeatmapScreen() {
           <View style={styles.centered}>
             <ActivityIndicator size="large" color={theme.colors.primary} />
           </View>
-        ) : RNMaps && RNMaps.Heatmap ? (
+        ) : RNMaps && canShowHeatmap ? (
           <RNMaps.default
             style={styles.map}
-            initialRegion={LAGOS_REGION}
-            provider={Platform.OS === 'android' ? 'google' : undefined}
+            initialRegion={initialRegion}
+            provider="google"
+            toolbarEnabled={false}
           >
             {heatmapData.length > 0 && (
               <RNMaps.Heatmap
@@ -170,8 +195,15 @@ export default function RiderHeatmapScreen() {
         )}
       </View>
 
-      <Text style={[styles.hint, { color: theme.colors.textTertiary }]}>
-        Brighter areas show more pending pickup requests. Refreshes every 30s.
+      <Text
+        style={[
+          styles.hint,
+          { color: error ? theme.colors.error : theme.colors.textTertiary },
+        ]}
+      >
+        {error
+          ? `Couldn't refresh demand data: ${error}`
+          : 'Brighter areas show more pending pickup requests. Refreshes every 30s.'}
       </Text>
     </SafeAreaView>
   );

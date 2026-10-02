@@ -1,5 +1,11 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+} from 'react-native';
+import { Text } from '@/components/Text';
 import { useConnectionState, useParticipants, useRoomContext } from '@livekit/react-native';
 import { ConnectionState } from 'livekit-client';
 import { Mic, MicOff, PhoneOff } from 'lucide-react-native';

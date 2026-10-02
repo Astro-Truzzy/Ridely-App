@@ -1,0 +1,755 @@
+<!doctype html>
+<!--
+  Ridely Play Store listing art. Rendered to PNG by store/play/render.py:
+    store-art.html?shot=<id>   (ids are listed in SHOTS below)
+
+  Each device shows a recreation of the real app screen, built from the app's own
+  styles (theme colours, sizes and copy from app/*.tsx). To use a real capture instead,
+  drop it in store/play/raw/<screen>.png (home, tracking, pricing, rider, handoff, chat);
+  it is laid over the recreation automatically.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ridely store art</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=Roboto:wght@400;500;700;900&display=block" rel="stylesheet">
+<style>
+  :root {
+    --primary: #174AFF;
+    --navy: #0B1040;
+    --accent: #FFC947;
+    --bg: #F7F8FA;
+    --surface: #FFFFFF;
+    --text: #1F2937;
+    --text2: #6B7280;
+    --text3: #9CA3AF;
+    --border: #E5E7EB;
+    --success: #10B981;
+    --error: #EF4444;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: var(--navy); }
+  body { font-family: Roboto, 'Segoe UI', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+
+  /* ---------- Marketing stage ----------
+     Flat saturated ground, one bright device, cards floating around it. */
+  .canvas { position: relative; width: 100vw; height: 100vh; overflow: hidden; background: #06091A; color: #fff; }
+  .canvas::before { /* brand glow sitting behind the device */
+    content: ''; position: absolute; left: 50%; top: 54%; width: 780px; height: 780px; margin: -390px 0 0 -390px;
+    background: radial-gradient(circle, rgba(23,74,255,.60) 0%, rgba(23,74,255,.20) 40%, rgba(6,9,26,0) 70%);
+  }
+  .canvas::after { /* faint dot grid, then a vignette to sink the edges */
+    content: ''; position: absolute; inset: 0;
+    background-image: radial-gradient(rgba(255,255,255,.055) 1px, transparent 1.3px);
+    background-size: 24px 24px;
+    -webkit-mask-image: radial-gradient(64% 46% at 50% 46%, transparent 0%, #000 100%);
+    mask-image: radial-gradient(64% 46% at 50% 46%, transparent 0%, #000 100%);
+    box-shadow: inset 0 0 210px 48px rgba(3,5,18,.9);
+  }
+  .copy { position: absolute; z-index: 8; padding: 0 28px; }
+  .copy.center { left: 0; right: 0; text-align: center; }
+  .copy.left { left: 40px; right: auto; padding: 0; text-align: left; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 6px;
+    font: 700 11px/1 'Plus Jakarta Sans', sans-serif; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--navy); background: var(--accent); padding: 7px 12px; border-radius: 999px;
+  }
+  .headline {
+    font: 800 40px/1.06 'Plus Jakarta Sans', sans-serif; letter-spacing: -.025em;
+    margin: 14px auto 0; max-width: 440px; text-wrap: balance;
+  }
+  .copy.left .headline { margin-left: 0; }
+  .headline em { font-style: normal; color: var(--accent); }
+  .sub { font: 400 15px/1.45 Roboto, sans-serif; color: rgba(255,255,255,.8); margin-top: 10px; text-wrap: balance; }
+  .copy.left .sub { margin-left: 0; }
+
+  /* ---------- Device ---------- */
+  .device {
+    position: absolute; left: 50%; transform: translateX(-50%); z-index: 2;
+    background: #05070F; padding: 9px; border-radius: 44px;
+    box-shadow: 0 0 0 1.5px rgba(255,255,255,.16) inset, 0 44px 84px rgba(2,5,25,.8), 0 0 90px rgba(23,74,255,.3);
+  }
+  .device.tablet { border-radius: 30px; padding: 14px; }
+  .viewport { position: relative; overflow: hidden; border-radius: 36px; background: var(--bg); }
+  .device.tablet .viewport { border-radius: 18px; }
+  .screen { position: absolute; top: 0; left: 0; transform-origin: 0 0; overflow: hidden; background: var(--bg); color: var(--text); display: flex; flex-direction: column; }
+  .raw { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 50; }
+
+  /* ---------- Floating cards ---------- */
+  .float { position: absolute; z-index: 9; border-radius: 22px; box-shadow: 0 20px 44px rgba(2,5,25,.6), 0 2px 6px rgba(2,5,25,.45); }
+  .f-white { background: #fff; color: var(--navy); }
+  .f-blue { background: var(--primary); color: #fff; }
+  .f-amber { background: var(--accent); color: var(--navy); }
+  .f-green { background: var(--success); color: #fff; }
+  .f-pad { padding: 16px 18px; }
+  .f-ico { width: 40px; height: 40px; border-radius: 20px; display: grid; place-items: center; flex: none; }
+  .f-ico svg.i { width: 21px; height: 21px; }
+  .f-title { font: 700 15px/1.25 Roboto; }
+  .f-sub { font: 400 12.5px/1.35 Roboto; opacity: .72; margin-top: 3px; }
+  .f-value { font: 800 26px/1 Roboto; letter-spacing: -.02em; }
+  .f-label { font: 500 12px Roboto; opacity: .72; margin-top: 4px; }
+  .f-row { display: flex; align-items: center; gap: 12px; }
+  .f-col { display: flex; flex-direction: column; }
+  /* handoff code shown as four blocks, matching app/tracking.tsx */
+  .f-digits { display: flex; gap: 7px; margin-top: 12px; }
+  .f-digit { width: 38px; height: 46px; border-radius: 11px; background: var(--navy); color: #fff; display: grid; place-items: center; font: 800 24px Roboto; }
+  .f-dot { width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center; flex: none; }
+  .f-dot svg.i { width: 20px; height: 20px; }
+  .f-chip { display: inline-flex; align-items: center; gap: 7px; border-radius: 999px; padding: 9px 15px; font: 700 13.5px Roboto; }
+
+  /* ---------- Android chrome ---------- */
+  .statusbar { height: 32px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; font: 500 13px Roboto; color: var(--text); position: relative; z-index: 5; }
+  .statusbar.light { color: #fff; }
+  .statusbar .icons { display: flex; gap: 5px; align-items: center; }
+  .gesture { position: absolute; bottom: 7px; left: 50%; width: 108px; height: 4px; margin-left: -54px; border-radius: 4px; background: rgba(17,24,39,.55); z-index: 60; }
+
+  svg.i { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  /* ---------- Shared app pieces ---------- */
+  .shadow-s { box-shadow: 0 1px 4px rgba(0,0,0,.05), 0 1px 2px rgba(0,0,0,.04); }
+  .shadow-m { box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+  .shadow-l { box-shadow: 0 4px 12px rgba(0,0,0,.10); }
+  .scroll { flex: 1; overflow: hidden; }
+  .section { padding: 0 20px; margin-bottom: 28px; }
+  .section-title { font: 700 20px Roboto; margin-bottom: 12px; }
+  .row { display: flex; align-items: center; }
+  .between { justify-content: space-between; }
+
+  /* Home */
+  .home-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 14px 20px 22px; }
+  .greeting { font: 700 24px Roboto; margin-bottom: 4px; }
+  .subtitle { font: 400 16px Roboto; color: var(--text2); }
+  .round48 { width: 48px; height: 48px; border-radius: 24px; background: var(--surface); display: grid; place-items: center; color: var(--primary); position: relative; }
+  .badge-dot { position: absolute; top: 8px; right: 9px; min-width: 18px; height: 18px; border-radius: 9px; background: var(--error); color: #fff; font: 700 11px/18px Roboto; text-align: center; padding: 0 4px; }
+  .active-card { margin: 0 20px 28px; border-radius: 20px; background: var(--surface); border: 1px solid var(--border); overflow: hidden; }
+  .active-map { height: 136px; position: relative; }
+  .active-map svg.map { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .beacon { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; background: #fff; display: grid; place-items: center; box-shadow: 0 0 0 10px rgba(16,185,129,.18), 0 0 0 22px rgba(16,185,129,.08); }
+  .beacon::after { content: ''; width: 12px; height: 12px; border-radius: 50%; background: var(--success); }
+  .pill-float { position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,.94); border-radius: 999px; padding: 6px 10px; font: 700 11px Roboto; letter-spacing: .04em; color: var(--success); display: flex; gap: 6px; align-items: center; }
+  .pill-float::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
+  .active-body { padding: 14px 16px 16px; }
+  .active-title { font: 700 18px Roboto; }
+  .active-meta { font: 400 13px Roboto; color: var(--text2); margin-top: 4px; }
+  .code-chip { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; background: #EEF2FF; color: var(--primary); border-radius: 10px; padding: 7px 10px; font: 700 13px Roboto; letter-spacing: .06em; }
+  .qa-grid { display: flex; flex-wrap: wrap; justify-content: space-between; row-gap: 16px; }
+  .qa { width: 48%; border-radius: 20px; background: var(--surface); padding: 22px 12px; text-align: center; }
+  .qa .ico { width: 60px; height: 60px; border-radius: 30px; display: grid; place-items: center; margin: 0 auto 10px; color: #fff; }
+  .qa .t { font: 700 15px Roboto; margin-bottom: 4px; }
+  .qa .s { font: 400 12px Roboto; color: var(--text2); opacity: .8; }
+  .recent { border-radius: 16px; background: var(--surface); border: 1px solid var(--border); padding: 18px 20px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .recent .d { font: 400 12px Roboto; color: var(--text2); margin-bottom: 4px; }
+  .recent .r { font: 600 14px Roboto; margin-bottom: 4px; }
+  .recent .st { font: 500 12px Roboto; }
+  .recent .p { font: 700 16px Roboto; }
+  .tabbar { flex: none; height: 64px; background: var(--surface); border-top: 1px solid var(--border); display: flex; justify-content: space-around; align-items: center; padding-bottom: 8px; }
+  .tab { display: flex; flex-direction: column; align-items: center; gap: 3px; font: 500 11px Roboto; color: var(--text3); }
+  .tab.on { color: var(--primary); }
+  .tab svg.i { width: 22px; height: 22px; }
+
+  /* Map screens */
+  .mapfill { position: absolute; inset: 0; }
+  .mapfill svg.map { width: 100%; height: 100%; display: block; }
+  .chrome { position: absolute; top: 32px; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; z-index: 5; }
+  .roundbtn { width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center; color: #fff; background: rgba(0,0,0,.55); }
+  .roundbtn svg.i { width: 21px; height: 21px; }
+  .live { display: flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 999px; background: rgba(16,185,129,.95); color: #fff; font: 700 13px Roboto; }
+  .live::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,.35); }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--surface); border-radius: 24px 24px 0 0; padding: 8px 20px 26px; box-shadow: 0 -4px 18px rgba(0,0,0,.12); z-index: 6; }
+  .handle { width: 40px; height: 5px; border-radius: 3px; background: var(--border); margin: 4px auto 14px; }
+  .lead { display: flex; justify-content: space-between; align-items: flex-start; }
+  .status-row { display: flex; align-items: center; gap: 8px; }
+  .sdot { width: 10px; height: 10px; border-radius: 50%; }
+  .status-title { font: 700 20px Roboto; }
+  .eta { font: 600 15px Roboto; color: var(--primary); margin-top: 4px; }
+  .elapsed { font: 500 14px Roboto; color: var(--text3); font-variant-numeric: tabular-nums; }
+  .actions { display: flex; gap: 10px; margin-top: 16px; }
+  .primary-act { flex: 1; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #fff; font: 700 16px Roboto; }
+  .primary-act svg.i { width: 20px; height: 20px; }
+  .sec-act { width: 52px; height: 52px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); display: grid; place-items: center; color: var(--text); }
+  .sec-act svg.i { width: 20px; height: 20px; }
+  .details-toggle { display: flex; align-items: center; justify-content: center; gap: 4px; margin-top: 14px; font: 500 14px Roboto; color: var(--text2); }
+  .details-toggle svg.i { width: 16px; height: 16px; }
+  .rider-row { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+  .avatar { width: 46px; height: 46px; border-radius: 23px; display: grid; place-items: center; color: #fff; font: 700 17px Roboto; background: linear-gradient(135deg, #4784FF, #174AFF); flex: none; }
+  .rider-name { font: 700 16px Roboto; }
+  .rider-sub { font: 400 13px Roboto; color: var(--text2); margin-top: 2px; }
+  .rating { margin-left: auto; font: 700 14px Roboto; color: var(--text); display: flex; gap: 4px; align-items: center; }
+  .rating svg.i { width: 16px; height: 16px; color: var(--accent); fill: var(--accent); }
+  .code-card { margin-top: 16px; border-radius: 18px; padding: 16px; background: linear-gradient(135deg, #EEF2FF, #E0E8FF); border: 1px solid #C7D5FF; }
+  .code-card .lbl { display: flex; align-items: center; gap: 8px; font: 700 13px Roboto; color: var(--primary); letter-spacing: .04em; text-transform: uppercase; }
+  .code-card .lbl svg.i { width: 18px; height: 18px; }
+  .digits { display: flex; gap: 10px; margin-top: 12px; }
+  .digit { flex: 1; height: 62px; border-radius: 14px; background: #fff; display: grid; place-items: center; font: 900 32px Roboto; color: var(--navy); box-shadow: 0 2px 6px rgba(23,74,255,.12); }
+  .code-card .hint { font: 400 13px/1.4 Roboto; color: var(--text2); margin-top: 12px; }
+  .steps { margin-top: 16px; }
+  .step { display: flex; gap: 12px; align-items: flex-start; padding: 6px 0; font: 500 14px Roboto; color: var(--text); }
+  .step .b { width: 22px; height: 22px; border-radius: 11px; display: grid; place-items: center; background: var(--success); color: #fff; flex: none; }
+  .step .b svg.i { width: 13px; height: 13px; stroke-width: 3; }
+  .step.todo { color: var(--text3); }
+  .step.todo .b { background: var(--border); }
+  .step.now .b { background: var(--primary); }
+
+  /* Pricing */
+  .topbar { display: flex; align-items: center; gap: 12px; padding: 10px 20px 16px; }
+  .backsq { width: 44px; height: 44px; border-radius: 22px; background: #F3F4F6; display: grid; place-items: center; color: var(--text); }
+  .topbar .t { font: 700 20px Roboto; }
+  .topbar .s { font: 400 13px Roboto; color: var(--text2); margin-top: 2px; }
+  .progress { height: 6px; border-radius: 3px; background: var(--border); margin: 0 20px 18px; overflow: hidden; }
+  .progress i { display: block; height: 100%; width: 75%; background: var(--primary); border-radius: 3px; }
+  .card { background: var(--surface); border-radius: 16px; padding: 18px; margin: 0 20px 16px; }
+  .price-card { border: 2px solid var(--primary); display: flex; align-items: center; gap: 12px; }
+  .price-card .total { font: 800 30px Roboto; color: var(--primary); }
+  .price-card .lbl { font: 400 13px Roboto; color: var(--text2); }
+  .time-pill { margin-left: auto; display: flex; gap: 6px; align-items: center; color: var(--success); font: 600 14px Roboto; }
+  .time-pill svg.i { width: 20px; height: 20px; }
+  .card-title { font: 700 17px Roboto; margin-bottom: 12px; }
+  .detail { display: flex; gap: 12px; align-items: center; padding: 7px 0; font: 400 14px Roboto; }
+  .detail svg.i { width: 20px; height: 20px; }
+  .bd { display: flex; justify-content: space-between; font: 400 14px Roboto; color: var(--text2); padding: 4px 0; }
+  .bd b { color: var(--text); font-weight: 600; }
+  .divider { height: 1px; background: var(--border); margin: 10px 0; }
+  .bd.total { font: 700 16px Roboto; color: var(--text); }
+  .bd.total b { color: var(--primary); font-weight: 800; }
+  .paybox { display: flex; gap: 10px; }
+  .payopt { flex: 1; border: 1.5px solid var(--border); border-radius: 14px; padding: 12px; display: flex; gap: 10px; align-items: center; font: 600 14px Roboto; }
+  .payopt.on { border-color: var(--primary); background: #EEF2FF; color: var(--primary); }
+  .payopt svg.i { width: 20px; height: 20px; }
+  .secure { display: flex; gap: 6px; align-items: center; justify-content: center; font: 500 12px Roboto; color: var(--text2); margin-top: 12px; }
+  .secure svg.i { width: 14px; height: 14px; color: var(--success); }
+  .bottom-cta { flex: none; background: var(--surface); border-top: 1px solid var(--border); padding: 14px 20px 26px; }
+  .cta { height: 54px; border-radius: 14px; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; gap: 8px; font: 700 17px Roboto; }
+  .cta svg.i { width: 20px; height: 20px; }
+
+  /* Rider dashboard */
+  .rd-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px 18px; }
+  .rd-head .greeting { font-size: 22px; }
+  .online { display: flex; align-items: center; gap: 8px; margin-top: 6px; font: 600 14px Roboto; color: var(--success); }
+  .online .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--success); }
+  .switch { width: 44px; height: 26px; border-radius: 13px; background: #A7F3D0; position: relative; }
+  .switch::after { content: ''; position: absolute; right: 2px; top: 2px; width: 22px; height: 22px; border-radius: 11px; background: var(--success); box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+  .stats { display: flex; gap: 10px; padding: 0 20px; margin-bottom: 16px; }
+  .stat { flex: 1; background: var(--surface); border-radius: 16px; padding: 14px 8px; text-align: center; }
+  .stat svg.i { margin: 0 auto 6px; display: block; }
+  .stat .v { font: 800 18px Roboto; }
+  .stat .l { font: 500 11px Roboto; color: var(--text2); margin-top: 2px; }
+  .rd-actions { display: flex; gap: 8px; padding: 0 20px; margin-bottom: 22px; }
+  .rd-act { flex: 1; height: 46px; border-radius: 12px; color: #fff; display: flex; align-items: center; justify-content: center; gap: 5px; font: 700 11.5px Roboto; white-space: nowrap; }
+  .rd-act svg.i { width: 16px; height: 16px; }
+  .job { position: relative; background: var(--surface); border-radius: 18px; padding: 18px; margin: 0 20px 16px; }
+  .urgent { position: absolute; top: -9px; right: 16px; background: var(--error); color: #fff; font: 800 10.5px Roboto; letter-spacing: .08em; padding: 5px 10px; border-radius: 8px; }
+  .job-id { font: 700 16px Roboto; }
+  .ago { font: 400 12px Roboto; color: var(--text2); margin-top: 2px; }
+  .reward { text-align: right; }
+  .reward .a { font: 800 22px Roboto; color: var(--success); }
+  .reward .l { font: 400 12px Roboto; color: var(--text2); }
+  .size { display: flex; gap: 8px; align-items: center; font: 600 14px Roboto; }
+  .size i { width: 10px; height: 10px; border-radius: 5px; background: var(--accent); }
+  .addr { margin-top: 12px; background: var(--bg); border-radius: 12px; padding: 10px 12px; }
+  .addr .a { display: flex; gap: 8px; align-items: center; font: 400 14px Roboto; padding: 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .addr .a svg.i { width: 16px; height: 16px; }
+  .addr .sep { height: 12px; border-left: 2px dotted var(--text3); margin-left: 7px; }
+  .meta { display: flex; gap: 18px; margin-top: 12px; font: 400 13px Roboto; color: var(--text2); }
+  .meta span { display: flex; gap: 5px; align-items: center; }
+  .meta svg.i { width: 16px; height: 16px; }
+  .job-btns { display: flex; gap: 10px; margin-top: 16px; }
+  .reject { flex: 1; height: 48px; border-radius: 12px; border: 1.5px solid var(--error); background: rgba(239,68,68,.12); color: var(--error); display: flex; align-items: center; justify-content: center; gap: 6px; font: 700 15px Roboto; }
+  .accept { flex: 2; height: 48px; border-radius: 12px; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; gap: 6px; font: 700 15px Roboto; }
+  .reject svg.i, .accept svg.i { width: 20px; height: 20px; }
+
+  /* Chat */
+  .chat-head { display: flex; align-items: center; gap: 12px; padding: 8px 16px 14px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .chat-head .n { font: 700 17px Roboto; }
+  .chat-head .s { font: 400 12.5px Roboto; color: var(--success); margin-top: 2px; }
+  .callbtn { margin-left: auto; width: 44px; height: 44px; border-radius: 22px; background: #EEF2FF; color: var(--primary); display: grid; place-items: center; }
+  .callbtn svg.i { width: 20px; height: 20px; }
+  .msgs { flex: 1; padding: 16px 16px 0; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+  .day { align-self: center; font: 500 12px Roboto; color: var(--text3); background: #EEF0F4; padding: 4px 10px; border-radius: 999px; }
+  .bubble { max-width: 78%; padding: 10px 14px; border-radius: 18px; font: 400 15px/1.35 Roboto; }
+  .bubble .tm { display: block; font: 400 11px Roboto; opacity: .7; margin-top: 4px; text-align: right; }
+  .me { align-self: flex-end; background: var(--primary); color: #fff; border-bottom-right-radius: 6px; }
+  .them { align-self: flex-start; background: var(--surface); color: var(--text); border-bottom-left-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .callcard { align-self: flex-start; display: flex; align-items: center; gap: 10px; background: var(--surface); border-radius: 16px; padding: 10px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.06); font: 500 14px Roboto; }
+  .callcard .c { width: 34px; height: 34px; border-radius: 17px; background: rgba(16,185,129,.14); color: var(--success); display: grid; place-items: center; }
+  .callcard .c svg.i { width: 17px; height: 17px; }
+  .callcard small { display: block; font: 400 12px Roboto; color: var(--text2); }
+  .composer { flex: none; display: flex; gap: 10px; align-items: center; padding: 12px 16px 26px; background: var(--bg); }
+  .field { flex: 1; height: 48px; border-radius: 24px; background: var(--surface); border: 1px solid var(--border); padding: 0 18px; display: flex; align-items: center; font: 400 15px Roboto; color: var(--text3); }
+  .send { width: 48px; height: 48px; border-radius: 24px; background: var(--primary); color: #fff; display: grid; place-items: center; }
+  .send svg.i { width: 20px; height: 20px; }
+
+  /* ---------- Feature graphic ---------- */
+  .feature { position: relative; width: 100vw; height: 100vh; overflow: hidden; color: #fff; background: #06091A; }
+  .feature::before { content: ''; position: absolute; left: 300px; top: 50%; width: 520px; height: 520px; margin: -260px 0 0 -260px;
+    background: radial-gradient(circle, rgba(23,74,255,.65) 0%, rgba(23,74,255,.2) 42%, rgba(6,9,26,0) 70%); }
+  .feature::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+    box-shadow: inset 0 0 130px 26px rgba(3,5,18,.85); }
+  .feature .wordmark { position: absolute; left: 34px; top: 40px; height: 40px; }
+  .feature h1 { position: absolute; left: 34px; top: 96px; width: 230px; font: 800 29px/1.08 'Plus Jakarta Sans', sans-serif; letter-spacing: -.02em; }
+  .feature h1 em { font-style: normal; color: var(--accent); }
+  .feature p { position: absolute; left: 34px; top: 170px; width: 205px; font: 400 12.5px/1.45 Roboto; color: rgba(255,255,255,.85); }
+  .feature .rider { position: absolute; left: 272px; bottom: -6px; height: 196px; filter: drop-shadow(0 14px 18px rgba(2,6,30,.45)); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+// ---------------------------------------------------------------- icons (lucide, MIT)
+const ICONS = {
+  package: '<path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><path d="m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7"/><path d="m7.5 4.27 9 5.15"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  star: '<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/>',
+  message: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+  bell: '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+  share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/>',
+  back: '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  crosshair: '<circle cx="12" cy="12" r="10"/><line x1="22" x2="18" y1="12" y2="12"/><line x1="6" x2="2" y1="12" y2="12"/><line x1="12" x2="12" y1="6" y2="2"/><line x1="12" x2="12" y1="22" y2="18"/>',
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  chevronUp: '<path d="m18 15-6-6-6 6"/>',
+  chevronRight: '<path d="m9 18 6-6-6-6"/>',
+  pin: '<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
+  dollar: '<line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  truck: '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
+  check: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  tick: '<path d="M20 6 9 17l-5-5"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  nav: '<polygon points="3 11 22 2 13 21 11 13 3 11"/>',
+  flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+  user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  key: '<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/>',
+  shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
+  send: '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>',
+  card: '<rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/>',
+  cash: '<rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>',
+  lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  home: '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  list: '<path d="M3 12h.01M3 18h.01M3 6h.01M8 12h13M8 18h13M8 6h13"/>',
+  settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+};
+const ic = (name, style = '') => `<svg class="i" viewBox="0 0 24 24" style="${style}">${ICONS[name]}</svg>`;
+
+const PINS = {
+  pickup: '../../../assets/markers/pin-pickup@3x.png',
+  dropoff: '../../../assets/markers/pin-dropoff@3x.png',
+  rider: '../../../assets/markers/pin-rider@3x.png',
+};
+
+// ---------------------------------------------------------------- map (mirrors SIMPLIFIED_MAP_STYLE in app/tracking.tsx)
+let SCREEN_H = 780; // set per shot so the map fills the screen without side-cropping
+function mapSvg({ route = [], trail = [], pins = {}, height = SCREEN_H, labels = true } = {}) {
+  const pts = (a) => a.map((p) => p.join(',')).join(' ');
+  const major = [
+    'M-20 520 L380 70', 'M-20 300 L380 300', 'M200 -20 L200 800', 'M-20 150 L380 150',
+  ];
+  const minor = [
+    'M90 -20 L90 800', 'M300 -20 L300 800', 'M-20 430 L380 430', 'M-20 225 L380 225',
+    'M-20 370 L380 370', 'M150 -20 L150 520', 'M250 -20 L250 520', 'M-20 80 L380 80',
+    'M40 -20 L40 520', 'M345 -20 L345 520',
+  ];
+  const road = (d, w, c) => `<path d="${d}" stroke="${c}" stroke-width="${w}" fill="none" stroke-linecap="round"/>`;
+  const pinImg = (kind, x, y) => {
+    const w = kind === 'rider' ? 40 : 36, h = kind === 'rider' ? 51 : 41;
+    return `<image href="${PINS[kind]}" x="${x - w / 2}" y="${y - h}" width="${w}" height="${h}"/>`;
+  };
+  return `<svg class="map" viewBox="0 0 360 ${height}" preserveAspectRatio="xMidYMin slice" xmlns="http://www.w3.org/2000/svg">
+    <rect width="360" height="${height}" fill="#F4F4F2"/>
+    <path d="M0 560 C80 530 150 590 225 630 C285 662 330 700 360 705 L360 ${height} L0 ${height} Z" fill="#D6E2EE"/>
+    <rect x="215" y="160" width="75" height="55" rx="8" fill="#C8E6C9"/>
+    <rect x="100" y="380" width="40" height="42" rx="6" fill="#C8E6C9"/>
+    <rect x="310" y="310" width="60" height="50" rx="8" fill="#C8E6C9"/>
+    <g opacity=".55" fill="#EAEAEA">
+      ${[[50,90],[160,90],[260,90],[50,160],[100,235],[160,235],[260,235],[50,310],[160,310],[210,310],[260,380],[210,440],[50,440]]
+        .map(([x, y]) => `<rect x="${x}" y="${y}" width="32" height="${y > 400 ? 60 : 50}" rx="4"/>`).join('')}
+    </g>
+    ${minor.map((d) => road(d, 9, '#E3E3E3')).join('')}
+    ${minor.map((d) => road(d, 7, '#FFFFFF')).join('')}
+    ${major.map((d) => road(d, 15, '#DADADA')).join('')}
+    ${major.map((d) => road(d, 12, '#FFFFFF')).join('')}
+    ${labels ? `<g font-family="Roboto, sans-serif" font-size="9" fill="#A8A8A8" font-weight="500">
+      <text x="22" y="296">Adeola Odeku St</text>
+      <text x="236" y="146">Admiralty Way</text>
+      <text x="120" y="605" fill="#9FB2C6" font-style="italic">Lagos Lagoon</text>
+    </g>` : ''}
+    ${route.length ? `<polyline points="${pts(route)}" fill="none" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+      <polyline points="${pts(route)}" fill="none" stroke="#174AFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>` : ''}
+    ${trail.length ? `<polyline points="${pts(trail)}" fill="none" stroke="rgba(11,16,64,.78)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>` : ''}
+    ${pins.pickup ? pinImg('pickup', ...pins.pickup) : ''}
+    ${pins.dropoff ? pinImg('dropoff', ...pins.dropoff) : ''}
+    ${pins.rider ? pinImg('rider', ...pins.rider) : ''}
+  </svg>`;
+}
+
+// Route along the street grid: pickup (Victoria Island) -> dropoff (Lekki side).
+const ROUTE = [[70, 430], [90, 430], [90, 300], [200, 300], [200, 150], [290, 150], [290, 128]];
+const TRAIL = [[70, 430], [90, 430], [90, 300], [150, 300]];
+const PINSET = { pickup: [70, 430], dropoff: [290, 128], rider: [150, 300] };
+
+const statusBar = (light) => `<div class="statusbar${light ? ' light' : ''}"><span>9:41</span><span class="icons">
+  <svg width="16" height="12" viewBox="0 0 16 12"><path d="M1 11h2V8H1zm4 0h2V6H5zm4 0h2V3H9zm4 0h2V0h-2z" fill="currentColor"/></svg>
+  <svg width="15" height="12" viewBox="0 0 24 18"><path d="M12 18l4-4.8a6.3 6.3 0 0 0-8 0zM2 7.5a15 15 0 0 1 20 0l-2.4 2.9a11.3 11.3 0 0 0-15.2 0zm3.7 4.4a9.6 9.6 0 0 1 12.6 0" fill="currentColor"/></svg>
+  <svg width="22" height="12" viewBox="0 0 26 13"><rect x=".5" y=".5" width="22" height="12" rx="3" fill="none" stroke="currentColor" opacity=".5"/><rect x="2" y="2" width="16" height="9" rx="1.6" fill="currentColor"/><rect x="24" y="4.5" width="1.6" height="4" rx=".8" fill="currentColor" opacity=".5"/></svg>
+  </span></div>`;
+
+// ---------------------------------------------------------------- screens (see app/*.tsx)
+const SCREENS = {
+  // app/(tabs)/index.tsx + components/ActiveDeliveryCard.tsx
+  home: () => `${statusBar()}
+    <div class="scroll">
+      <div class="home-header">
+        <div><div class="greeting">Hello, Amaka 👋</div><div class="subtitle">Where would you like to send today?</div></div>
+        <div class="round48 shadow-m">${ic('bell')}<span class="badge-dot">2</span></div>
+      </div>
+      <div class="active-card shadow-l">
+        <div class="active-map">${mapSvg({ height: 520, labels: false })}<span class="pill-float">RIDER ON THE WAY</span><span class="beacon"></span></div>
+        <div class="active-body">
+          <div class="row between"><div class="active-title">Arriving in 12 mins</div>${ic('chevronRight', 'color:var(--text3)')}</div>
+          <div class="active-meta">Victoria Island → Lekki Phase 1 · Chinedu</div>
+          <span class="code-chip">${ic('key', 'width:15px;height:15px')} Handoff code 4821</span>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-title">Quick Actions</div>
+        <div class="qa-grid">
+          <div class="qa shadow-m"><div class="ico" style="background:#5A47FF">${ic('package')}</div><div class="t">Book Delivery</div><div class="s">Send a package</div></div>
+          <div class="qa shadow-m"><div class="ico" style="background:#FFC947">${ic('clock')}</div><div class="t">Schedule</div><div class="s">Plan ahead</div></div>
+          <div class="qa shadow-m"><div class="ico" style="background:#10B981">${ic('star')}</div><div class="t">Favorites</div><div class="s">Quick locations</div></div>
+          <div class="qa shadow-m"><div class="ico" style="background:#EF4444">${ic('message')}</div><div class="t">Support</div><div class="s">Get help</div></div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="row between" style="margin-bottom:4px"><div class="section-title">Recent Deliveries</div><span style="font:600 14px Roboto;color:var(--primary)">View All</span></div>
+        <div class="recent shadow-s"><div><div class="d">Mon, Sep 29, 4:12 PM</div><div class="r">Ikeja → Yaba</div><div class="st" style="color:var(--success)">Delivered</div></div><div class="p">₦3,600</div></div>
+        <div class="recent shadow-s"><div><div class="d">Sat, Sep 27, 11:05 AM</div><div class="r">Surulere → Ikoyi</div><div class="st" style="color:var(--success)">Delivered</div></div><div class="p">₦4,950</div></div>
+      </div>
+    </div>
+    <div class="tabbar">
+      <span class="tab on">${ic('home')}Home</span><span class="tab">${ic('list')}Bookings</span><span class="tab">${ic('user')}Profile</span><span class="tab">${ic('settings')}Settings</span>
+    </div>`,
+
+  // app/tracking.tsx
+  tracking: () => `<div class="mapfill">${mapSvg({ route: ROUTE, trail: TRAIL, pins: PINSET })}</div>
+    ${statusBar()}
+    <div class="chrome"><span class="roundbtn">${ic('back')}</span><span class="live">Live</span><span class="roundbtn" style="background:var(--primary)">${ic('crosshair')}</span></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="lead">
+        <div><div class="status-row"><span class="sdot" style="background:var(--primary)"></span><span class="status-title">In Transit</span></div><div class="eta">ETA 12 mins</div></div>
+        <span class="elapsed">18:24</span>
+      </div>
+      <div class="actions">
+        <div class="primary-act" style="background:var(--success)">${ic('phone')}Call Chinedu</div>
+        <div class="sec-act">${ic('message')}</div>
+        <div class="sec-act">${ic('share')}</div>
+      </div>
+      <div class="rider-row">
+        <div class="avatar">C</div>
+        <div><div class="rider-name">Chinedu O.</div><div class="rider-sub">Motorcycle · LSD 482 KJ</div></div>
+        <div class="rating">${ic('star')}4.9</div>
+      </div>
+      <div class="details-toggle">Delivery details ${ic('chevronUp')}</div>
+    </div>`,
+
+  // app/tracking.tsx (details open, handoff code shown once the package is picked up)
+  handoff: () => `<div class="mapfill">${mapSvg({ route: ROUTE.slice(3), trail: [[70, 430], [90, 430], [90, 300], [200, 300], [200, 190]], pins: { dropoff: PINSET.dropoff, rider: [200, 190] } })}</div>
+    ${statusBar()}
+    <div class="chrome"><span class="roundbtn">${ic('back')}</span><span class="live">Live</span><span class="roundbtn">${ic('crosshair')}</span></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="lead">
+        <div><div class="status-row"><span class="sdot" style="background:var(--accent)"></span><span class="status-title">Rider Nearby</span></div><div class="eta">ETA 3 mins</div></div>
+        <span class="elapsed">27:02</span>
+      </div>
+      <div class="code-card">
+        <div class="lbl">${ic('key')}Your handoff code</div>
+        <div class="digits"><span class="digit">4</span><span class="digit">8</span><span class="digit">2</span><span class="digit">1</span></div>
+        <div class="hint">Share this code with your rider only when the package is in your hands.</div>
+      </div>
+      <div class="steps">
+        <div class="step"><span class="b">${ic('tick')}</span>Package picked up</div>
+        <div class="step"><span class="b">${ic('tick')}</span>Package in transit</div>
+        <div class="step now"><span class="b">${ic('tick')}</span>Rider approaching destination</div>
+        <div class="step todo"><span class="b"></span>Package delivered</div>
+      </div>
+      <div class="details-toggle">Hide details ${ic('chevronDown')}</div>
+    </div>`,
+
+  // app/booking/pricing.tsx
+  pricing: () => `${statusBar()}
+    <div class="topbar"><span class="backsq">${ic('back')}</span><div><div class="t">Price Estimate</div><div class="s">Step 3 of 4</div></div></div>
+    <div class="progress"><i></i></div>
+    <div class="scroll">
+      <div class="card price-card shadow-l">${ic('dollar', 'width:32px;height:32px;color:var(--primary)')}<div><div class="total">₦4,200</div><div class="lbl">Total Cost</div></div><span class="time-pill">${ic('clock')}25 mins</span></div>
+      <div class="card shadow-m">
+        <div class="card-title">Delivery Details</div>
+        <div class="detail">${ic('package', 'color:var(--primary)')}Medium Package</div>
+        <div class="detail">${ic('pin', 'color:var(--success)')}From: 12 Adeola Odeku St, Victoria Island</div>
+        <div class="detail">${ic('pin', 'color:var(--error)')}To: 5 Admiralty Way, Lekki Phase 1</div>
+        <div class="detail">${ic('truck', 'color:var(--text2)')}Distance: 14.00 km</div>
+        <div class="detail">${ic('clock', 'color:var(--accent)')}Immediate Pickup</div>
+      </div>
+      <div class="card shadow-m">
+        <div class="card-title">Price Breakdown</div>
+        <div class="bd"><span>Delivery fee (14.00 km × ₦300)</span><b>₦4,200</b></div>
+        <div class="divider"></div>
+        <div class="bd total"><span>Total</span><b>₦4,200</b></div>
+      </div>
+      <div class="card shadow-m">
+        <div class="card-title">Pay with</div>
+        <div class="paybox"><div class="payopt on">${ic('card')}Card</div><div class="payopt">${ic('cash')}Cash</div></div>
+        <div class="secure">${ic('lock')}Card payments are processed securely by Paystack</div>
+      </div>
+    </div>
+    <div class="bottom-cta"><div class="cta">Confirm Booking ${ic('chevronRight')}</div></div>`,
+
+  // app/(rider)/dashboard.tsx
+  rider: () => `${statusBar()}
+    <div class="rd-head">
+      <div><div class="greeting">Good morning, Tunde</div><div class="online"><span class="dot"></span>Online <span class="switch" style="margin-left:6px"></span></div></div>
+      <div class="row" style="gap:10px"><div class="round48 shadow-m">${ic('bell')}</div><div class="round48 shadow-m">${ic('user')}</div></div>
+    </div>
+    <div class="stats">
+      <div class="stat shadow-m">${ic('package', 'color:var(--primary)')}<div class="v">1</div><div class="l">Active Jobs</div></div>
+      <div class="stat shadow-m">${ic('check', 'color:var(--success)')}<div class="v">6</div><div class="l">Completed Today</div></div>
+      <div class="stat shadow-m">${ic('dollar', 'color:var(--success)')}<div class="v">₦18,450</div><div class="l">Today's Earnings</div></div>
+    </div>
+    <div class="rd-actions">
+      <div class="rd-act shadow-m" style="background:var(--primary)">${ic('dollar')}View Earnings</div>
+      <div class="rd-act shadow-m" style="background:var(--success)">${ic('nav')}Navigate</div>
+      <div class="rd-act shadow-m" style="background:var(--error)">${ic('flame')}Demand Map</div>
+    </div>
+    <div class="section" style="margin-bottom:14px"><div class="row between"><div class="section-title">Available Deliveries</div><span style="font:500 14px Roboto;color:var(--text2);margin-bottom:12px">3 jobs</span></div></div>
+    <div class="job shadow-l">
+      <span class="urgent">URGENT</span>
+      <div class="row between"><div><div class="job-id">#a91f03c2</div><div class="ago">2 min ago</div></div><div class="reward"><div class="a">₦3,500</div><div class="l">Reward</div></div></div>
+      <div class="row between" style="margin-top:12px"><div class="size"><i></i>Medium Package</div><span style="font:400 13px Roboto;color:var(--text2)">From: Amaka N.</span></div>
+      <div class="addr">
+        <div class="a">${ic('pin', 'color:var(--success)')}12 Adeola Odeku St, Victoria Island</div>
+        <div class="sep"></div>
+        <div class="a">${ic('pin', 'color:var(--error)')}5 Admiralty Way, Lekki Phase 1</div>
+      </div>
+      <div class="meta"><span>${ic('nav')}14 km</span><span>${ic('clock')}~25 mins</span></div>
+      <div class="job-btns"><div class="reject">${ic('x')}Reject</div><div class="accept">${ic('check')}Accept Job</div></div>
+    </div>
+    <div class="job shadow-m" style="opacity:.9">
+      <div class="row between"><div><div class="job-id">#5c27e8b0</div><div class="ago">6 min ago</div></div><div class="reward"><div class="a">₦2,100</div><div class="l">Reward</div></div></div>
+    </div>`,
+
+  // app/chat.tsx
+  chat: () => `${statusBar()}
+    <div class="chat-head">
+      <span class="backsq" style="background:transparent">${ic('back')}</span>
+      <div class="avatar">C</div>
+      <div><div class="n">Chinedu O.</div><div class="s">Your delivery rider · online</div></div>
+      <span class="callbtn">${ic('phone')}</span>
+    </div>
+    <div class="msgs">
+      <span class="day">Today</span>
+      <div class="bubble them">Hi Amaka, I've picked up your package. Heading to Lekki now 🛵<span class="tm">4:02 PM</span></div>
+      <div class="bubble me">Great, thank you! Please call when you're at the gate.<span class="tm">4:03 PM</span></div>
+      <div class="callcard"><span class="c">${ic('phone')}</span><div>Voice call<small>1:24 · In-app call</small></div></div>
+      <div class="bubble them">Traffic is light, I'll be there in about 10 mins.<span class="tm">4:11 PM</span></div>
+      <div class="bubble me">Perfect. I'll have the handoff code ready 👍<span class="tm">4:11 PM</span></div>
+      <div class="bubble them">I'm outside the gate now.<span class="tm">4:20 PM</span></div>
+    </div>
+    <div class="composer"><div class="field">Message</div><span class="send">${ic('send')}</span></div>`,
+};
+
+// ---------------------------------------------------------------- shots
+// size: CSS canvas (rendered at 2x). device: logical screen size in dp and on-canvas width.
+const LAYOUT = {
+  phone:    { devW: 340, cardW: 184, margin: 18, devTop: 244, copyTop: 46, copyW: 280, headW: 440, headFont: 36, subFont: 15 },
+  tablet7:  { devW: 480, cardW: 212, margin: 16, devTop: 250, copyTop: 58, copyW: 340, headW: 480, headFont: 38, subFont: 17, tablet: true },
+  tablet10: { devW: 640, cardW: 264, margin: 24, devTop: 396, copyTop: 88, copyW: 460, headW: 560, headFont: 44, subFont: 21, tablet: true },
+};
+
+// Cards float over the device edge. `y` is a fraction of canvas height.
+const card = (tone, side, y, body) => ({ tone, side, y, body });
+const L = (...c) => c.map(([tone, y, body]) => card(tone, 'l', y, body));
+const R = (...c) => c.map(([tone, y, body]) => card(tone, 'r', y, body));
+
+// Copy below is lifted from the screens themselves (app/(tabs)/index.tsx,
+// app/tracking.tsx, app/booking/pricing.tsx, app/(rider)/dashboard.tsx, app/chat.tsx).
+const SHOTS = {
+  'phone-01': {
+    size: [540, 960], kind: 'phone', screen: 'home', align: 'left',
+    eyebrow: 'Book in seconds',
+    headline: 'Send a package <em>across town</em>',
+    sub: 'Pick a size, set two addresses and a nearby rider is on the way.',
+    floats: [
+      ...L(['f-white', 0.42, `<div class="f-row"><span class="f-ico" style="background:var(--primary);color:#fff">${ic('package')}</span>
+        <div class="f-col"><div class="f-title">Book Delivery</div><div class="f-sub">Medium package</div></div></div>
+        <div class="f-value" style="margin-top:14px;color:var(--primary)">₦4,200</div>
+        <div class="f-sub" style="margin-top:4px">14.00 km · 25 mins</div>`]),
+      ...R(['f-amber', 0.57, `<span class="f-ico" style="background:rgba(11,16,64,.12);color:var(--navy)">${ic('clock')}</span>
+        <div class="f-value" style="margin-top:12px;font-size:22px">12 mins</div>
+        <div class="f-label">Rider on the way</div>`]),
+    ],
+  },
+  'phone-02': {
+    size: [540, 960], kind: 'phone', screen: 'tracking', align: 'center',
+    eyebrow: 'Live tracking',
+    headline: 'Watch your rider <em>in real time</em>',
+    sub: 'Route, trail and ETA update live as your package moves.',
+    floats: [
+      ...L(['f-green', 0.33, `<div class="f-row"><span class="f-ico" style="background:rgba(255,255,255,.24)">${ic('nav')}</span>
+        <div class="f-col"><div class="f-title">In Transit</div><div class="f-sub" style="color:#fff">ETA 12 mins</div></div></div>`]),
+      ...R(['f-white', 0.47, `<div class="f-row"><span class="f-dot" style="background:var(--primary);color:#fff;font:800 17px Roboto">C</span>
+        <div class="f-col"><div class="f-title">Chinedu O.</div><div class="f-sub">LSD 482 KJ</div></div></div>
+        <div class="f-row" style="margin-top:13px;gap:6px"><span style="display:flex;color:#FFC947">${ic('star')}</span>
+        <span style="font:700 13.5px Roboto">4.9 · 214 trips</span></div>`]),
+    ],
+  },
+  'phone-03': {
+    size: [540, 960], kind: 'phone', screen: 'pricing', align: 'left',
+    eyebrow: 'Upfront pricing',
+    headline: 'Know the price <em>before you book</em>',
+    sub: 'Pay by card through Paystack, or hand over cash at the door.',
+    floats: [
+      ...L(['f-white', 0.38, `<div class="f-row" style="justify-content:space-between"><span style="font:600 12.5px Roboto;opacity:.68">Total Cost</span>
+        <span class="f-chip" style="background:#DCFCE7;color:#047857;padding:6px 11px;font-size:12px">${ic('clock', 'width:14px;height:14px')}25 mins</span></div>
+        <div class="f-value" style="margin-top:10px;color:var(--primary)">₦4,200</div>
+        <div class="f-sub" style="margin-top:6px">₦300 × 14.00 km</div>`]),
+      ...R(['f-blue', 0.60, `<span class="f-ico" style="background:rgba(255,255,255,.2)">${ic('lock')}</span>
+        <div class="f-title" style="margin-top:12px">Secured by Paystack</div>
+        <div class="f-sub">Card, bank or cash on delivery</div>`]),
+    ],
+  },
+  'phone-04': {
+    size: [540, 960], kind: 'phone', screen: 'rider', align: 'center',
+    eyebrow: 'Ride with Ridely',
+    headline: 'Earn on <em>your own schedule</em>',
+    sub: 'Go online, accept nearby jobs and watch your earnings grow.',
+    floats: [
+      ...L(['f-green', 0.34, `<div class="f-label" style="margin:0">Today's Earnings</div>
+        <div class="f-value" style="margin-top:8px">₦18,450</div>
+        <div class="f-row" style="margin-top:12px;gap:8px">${ic('truck', 'width:16px;height:16px')}<span style="font:500 12.5px Roboto;opacity:.88">6 deliveries</span></div>`]),
+      ...R(['f-blue', 0.52, `<div class="f-row" style="justify-content:space-between;align-items:flex-start">
+          <div class="f-col"><div class="f-sub" style="margin:0;color:#fff">New job nearby</div>
+          <div class="f-value" style="margin-top:6px;font-size:24px">₦3,500</div></div>
+          <span class="f-dot" style="background:var(--accent);color:var(--navy)">${ic('check')}</span></div>
+        <div class="f-sub" style="margin-top:10px;color:#fff">Victoria Island → Lekki · 14 km</div>`]),
+    ],
+  },
+  'phone-05': {
+    size: [540, 960], kind: 'phone', screen: 'handoff', align: 'center',
+    eyebrow: 'Safe handoff',
+    headline: 'A secret code for <em>every drop-off</em>',
+    sub: 'Your package only changes hands for the person who booked it.',
+    floats: [
+      ...L(['f-amber', 0.58, `<span class="f-ico" style="background:rgba(11,16,64,.12);color:var(--navy)">${ic('pin')}</span>
+        <div class="f-value" style="margin-top:12px;font-size:21px">Rider nearby</div>
+        <div class="f-label">ETA 3 mins</div>`]),
+      ...R(['f-white', 0.40, `<div class="f-title" style="color:var(--primary);font-size:12.5px;letter-spacing:.09em;text-transform:uppercase">${ic('key', 'width:15px;height:15px;vertical-align:-2px')} Handoff code</div>
+        <div class="f-digits"><span class="f-digit">4</span><span class="f-digit">8</span><span class="f-digit">2</span><span class="f-digit">1</span></div>
+        <div class="f-sub" style="margin-top:12px">Share it only once the package is in your hands.</div>`]),
+    ],
+  },
+  'phone-06': {
+    size: [540, 960], kind: 'phone', screen: 'chat', align: 'left',
+    eyebrow: 'Stay in touch',
+    headline: 'Chat or call your rider <em>in-app</em>',
+    sub: 'No need to share your number. Everything stays inside Ridely.',
+    floats: [
+      ...L(['f-white', 0.36, `<div style="font:400 13px/1.4 Roboto;color:var(--text)">I'm outside the gate now.</div>
+        <div style="font:400 11px Roboto;color:var(--text3);margin-top:5px;text-align:right">Chinedu · 4:20 PM</div>
+        <div style="margin-top:11px;background:var(--primary);color:#fff;border-radius:16px 16px 6px 16px;padding:10px 12px;font:400 13px/1.4 Roboto">I'll have the handoff code ready 👍</div>`]),
+      ...R(['f-green', 0.56, `<div class="f-row"><span class="f-dot" style="background:rgba(255,255,255,.24)">${ic('phone')}</span>
+        <div class="f-col"><div class="f-title">Voice call</div><div class="f-sub" style="color:#fff">1:24 · in-app</div></div></div>`]),
+    ],
+  },
+  'tablet7-01': { size: [600, 960], kind: 'tablet7', screen: 'home', align: 'left' },
+  'tablet7-02': { size: [600, 960], kind: 'tablet7', screen: 'tracking', align: 'center' },
+  'tablet10-01': { size: [800, 1280], kind: 'tablet10', screen: 'home', align: 'left' },
+  'tablet10-02': { size: [800, 1280], kind: 'tablet10', screen: 'tracking', align: 'center' },
+  feature: { size: [512, 250], feature: true },
+};
+
+// The tablet shots carry the same cards as their phone counterparts.
+SHOTS['tablet7-01'].floats = SHOTS['phone-01'].floats;
+SHOTS['tablet7-02'].floats = SHOTS['phone-02'].floats;
+SHOTS['tablet10-01'].floats = SHOTS['phone-01'].floats;
+SHOTS['tablet10-02'].floats = SHOTS['phone-02'].floats;
+for (const id of ['tablet7-01', 'tablet7-02', 'tablet10-01', 'tablet10-02']) {
+  SHOTS[id].eyebrow = SHOTS[id.replace('tablet7-', 'phone-').replace('tablet10-', 'phone-')].eyebrow;
+  SHOTS[id].headline = SHOTS[id.replace('tablet7-', 'phone-').replace('tablet10-', 'phone-')].headline;
+  SHOTS[id].sub = SHOTS[id.replace('tablet7-', 'phone-').replace('tablet10-', 'phone-')].sub;
+}
+
+function renderShot(id) {
+  const shot = SHOTS[id];
+  const root = document.getElementById('root');
+  if (!shot) { root.innerHTML = `<p style="color:#fff;padding:20px">Unknown shot "${id}". Try: ${Object.keys(SHOTS).join(', ')}</p>`; return; }
+
+  if (shot.feature) {
+    root.innerHTML = `<div class="feature">
+      <img class="wordmark" src="../../../assets/images/logo-wordmark-dark.png" alt="Ridely">
+      <h1>Deliveries, <em>made simple.</em></h1>
+      <p>Book a package, track your rider live and pay securely. Or hop on as a rider and earn.</p>
+      <div class="float f-pad f-amber" style="left:300px;top:22px;width:112px">
+        <div style="font:800 19px Roboto">₦4,200</div>
+        <div style="font:500 11px Roboto;opacity:.7;margin-top:3px">14.00 km · 25 min</div>
+      </div>
+      <div class="float f-pad f-green" style="left:286px;top:150px;width:120px">
+        <div style="font:700 13px Roboto">In Transit</div>
+        <div style="font:500 11px Roboto;color:#fff;opacity:.85;margin-top:3px">ETA 12 mins</div>
+      </div>
+      <img class="rider" src="rider.png" alt="">
+      <div class="device" style="left:auto;right:22px;transform:none;top:20px;padding:5px;border-radius:26px">
+        <div class="viewport" style="width:138px;height:298px;border-radius:21px"><div class="screen" id="scr"></div></div>
+      </div>
+    </div>`;
+    mountScreen('tracking', 138, 298, 360);
+    return;
+  }
+
+  const [W, H] = shot.size;
+  const L = LAYOUT[shot.kind];
+  const bezel = L.tablet ? 28 : 18;
+  const viewW = L.devW - bezel;
+  const scale = viewW / (L.tablet ? L.devW : 360);
+  const viewH = H - L.devTop - bezel;
+  const logicalH = Math.round(viewH / scale);
+
+  root.innerHTML = `<div class="canvas">
+    <div class="copy ${shot.align}" style="top:${L.copyTop}px${shot.align === 'left' ? `;width:${L.copyW}px` : ''}">
+      <span class="eyebrow">${shot.eyebrow}</span>
+      <div class="headline" style="font-size:${L.headFont}px;max-width:${L.headW}px">${shot.headline}</div>
+      <div class="sub" style="font-size:${L.subFont}px">${shot.sub}</div>
+    </div>
+    <div class="device${L.tablet ? ' tablet' : ''}" style="top:${L.devTop}px;width:${L.devW}px">
+      <div class="viewport" style="width:${viewW}px;height:${viewH}px"><div class="screen" id="scr"></div></div>
+    </div>
+    <div class="floats">
+      ${(shot.floats || []).map((f) => `<div class="float f-pad ${f.tone}" style="
+          ${f.side === 'l' ? `left:${L.margin}px` : `right:${L.margin}px`};
+          top:${Math.round(f.y * H - (L.tablet ? 40 : 0))}px;
+          width:${L.cardW}px">${f.body}</div>`).join('')}
+    </div>
+  </div>`;
+  mountScreen(shot.screen, viewW, viewH, L.tablet ? L.devW : 360, logicalH);
+}
+
+function mountScreen(name, pxW, pxH, logicalW, logicalH) {
+  const scale = pxW / logicalW;
+  const h = logicalH ?? Math.round(pxH / scale);
+  SCREEN_H = Math.max(780, Math.round((h * 360) / logicalW));
+  const scr = document.getElementById('scr');
+  scr.style.width = logicalW + 'px';
+  scr.style.height = h + 'px';
+  scr.style.transform = `scale(${scale})`;
+  scr.innerHTML = SCREENS[name]() + '<span class="gesture"></span>';
+  // A real capture in store/play/raw/<name>.png replaces the recreation.
+  const raw = new Image();
+  raw.className = 'raw';
+  raw.onload = () => scr.appendChild(raw);
+  raw.src = `../raw/${name}.png`;
+}
+
+renderShot(new URLSearchParams(location.search).get('shot') || 'phone-02');
+</script>
+</body>
+</html>

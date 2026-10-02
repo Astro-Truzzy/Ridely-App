@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Modal,
   View,
-  Text,
   StyleSheet,
   TextInput,
   TouchableOpacity,
@@ -10,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { useTheme } from '@/contexts/ThemeContext';
 import { isValidWithdrawalPin } from '@/lib/withdrawalPin';
 

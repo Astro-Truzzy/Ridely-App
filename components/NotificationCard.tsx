@@ -1,13 +1,13 @@
 import React from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   TouchableOpacity,
   LayoutAnimation,
   Platform,
   UIManager,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { Trash2, ChevronDown, ChevronRight } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 

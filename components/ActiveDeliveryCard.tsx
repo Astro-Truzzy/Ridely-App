@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
+import { View, StyleSheet, Pressable, Platform } from 'react-native';
+import { Text } from '@/components/Text';
 import Constants from 'expo-constants';
 import Animated, {
   useSharedValue,
@@ -151,7 +152,14 @@ export function ActiveDeliveryCard({ delivery, searching, handoffCode, onPress }
   const accent = searching ? theme.colors.primary : theme.colors.success;
   const badge = homeActiveDeliveryBadge(delivery.status, searching);
   const eta = delivery.estimated_time || '15 mins';
-  const hasCoords = delivery.pickup_lat != null && delivery.pickup_lng != null;
+  // numeric columns can arrive as strings; the native map crashes on a non-number region.
+  const pickupLat = Number(delivery.pickup_lat);
+  const pickupLng = Number(delivery.pickup_lng);
+  const hasCoords =
+    delivery.pickup_lat != null &&
+    delivery.pickup_lng != null &&
+    Number.isFinite(pickupLat) &&
+    Number.isFinite(pickupLng);
   const pillBg = isDark ? 'rgba(15, 20, 25, 0.82)' : 'rgba(255, 255, 255, 0.94)';
 
   return (
@@ -182,8 +190,8 @@ export function ActiveDeliveryCard({ delivery, searching, handoffCode, onPress }
               key={isDark ? 'dark' : 'light'}
               style={StyleSheet.absoluteFill}
               initialRegion={{
-                latitude: delivery.pickup_lat,
-                longitude: delivery.pickup_lng,
+                latitude: pickupLat,
+                longitude: pickupLng,
                 latitudeDelta: 0.012,
                 longitudeDelta: 0.012,
               }}

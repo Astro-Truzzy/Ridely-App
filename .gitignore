@@ -42,3 +42,8 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
+
+# Play Console service account / FCM config
+secrets/
+google-services.json
+store/play/.render-tmp/

@@ -15,3 +15,6 @@ supabase/.temp/
 # gets uploaded and EAS treats the project as bare, skipping prebuild.
 android/
 ios/
+
+# Play Console service account for `eas submit`
+secrets/
