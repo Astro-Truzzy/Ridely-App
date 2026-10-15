@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -78,9 +78,8 @@ function rowToDisplay(row: PaymentMethodRow): PaymentMethodDisplay {
 }
 
 export function usePaymentMethods() {
-  const { user, userType } = useAuth();
+  const { user } = useAuth();
   const qc = useQueryClient();
-  const placeholderInsertedRef = useRef(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
 
   const query = useQuery({
@@ -150,32 +149,13 @@ export function usePaymentMethods() {
     [user?.id, invalidate]
   );
 
+  // Cash-on-delivery is retired for new bookings (Phase 4). This is intentionally
+  // a no-op now: existing cash rows stay readable for history, but no new
+  // "Cash on Delivery" placeholder is ever inserted. Kept exported so existing
+  // callers don't change.
   const addPlaceholderMethodsIfEmpty = useCallback(async () => {
-    if (!user?.id || methods.length > 0 || userType !== 'user' || placeholderInsertedRef.current) return;
-    placeholderInsertedRef.current = true;
-    try {
-      const { data: existing } = await (supabase as any)
-        .from('payment_methods')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('type', 'cash')
-        .eq('label', 'Cash on Delivery')
-        .limit(1);
-      if (existing && existing.length > 0) {
-        await invalidate();
-        return;
-      }
-      await (supabase as any).from('payment_methods').insert({
-        user_id: user.id,
-        type: 'cash',
-        label: 'Cash on Delivery',
-        is_default: true,
-      });
-      await invalidate();
-    } catch {
-      placeholderInsertedRef.current = false;
-    }
-  }, [user?.id, userType, methods.length, invalidate]);
+    return;
+  }, []);
 
   const { refetch: rqRefetch } = query;
   const refetch = useCallback(async () => {

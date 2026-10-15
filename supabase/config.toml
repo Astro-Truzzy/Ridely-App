@@ -48,6 +48,21 @@ verify_jwt = false
 [functions.create-delivery]
 verify_jwt = false
 
+[functions.payment-init]
+verify_jwt = false
+
+[functions.payment-status]
+verify_jwt = false
+
+[functions.settlement-run]
+verify_jwt = false
+
+[functions.verify-rider-bank]
+verify_jwt = false
+
+[functions.admin-finance]
+verify_jwt = false
+
 [functions.google-maps]
 verify_jwt = false
 

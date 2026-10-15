@@ -10,9 +10,17 @@ import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { DeliveryRequestModal } from '@/components/rider/DeliveryRequestModal';
 import * as Notifications from 'expo-notifications';
 import { setNotificationResponseHandler } from '@/hooks/usePushNotifications';
+import {
+  isJobActionableForRider,
+  markJobRequestNotificationsRead,
+} from '@/lib/riderJobAlerts';
 
 const RIDER_SCHEDULE_KEY = '@ridely/rider_notification_schedule';
 const USER_SCHEDULE_KEY = '@ridely/user_notification_schedule';
+const HANDLED_PUSH_KEY = '@ridely/handled_push_identifiers';
+// A tapped push older than this is treated as stale (e.g. the OS returning a
+// days-old tap on every cold start) and must not pop a job modal.
+const PUSH_RESPONSE_MAX_AGE_MS = 15 * 60 * 1000;
 
 function isWithinQuietHours(startTime: string, endTime: string): boolean {
   const now = new Date();
@@ -47,6 +55,31 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   const isCustomer = userType === 'user';
   const isRider = userType === 'rider';
   const mountedRef = useRef(true);
+  const riderId = isRider ? user?.id ?? null : null;
+
+  /** Show the job modal only if the delivery is still open and not already dismissed. */
+  const showJobRequestModal = useCallback(
+    async (deliveryId: string, source: 'realtime' | 'push' | 'background') => {
+      if (!riderId || !mountedRef.current) return;
+      const actionable = await isJobActionableForRider(deliveryId, riderId);
+      if (!mountedRef.current) return;
+      if (!actionable) {
+        // Dead or already-declined job: clear its notifications so it never
+        // pops again instead of showing a phantom offer.
+        await markJobRequestNotificationsRead(riderId, deliveryId);
+        return;
+      }
+      if (source === 'background') {
+        pendingDeliveryIdRef.current = deliveryId;
+        if (AppState.currentState !== 'active') return;
+      }
+      if (mountedRef.current) {
+        setDeliveryRequestModal({ visible: true, deliveryId });
+        pendingDeliveryIdRef.current = null;
+      }
+    },
+    [riderId]
+  );
 
   const fetchUnreadCount = async () => {
     if (!user?.id) return;
@@ -90,7 +123,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
             table: 'notifications',
             filter: insertFilter,
           },
-          async (payload: { new: { title?: string; message?: string; rider_id?: string | null; type?: string; delivery_id?: string | null } }) => {
+          async (payload: { new: { id?: string; title?: string; message?: string; rider_id?: string | null; type?: string; delivery_id?: string | null } }) => {
             if (isCustomer && payload.new?.rider_id != null) return;
             const title = payload.new?.title ?? 'New notification';
             const message = payload.new?.message ?? '';
@@ -107,12 +140,11 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
               } catch {}
               if (deliveryId && mountedRef.current) {
-                pendingDeliveryIdRef.current = deliveryId;
                 const appState = AppState.currentState;
-                if (appState === 'active') {
-                  setDeliveryRequestModal({ visible: true, deliveryId });
-                  pendingDeliveryIdRef.current = null;
-                }
+                await showJobRequestModal(
+                  deliveryId,
+                  appState === 'active' ? 'realtime' : 'background'
+                );
                 return;
               }
             }
@@ -176,7 +208,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         supabase.removeChannel(channel);
       };
     }
-  }, [user?.id, isCustomer, isRider, receiptNotifications, pushNotifications, showToast]);
+  }, [user?.id, isCustomer, isRider, receiptNotifications, pushNotifications, showToast, showJobRequestModal]);
 
   // When app returns from background, show pending delivery request modal if we have one
   useEffect(() => {
@@ -185,18 +217,52 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       if (nextState === 'active' && pendingDeliveryIdRef.current && mountedRef.current) {
         const id = pendingDeliveryIdRef.current;
         pendingDeliveryIdRef.current = null;
-        setDeliveryRequestModal({ visible: true, deliveryId: id });
+        // Revalidate: the job may have been taken or dismissed while backgrounded.
+        void showJobRequestModal(id, 'realtime');
       }
     });
     return () => sub.remove();
-  }, [isRider, user?.id]);
+  }, [isRider, user?.id, showJobRequestModal]);
 
   // Handle push notification tap (foreground/background) and app launched from notification (killed state)
   useEffect(() => {
-    const handleResponse = (data: Record<string, unknown> | null | undefined) => {
+    const isFreshPushResponse = (
+      response: { notification?: { date?: number; request?: { identifier?: string } } } | null | undefined
+    ): boolean => {
+      const presentedAt = response?.notification?.date;
+      // Unknown age: allow through (the modal revalidates before showing).
+      // Known-old taps are stale OS replays and must be ignored.
+      if (typeof presentedAt !== 'number') return true;
+      return Date.now() - presentedAt <= PUSH_RESPONSE_MAX_AGE_MS;
+    };
+
+    const isDuplicatePush = async (identifier: string | undefined): Promise<boolean> => {
+      if (!identifier) return false;
+      try {
+        const raw = await AsyncStorage.getItem(HANDLED_PUSH_KEY);
+        const handled: string[] = raw ? (JSON.parse(raw) as string[]) : [];
+        if (handled.includes(identifier)) return true;
+        const next = [...handled, identifier].slice(-50);
+        await AsyncStorage.setItem(HANDLED_PUSH_KEY, JSON.stringify(next));
+        return false;
+      } catch {
+        return false;
+      }
+    };
+
+    const handleResponse = (
+      data: Record<string, unknown> | null | undefined,
+      identifier?: string
+    ) => {
       if (!data || !mountedRef.current) return;
       if (isRider && data?.type === 'job_request' && data?.deliveryId) {
-        setDeliveryRequestModal({ visible: true, deliveryId: String(data.deliveryId) });
+        const deliveryId = String(data.deliveryId);
+        // A push tap and the live realtime INSERT for the same job can both
+        // fire: dedupe so one tap never stacks the modal twice.
+        void (async () => {
+          if (identifier && (await isDuplicatePush(identifier))) return;
+          await showJobRequestModal(deliveryId, 'push');
+        })();
       } else if (!isRider && data?.type === 'delivery_update' && data?.deliveryId) {
         router.push({ pathname: '/tracking', params: { deliveryId: String(data.deliveryId) } } as any);
       } else {
@@ -204,14 +270,18 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         router.push(route as any);
       }
     };
-    setNotificationResponseHandler(handleResponse);
-    // When app was opened from killed state by tapping a notification, the listener can miss it — check once on mount
+    setNotificationResponseHandler((data) => handleResponse(data));
+    // When app was opened from killed state by tapping a notification, the listener can miss it — check once on mount.
+    // Guarded by freshness: the OS can hand back a days-old tap, which must
+    // not pop a phantom job modal on every login.
     Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (!response || !mountedRef.current) return;
+      if (!isFreshPushResponse(response)) return;
       const data = response?.notification?.request?.content?.data as Record<string, unknown> | undefined;
-      if (data) handleResponse(data);
+      if (data) handleResponse(data, response?.notification?.request?.identifier);
     });
     return () => setNotificationResponseHandler(null);
-  }, [isRider]);
+  }, [isRider, showJobRequestModal]);
 
   const closeDeliveryRequestModal = () => {
     setDeliveryRequestModal({ visible: false, deliveryId: null });

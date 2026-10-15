@@ -79,7 +79,7 @@ export default function SupportScreen() {
     {
       id: '2',
       question: 'What payment methods do you accept?',
-      answer: 'We accept credit/debit cards, cash on delivery, and Ridely wallet balance. All card payments are processed securely.',
+      answer: 'We accept credit/debit cards and bank transfers. All payments are verified before your delivery is dispatched to riders, so please complete payment in the app when booking.',
       category: 'payment',
     },
     {

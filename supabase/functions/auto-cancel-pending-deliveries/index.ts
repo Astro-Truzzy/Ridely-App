@@ -1,12 +1,17 @@
 /// <reference path="./deno.d.ts" />
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import {
+  STALE_MS,
+  cancellationKind,
+  type CancellationCandidate,
+} from '../_shared/cancellation.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-type PendingDelivery = { id: string; user_id: string };
+type PendingDelivery = CancellationCandidate;
 
 function jsonResponse(payload: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -55,19 +60,25 @@ Deno.serve(async (req) => {
       actorUserId = data.user.id;
     }
 
-    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const twoMinutesAgo = new Date(Date.now() - STALE_MS).toISOString();
+    const nowMs = Date.now();
     let pending: PendingDelivery[] = [];
+    let expiring: PendingDelivery[] = [];
     if (isServiceCaller) {
       const { data, error } = await supabase
         .from('deliveries')
-        .select('id, user_id')
+        .select('id, user_id, payment_status, created_at')
         .eq('status', 'pending')
         .is('rider_id', null)
         .lt('created_at', twoMinutesAgo);
       if (error) {
         return jsonResponse({ error: error.message }, 500);
       }
-      pending = (data ?? []) as PendingDelivery[];
+      for (const row of ((data ?? []) as PendingDelivery[])) {
+        const kind = cancellationKind(row, nowMs);
+        if (kind === 'cancel' || kind === 'expire') pending.push(row);
+        if (kind === 'expire') expiring.push(row);
+      }
     } else if (actorUserId) {
       const body = (await req.json().catch(() => ({}))) as { delivery_id?: string };
       const deliveryId = body.delivery_id;
@@ -76,7 +87,7 @@ Deno.serve(async (req) => {
       }
       const { data, error } = await supabase
         .from('deliveries')
-        .select('id, user_id')
+        .select('id, user_id, payment_status, created_at')
         .eq('id', deliveryId)
         .eq('user_id', actorUserId)
         .eq('status', 'pending')
@@ -85,7 +96,12 @@ Deno.serve(async (req) => {
       if (error) {
         return jsonResponse({ error: error.message }, 500);
       }
-      pending = (data ?? []) as PendingDelivery[];
+      const row = ((data ?? []) as PendingDelivery[])[0];
+      if (row) {
+        const kind = cancellationKind(row, nowMs);
+        if (kind === 'cancel' || kind === 'expire') pending.push(row);
+        if (kind === 'expire') expiring.push(row);
+      }
     }
 
     if (!pending?.length) {
@@ -101,6 +117,26 @@ Deno.serve(async (req) => {
     if (updateError) {
       console.error('auto-cancel update error', updateError);
       return jsonResponse({ error: updateError.message }, 500);
+    }
+
+    // Expired transfer checkouts: close the payments row so late money lands in
+    // the webhook exception path instead of dispatching a cancelled delivery.
+    if (expiring.length > 0) {
+      const { error: expireError } = await supabase
+        .from('payments')
+        .update({
+          status: 'expired',
+          failure_reason: 'Transfer not completed within 30 minutes',
+          updated_at: new Date().toISOString(),
+        })
+        .in(
+          'delivery_id',
+          expiring.map((d) => d.id)
+        )
+        .eq('status', 'pending');
+      if (expireError) {
+        console.error('auto-cancel payments expiry error', expireError);
+      }
     }
 
     const pushTitle = 'Delivery cancelled';

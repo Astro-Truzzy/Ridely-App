@@ -23,7 +23,7 @@ export interface Delivery {
   estimated_time: string;
   delivery_time: 'now' | 'scheduled';
   scheduled_time: string | null;
-  payment_method?: 'cash' | 'card' | 'wallet';
+  payment_method?: 'cash' | 'card' | 'wallet' | 'bank_transfer';
   payment_status?: 'unpaid' | 'pending' | 'paid' | 'failed' | 'refunded';
   payment_reference?: string | null;
   amount_paid?: number | null;
@@ -45,7 +45,7 @@ export type CreateDeliveryInput = {
   estimated_time?: string;
   delivery_time: 'now' | 'scheduled';
   scheduled_time?: string | null;
-  payment_method: 'cash' | 'card';
+  payment_method: 'card';
   payment_reference?: string | null;
 };
 
@@ -205,6 +205,9 @@ export function useDeliveries() {
 
     if (error) {
       const msg = error.message || 'Failed to accept delivery';
+      if (/payment not verified/i.test(msg)) {
+        throw new Error('This delivery is awaiting payment confirmation and cannot be accepted yet.');
+      }
       if (/verified/i.test(msg)) {
         throw new Error(
           'You must be verified to accept deliveries. Go to Profile → Apply for verification and submit your documents.'

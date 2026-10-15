@@ -185,6 +185,106 @@ export async function chargePaystackSavedCard(params: {
 /** Synthetic id for "pay with new card" on booking confirmation. */
 export const PAYSTACK_NEW_CARD_OPTION_ID = '__paystack_new_card__';
 
+/** Synthetic id for "pay with bank transfer" on booking confirmation. */
+export const BANK_TRANSFER_OPTION_ID = '__bank_transfer__';
+
+export interface BankTransferInit {
+  reference: string;
+  delivery_id: string;
+  amount_kobo: number;
+  provider_reference: string | null;
+  authorization_url: string | null;
+  access_code: string | null;
+  idempotent?: boolean;
+}
+
+export interface TransferCheckoutParams {
+  pickup_address: string;
+  dropoff_address: string;
+  pickup_lat?: number | null;
+  pickup_lng?: number | null;
+  dropoff_lat?: number | null;
+  dropoff_lng?: number | null;
+  parcel_size: 'small' | 'medium' | 'large';
+  total_cost: number;
+  distance: number;
+  estimated_time?: string;
+  delivery_time: 'now' | 'scheduled';
+  scheduled_time?: string | null;
+  email: string;
+  idempotencyKey?: string;
+}
+
+/** Start a bank-transfer checkout (central collection account). Never marks paid. */
+export async function initializeBankTransferCheckout(
+  params: TransferCheckoutParams
+): Promise<BankTransferInit> {
+  const headers = await getUserAuthHeaders();
+  const { data, error } = await supabase.functions.invoke('payment-init', {
+    headers,
+    body: {
+      pickup_address: params.pickup_address,
+      dropoff_address: params.dropoff_address,
+      pickup_lat: params.pickup_lat,
+      pickup_lng: params.pickup_lng,
+      dropoff_lat: params.dropoff_lat,
+      dropoff_lng: params.dropoff_lng,
+      parcel_size: params.parcel_size,
+      total_cost: params.total_cost,
+      distance: params.distance,
+      estimated_time: params.estimated_time,
+      delivery_time: params.delivery_time,
+      scheduled_time: params.scheduled_time,
+      email: params.email,
+      idempotency_key: params.idempotencyKey,
+    },
+  });
+
+  if (error) {
+    throw new Error(await getFunctionErrorMessage(error));
+  }
+  const result = data as BankTransferInit | { error?: string; message?: string } | null;
+  if (!result || !(result as BankTransferInit).reference) {
+    throw new Error(
+      (result as { error?: string; message?: string })?.error ||
+        (result as { error?: string; message?: string })?.message ||
+        'Could not start bank transfer checkout'
+    );
+  }
+  return result as BankTransferInit;
+}
+
+export interface PaymentStatus {
+  reference: string;
+  status: string;
+  method: string;
+  expected_amount_kobo: number;
+  confirmed_amount_kobo: number | null;
+  failure_reason: string | null;
+  delivery: {
+    id: string;
+    status: string;
+    payment_status: string;
+  } | null;
+}
+
+/** Read backend payment state for an internal RDL- reference (owner only). */
+export async function fetchPaymentStatus(reference: string): Promise<PaymentStatus> {
+  const headers = await getUserAuthHeaders();
+  const { data, error } = await supabase.functions.invoke(
+    `payment-status?reference=${encodeURIComponent(reference)}`,
+    { method: 'GET', headers }
+  );
+  if (error) {
+    throw new Error(await getFunctionErrorMessage(error));
+  }
+  const result = data as PaymentStatus | { error?: string } | null;
+  if (!result || !(result as PaymentStatus).status) {
+    throw new Error((result as { error?: string })?.error || 'Could not load payment status');
+  }
+  return result as PaymentStatus;
+}
+
 export interface Bank {
   name: string;
   code: string;
@@ -236,6 +336,64 @@ export interface WithdrawResult {
   error?: string;
 }
 
+export interface VerifyRiderBankResult {
+  success: boolean;
+  account_name?: string;
+  message?: string;
+  error?: string;
+}
+
+export interface RiderBankRow {
+  id: string;
+  account_number: string;
+  bank_code: string;
+  account_name: string | null;
+  verified_at: string | null;
+  created_at: string;
+}
+
+/** Verify + save a rider bank destination for automatic payouts (PIN-gated). */
+export async function verifyRiderBank(params: {
+  accountNumber: string;
+  bankCode: string;
+  withdrawalPin: string;
+}): Promise<VerifyRiderBankResult> {
+  try {
+    const headers = await getUserAuthHeaders();
+    const { data, error } = await supabase.functions.invoke('verify-rider-bank', {
+      headers,
+      body: {
+        account_number: params.accountNumber,
+        bank_code: params.bankCode,
+        withdrawal_pin: params.withdrawalPin,
+      },
+    });
+
+    if (error) {
+      return { success: false, error: await getFunctionErrorMessage(error) };
+    }
+
+    const result = data as VerifyRiderBankResult & {
+      attempts_left?: number;
+      locked_until?: string | null;
+      pin_locked?: boolean;
+      locked?: boolean;
+    };
+    if (!result?.success) {
+      return {
+        success: false,
+        error: result ? formatWithdrawalPinError(result) : 'Verification failed',
+      };
+    }
+    return {
+      success: true,
+      account_name: result.account_name,
+      message: result.message,
+    };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'Verification failed' };
+  }
+}
 /** Withdraw from the wallet to a bank account (authenticated). */
 export async function withdrawFromWallet(params: {
   amountInNaira: number;
@@ -286,6 +444,7 @@ export async function withdrawFromWallet(params: {
 }
 
 export interface RiderPayoutResult {
+
   success: boolean;
   amount?: number;
   account_name?: string;

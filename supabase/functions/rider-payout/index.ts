@@ -2,6 +2,11 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { pinFailurePayload } from '../_shared/pinError.ts';
+import {
+  createTransferRecipient,
+  initiatePaystackTransfer,
+  resolveAccountName,
+} from '../_shared/transfers.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -92,10 +97,6 @@ Deno.serve(async (req) => {
   }
 
   const admin = createClient(supabaseUrl, serviceRoleKey);
-  const paystackHeaders = {
-    Authorization: `Bearer ${secret}`,
-    'Content-Type': 'application/json',
-  };
 
   const reference = idempotencyKey
     ? `rp_${riderId}_${idempotencyKey}`
@@ -257,67 +258,35 @@ Deno.serve(async (req) => {
   }
 
   let accountName: string | null = null;
-  try {
-    const resolveRes = await fetch(
-      `https://api.paystack.co/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`,
-      { headers: paystackHeaders }
-    );
-    const resolveData = await resolveRes.json();
-    if (!resolveData.status) {
-      await releaseOnFailure();
-      await updatePayout({
-        status: STATUS.failed,
-        failure_reason: resolveData.message || 'Could not verify bank account',
-        updated_at: new Date().toISOString(),
-      });
-      return json({ error: resolveData.message || 'Could not verify bank account' }, 400);
-    }
-    accountName = resolveData.data.account_name;
-    await updatePayout({ account_name: accountName, updated_at: new Date().toISOString() });
-  } catch {
+  const resolved = await resolveAccountName(secret, accountNumber, bankCode);
+  if (!resolved.ok || !resolved.accountName) {
     await releaseOnFailure();
     await updatePayout({
       status: STATUS.failed,
-      failure_reason: 'Could not verify bank account',
+      failure_reason: resolved.message || 'Could not verify bank account',
       updated_at: new Date().toISOString(),
     });
-    return json({ error: 'Could not verify bank account' }, 400);
+    return json({ error: resolved.message || 'Could not verify bank account' }, 400);
   }
+  accountName = resolved.accountName;
+  await updatePayout({ account_name: accountName, updated_at: new Date().toISOString() });
 
-  let recipientCode: string;
-  try {
-    const recipientRes = await fetch('https://api.paystack.co/transferrecipient', {
-      method: 'POST',
-      headers: paystackHeaders,
-      body: JSON.stringify({
-        type: 'nuban',
-        name: accountName,
-        account_number: accountNumber,
-        bank_code: bankCode,
-        currency: 'NGN',
-      }),
-    });
-    const recipientData = await recipientRes.json();
-    if (!recipientData.status) {
-      await releaseOnFailure();
-      await updatePayout({
-        status: STATUS.failed,
-        failure_reason: recipientData.message || 'Could not create transfer recipient',
-        updated_at: new Date().toISOString(),
-      });
-      return json({ error: recipientData.message || 'Could not create transfer recipient' }, 400);
-    }
-    recipientCode = recipientData.data.recipient_code;
-    await updatePayout({ recipient_code: recipientCode, updated_at: new Date().toISOString() });
-  } catch {
+  const recipient = await createTransferRecipient(secret, {
+    name: accountName,
+    accountNumber,
+    bankCode,
+  });
+  if (!recipient.ok || !recipient.recipientCode) {
     await releaseOnFailure();
     await updatePayout({
       status: STATUS.failed,
-      failure_reason: 'Could not create transfer recipient',
+      failure_reason: recipient.message || 'Could not create transfer recipient',
       updated_at: new Date().toISOString(),
     });
-    return json({ error: 'Could not create transfer recipient' }, 400);
+    return json({ error: recipient.message || 'Could not create transfer recipient' }, 400);
   }
+  const recipientCode: string = recipient.recipientCode;
+  await updatePayout({ recipient_code: recipientCode, updated_at: new Date().toISOString() });
 
   let transferCode: string | null = null;
   let transferStatus: typeof STATUS.transferPending | typeof STATUS.transferSuccess =
@@ -325,47 +294,39 @@ Deno.serve(async (req) => {
   await updatePayout({ status: STATUS.transferPending, updated_at: new Date().toISOString() });
 
   try {
-    const transferRes = await fetch('https://api.paystack.co/transfer', {
-      method: 'POST',
-      headers: paystackHeaders,
-      body: JSON.stringify({
-        source: 'balance',
-        amount: Math.round(amount * 100),
-        recipient: recipientCode,
-        reason: 'Ridely rider payout',
-        reference,
-      }),
+    const tx = await initiatePaystackTransfer(secret, {
+      amountKobo: Math.round(amount * 100),
+      recipientCode,
+      reason: 'Ridely rider payout',
+      reference,
     });
-    const transferData = await transferRes.json();
-    const transferMessage = String(transferData.message || '');
-    const duplicateRef = /duplicate|already exists|already been used/i.test(transferMessage);
-    if (!transferData.status) {
-      if (duplicateRef) {
-        await updatePayout({
-          status: STATUS.transferPending,
-          failure_reason: null,
-          updated_at: new Date().toISOString(),
-        });
-        return json({
-          success: true,
-          amount,
-          account_name: accountName,
-          status: STATUS.transferPending,
-          reference,
-          message: `₦${amount.toLocaleString()} payout is already in progress.`,
-        });
-      }
+    if (tx.duplicate) {
+      await updatePayout({
+        status: STATUS.transferPending,
+        failure_reason: null,
+        updated_at: new Date().toISOString(),
+      });
+      return json({
+        success: true,
+        amount,
+        account_name: accountName,
+        status: STATUS.transferPending,
+        reference,
+        message: `₦${amount.toLocaleString()} payout is already in progress.`,
+      });
+    }
+    if (!tx.ok) {
       await releaseOnFailure();
       await updatePayout({
         status: STATUS.transferFailedReleased,
-        failure_reason: transferMessage || 'Transfer failed. Earnings released.',
+        failure_reason: tx.message || 'Transfer failed. Earnings released.',
         updated_at: new Date().toISOString(),
       });
-      return json({ error: transferMessage || 'Transfer failed. Your earnings were not paid out.' }, 400);
+      return json({ error: tx.message || 'Transfer failed. Your earnings were not paid out.' }, 400);
     }
-    transferCode = transferData.data.transfer_code ?? null;
+    transferCode = tx.transferCode;
     transferStatus =
-      transferData.data.status === 'success' ? STATUS.transferSuccess : STATUS.transferPending;
+      tx.status === 'success' ? STATUS.transferSuccess : STATUS.transferPending;
     await updatePayout({
       transfer_code: transferCode,
       status: transferStatus,

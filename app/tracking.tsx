@@ -216,6 +216,18 @@ const SIMPLIFIED_MAP_STYLE = [
     stylers: [{ color: '#f8f8f8' }],
   },
   {
+    // Building footprints — without this they render as dark blobs
+    // against the lightened landscape above.
+    featureType: 'landscape.man_made',
+    elementType: 'geometry.fill',
+    stylers: [{ color: '#ececec' }],
+  },
+  {
+    featureType: 'landscape.man_made',
+    elementType: 'geometry.stroke',
+    stylers: [{ color: '#e0e0e0' }],
+  },
+  {
     featureType: 'road',
     elementType: 'geometry',
     stylers: [{ color: '#e5e5e5' }],
@@ -1216,6 +1228,7 @@ export default function TrackingScreen() {
             style={StyleSheet.absoluteFill}
             mapType="standard"
             customMapStyle={SIMPLIFIED_MAP_STYLE}
+            showsBuildings={false}
             initialRegion={mapRegion}
             loadingEnabled
             moveOnMarkerPress={false}
@@ -1268,16 +1281,7 @@ export default function TrackingScreen() {
           >
             <ArrowLeft size={22} color="#FFFFFF" strokeWidth={2} />
           </TouchableOpacity>
-          {riderId ? (
-            <View style={[styles.livePill, isLive && styles.livePillActive]}>
-              <View style={[styles.liveDot, isLive && styles.liveDotActive]} />
-              <Text style={styles.liveText}>
-                {isLive ? 'Live' : 'Connecting…'}
-              </Text>
-            </View>
-          ) : (
-            <View />
-          )}
+          <View />
           <TouchableOpacity
             style={[
               styles.roundBtn,

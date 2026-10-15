@@ -97,7 +97,12 @@ export function useAvailableJobs() {
           },
           (payload: {
             eventType: 'INSERT' | 'UPDATE' | 'DELETE';
-            new: { id?: string; status?: string; rider_id?: string | null };
+            new: {
+              id?: string;
+              status?: string;
+              rider_id?: string | null;
+              payment_status?: string | null;
+            };
             old: { id?: string };
           }) => {
             handleRealtimeChange(payload);
@@ -111,12 +116,20 @@ export function useAvailableJobs() {
     }
   }, [user, userType]);
 
-  const isAvailable = (row: { status?: string; rider_id?: string | null }) =>
-    row.status === 'pending' && (row.rider_id === null || row.rider_id === undefined);
+  // A job is dispatchable only when backend-verified paid (Phase 4:
+  // payment-before-dispatch). Unpaid/pending/failed deliveries never surface.
+  const isAvailable = (row: {
+    status?: string;
+    rider_id?: string | null;
+    payment_status?: string | null;
+  }) =>
+    row.status === 'pending' &&
+    (row.rider_id === null || row.rider_id === undefined) &&
+    row.payment_status === 'paid';
 
   const handleRealtimeChange = async (payload: {
     eventType: 'INSERT' | 'UPDATE' | 'DELETE';
-    new: { id?: string; status?: string; rider_id?: string | null };
+    new: { id?: string; status?: string; rider_id?: string | null; payment_status?: string | null };
     old: { id?: string };
   }) => {
     if (payload.eventType === 'DELETE') {
@@ -155,6 +168,7 @@ export function useAvailableJobs() {
         .select(JOB_SELECT)
         .eq('id', id)
         .eq('status', 'pending')
+        .eq('payment_status', 'paid')
         .is('rider_id', null)
         .maybeSingle();
       if (error || !data) return;
@@ -183,6 +197,7 @@ export function useAvailableJobs() {
             .from('deliveries')
             .select(JOB_SELECT)
             .eq('status', 'pending')
+            .eq('payment_status', 'paid')
             .is('rider_id', null)
             .order('created_at', { ascending: false });
           if (error) throw error;

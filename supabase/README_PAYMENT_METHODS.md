@@ -87,7 +87,8 @@ This creates:
 ## 2. Customer flow (already in the app)
 
 - **Profile → Payment Methods** lists saved methods from Supabase and lets users set default or remove.
-- **Add Payment Method** can add “Cash on Delivery” (stored in Supabase). Card and wallet require a gateway (below).
+- **Add Payment Method**: card (via Paystack) and wallet top-up. Cash on Delivery
+  is retired for new bookings; pre-existing cash rows remain readable for history.
 
 ## 3. Adding real card collection (choose one)
 
@@ -131,7 +132,9 @@ If you add a “Ridely Wallet”:
 On the booking confirmation screen, use the default payment method (or the one the user selects):
 
 - **Card**: charge via Stripe/Paystack using `gateway_payment_method_id`.
-- **Cash**: no charge; mark order as “pay on delivery”.
+- **Bank transfer**: created via the `payment-init` edge function; delivery dispatches
+  only after the verified webhook settles payment (see the cashless upgrade plan).
+- **Cash**: retired for new bookings — `create-delivery` rejects it; history preserved.
 - **Wallet**: deduct from wallet and create a transaction record.
 
 The `payment_methods` table and Profile → Payment Methods UI are ready; plug in the gateway of your choice using the steps above.
