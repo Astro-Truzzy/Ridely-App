@@ -104,7 +104,9 @@ export function usePaymentMethods() {
     },
   });
 
-  const methods = query.data ?? [];
+  // Cash-on-delivery is retired: historical cash rows stay in the database but
+  // are never surfaced in the UI (checkout, payment methods list).
+  const methods = (query.data ?? []).filter((m) => m.type !== 'cash');
 
   const invalidate = useCallback(
     () => qc.invalidateQueries({ queryKey: ['payment_methods', user?.id] }),
