@@ -181,6 +181,15 @@ export function VoiceCallProvider({ children }: { children: ReactNode }) {
       );
       return false;
     }
+    // A dev build can still be missing the WebRTC native module (e.g. built before it was
+    // linked). Fail fast instead of leaving the call stuck on "connecting".
+    if (!isLiveKitRuntimeAvailable()) {
+      showAlert(
+        'Voice calls unavailable',
+        'This build is missing the WebRTC native module. Reinstall the latest version to enable voice calls.',
+      );
+      return false;
+    }
     return true;
   }, [showAlert]);
 

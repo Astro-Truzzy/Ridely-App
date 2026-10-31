@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -7,6 +7,9 @@ import {
   ActivityIndicator,
   RefreshControl,
   Linking,
+  TextInput,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { Text } from '@/components/Text';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,8 +26,12 @@ import {
   CircleCheck as CheckCircle,
   Trash2,
   Eye,
+  Landmark,
+  ChevronDown,
+  Search,
+  X,
 } from 'lucide-react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAlert } from '@/contexts/AlertContext';
@@ -35,6 +42,13 @@ import {
   type VerificationDocumentType,
   type PickedDocument,
 } from '@/lib/verificationUpload';
+import {
+  fetchBanks,
+  verifyRiderBank,
+  type Bank,
+} from '@/lib/paystack';
+import { useWithdrawalPin } from '@/hooks/useWithdrawalPin';
+import { WithdrawalPinModal } from '@/components/WithdrawalPinModal';
 
 const DOCUMENT_LABELS: Record<VerificationDocumentType, string> = {
   nin: 'National ID (NIN)',
@@ -52,6 +66,18 @@ const REQUIRED_TYPES: VerificationDocumentType[] = [
 
 type VerificationStatus = 'not_submitted' | 'pending' | 'verified' | 'rejected';
 
+type RiderBankRow = {
+  account_number: string;
+  bank_code: string;
+  account_name: string | null;
+  verified_at: string | null;
+};
+
+function maskAccount(accountNumber: string | null): string {
+  if (!accountNumber || accountNumber.length < 4) return '••••';
+  return `•••• ${accountNumber.slice(-4)}`;
+}
+
 export default function ApplyVerificationScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
@@ -64,6 +90,21 @@ export default function ApplyVerificationScreen() {
     { document_type: VerificationDocumentType; file_name: string | null; file_path: string; review_status: 'pending' | 'approved' | 'rejected' }[]
   >([]);
   const [openingPath, setOpeningPath] = useState<string | null>(null);
+
+  // Payout bank account — must be Paystack-verified before submitting.
+  const [banks, setBanks] = useState<Bank[]>([]);
+  const [banksLoading, setBanksLoading] = useState(true);
+  const [selectedBank, setSelectedBank] = useState<Bank | null>(null);
+  const [bankName, setBankName] = useState<string | null>(null);
+  const [accountNumber, setAccountNumber] = useState('');
+  const [bankError, setBankError] = useState<string | null>(null);
+  const [verifyingBank, setVerifyingBank] = useState(false);
+  const [banksList, setBanksList] = useState<RiderBankRow[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [bankSearch, setBankSearch] = useState('');
+  const [pinModalOpen, setPinModalOpen] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const { hasPin, loading: pinStatusLoading } = useWithdrawalPin();
 
   const riderProfile = userType === 'rider' ? (userProfile as Record<string, unknown> | null) : null;
   const status = (riderProfile?.account_verification_status as VerificationStatus | undefined) ?? 'not_submitted';
@@ -100,9 +141,43 @@ export default function ApplyVerificationScreen() {
     loadExistingDocs();
   }, [user?.id]);
 
+  const loadBanks = useCallback(async () => {
+    if (!user?.id) return;
+    const { data } = await (supabase as any)
+      .from('rider_banks')
+      .select('account_number, bank_code, account_name, verified_at')
+      .eq('rider_id', user.id)
+      .order('verified_at', { ascending: false, nullsFirst: false });
+    setBanksList(((data ?? []) as RiderBankRow[]));
+  }, [user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadBanks();
+    }, [loadBanks]),
+  );
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const list = await fetchBanks();
+        if (mounted) setBanks(list);
+      } catch (e) {
+        if (mounted)
+          setBankError(e instanceof Error ? e.message : 'Could not load banks');
+      } finally {
+        if (mounted) setBanksLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadExistingDocs();
+    await Promise.all([loadExistingDocs(), loadBanks()]);
     setRefreshing(false);
   };
 
@@ -177,6 +252,74 @@ export default function ApplyVerificationScreen() {
     }
   };
 
+  const verifiedBank = useMemo(
+    () => banksList.find((b) => !!b.verified_at) ?? null,
+    [banksList]
+  );
+
+  const filteredBanks = useMemo(() => {
+    const q = bankSearch.trim().toLowerCase();
+    if (!q) return banks;
+    return banks.filter((b) => b.name.toLowerCase().includes(q));
+  }, [banks, bankSearch]);
+
+  const verifyAndSaveBank = async (withdrawalPin: string) => {
+    if (!selectedBank || accountNumber.length !== 10) return;
+    setPinError(null);
+    setVerifyingBank(true);
+    try {
+      const result = await verifyRiderBank({
+        accountNumber,
+        bankCode: selectedBank.code,
+        withdrawalPin,
+      });
+      if (!result.success) {
+        setPinError(result.error ?? 'Verification failed');
+        return;
+      }
+      setPinModalOpen(false);
+      setBankName(result.account_name ?? null);
+      setBankError(null);
+      await loadBanks();
+      showAlert(
+        'Bank account verified',
+        result.message ?? 'Your bank account is verified for automatic payouts.'
+      );
+    } catch (e) {
+      setPinError(e instanceof Error ? e.message : 'Verification failed');
+    } finally {
+      setVerifyingBank(false);
+    }
+  };
+
+  const handleVerifyBank = () => {
+    setBankError(null);
+    if (!selectedBank) {
+      setBankError('Select your bank');
+      return;
+    }
+    if (accountNumber.length !== 10) {
+      setBankError('Enter a valid 10-digit account number');
+      return;
+    }
+    if (!hasPin) {
+      showAlert(
+        'Withdrawal PIN required',
+        'Set a 4-digit PIN before verifying a bank account.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Set PIN',
+            onPress: () => router.push('/(rider)/withdrawal-pin'),
+          },
+        ]
+      );
+      return;
+    }
+    setPinError(null);
+    setPinModalOpen(true);
+  };
+
   const reviewLabel: Record<'pending' | 'approved' | 'rejected', string> = {
     pending: 'Under review',
     approved: 'Approved',
@@ -191,12 +334,22 @@ export default function ApplyVerificationScreen() {
       ? REQUIRED_TYPES.every((t) => uploads[t])
       : REQUIRED_TYPES.every((t) => uploads[t] ?? documents.some((d) => d.document_type === t));
 
+  const hasVerifiedBank = !!verifiedBank;
+
   const handleSubmit = async () => {
     if (!user?.id || userType !== 'rider') return;
     if (!hasRequiredUploads) {
       showAlert(
         'Documents required',
         'Please upload at least: National ID (NIN), Guarantor\'s Letter, and Driver\'s License.'
+      );
+      return;
+    }
+    if (!hasVerifiedBank) {
+      await loadBanks();
+      showAlert(
+        'Bank account required',
+        'Verify your bank account below first — payouts are automatic (twice daily), so a verified account is required before you can submit.'
       );
       return;
     }
@@ -434,6 +587,112 @@ export default function ApplyVerificationScreen() {
               </View>
             ))}
 
+            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+              Account details (for payouts)
+            </Text>
+            <Text style={[styles.bankHint, { color: theme.colors.textSecondary }]}>
+              Earnings are paid automatically twice daily (12:00 AM &amp; 6:00 PM WAT).
+              Verify the bank account you want payouts sent to — this is required
+              before you can submit.
+            </Text>
+
+            {verifiedBank ? (
+              <View
+                style={[styles.docRow, { backgroundColor: theme.colors.surface }, theme.shadows.small]}
+              >
+                <Landmark size={20} color={theme.colors.primary} strokeWidth={2} />
+                <View style={styles.docInfo}>
+                  <Text style={[styles.docLabel, { color: theme.colors.text }]}>
+                    {verifiedBank.account_name ?? bankName ?? 'Verified account'}
+                  </Text>
+                  <Text
+                    style={[styles.docFileName, { color: theme.colors.textSecondary }]}
+                    numberOfLines={1}
+                  >
+                    {maskAccount(verifiedBank.account_number)} · verified for automatic payouts
+                  </Text>
+                </View>
+                <CheckCircle size={20} color={theme.colors.success} strokeWidth={2} />
+              </View>
+            ) : null}
+
+            <TouchableOpacity
+              style={[
+                styles.docRow,
+                { backgroundColor: theme.colors.surface, opacity: banksLoading || verifyingBank ? 0.7 : 1 },
+                theme.shadows.small,
+              ]}
+              onPress={() => !(banksLoading || verifyingBank) && setPickerOpen(true)}
+              disabled={banksLoading || verifyingBank}
+            >
+              <View style={styles.docInfo}>
+                <Text style={[styles.docLabel, { color: theme.colors.text }]}>Bank</Text>
+                <Text
+                  style={[styles.docFileName, { color: theme.colors.textSecondary }]}
+                  numberOfLines={1}
+                >
+                  {banksLoading ? 'Loading banks…' : (selectedBank?.name ?? 'Select your bank')}
+                </Text>
+              </View>
+              <ChevronDown size={20} color={theme.colors.textSecondary} strokeWidth={2} />
+            </TouchableOpacity>
+
+            <View
+              style={[styles.docRow, { backgroundColor: theme.colors.surface }, theme.shadows.small]}
+            >
+              <View style={styles.docInfo}>
+                <Text style={[styles.docLabel, { color: theme.colors.text }]}>Account number</Text>
+                <TextInput
+                  style={[styles.bankInput, { color: theme.colors.text }]}
+                  placeholder="10-digit account number"
+                  placeholderTextColor={theme.colors.textTertiary}
+                  value={accountNumber}
+                  onChangeText={(t) => {
+                    setAccountNumber(t.replace(/\D/g, '').slice(0, 10));
+                    setBankError(null);
+                  }}
+                  keyboardType="number-pad"
+                  maxLength={10}
+                  editable={!verifyingBank}
+                />
+              </View>
+            </View>
+
+            {bankError ? (
+              <Text style={[styles.bankError, { color: theme.colors.error }]}>{bankError}</Text>
+            ) : null}
+
+            <TouchableOpacity
+              style={[
+                styles.verifyBankBtn,
+                { backgroundColor: theme.colors.surface, borderColor: theme.colors.primary },
+              ]}
+              onPress={handleVerifyBank}
+              disabled={verifyingBank}
+            >
+              {verifyingBank ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : (
+                <>
+                  <Landmark size={18} color={theme.colors.primary} strokeWidth={2} />
+                  <Text style={[styles.verifyBankBtnText, { color: theme.colors.primary }]}>
+                    {verifiedBank ? 'Verify a different account' : 'Verify bank account'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+            <Text style={[styles.bankHint, { color: theme.colors.textSecondary }]}>
+              You will be asked for your 4-digit withdrawal PIN.{' '}
+              {!pinStatusLoading && !hasPin ? (
+                <Text
+                  style={{ color: theme.colors.primary, fontWeight: '600' }}
+                  onPress={() => router.push('/(rider)/withdrawal-pin')}
+                >
+                  Set PIN
+                </Text>
+              ) : null}
+            </Text>
+
             <TouchableOpacity
               style={[
                 styles.submitBtn,
@@ -452,9 +711,101 @@ export default function ApplyVerificationScreen() {
                 </>
               )}
             </TouchableOpacity>
+            {!hasVerifiedBank ? (
+              <Text style={[styles.bankHint, { color: theme.colors.warning, textAlign: 'center' }]}>
+                A verified bank account is required before submitting.
+              </Text>
+            ) : null}
           </>
         )}
       </ScrollView>
+
+      <WithdrawalPinModal
+        visible={pinModalOpen}
+        title="Verify bank account"
+        subtitle="Enter your 4-digit withdrawal PIN"
+        loading={verifyingBank}
+        error={pinError}
+        onClose={() => {
+          if (!verifyingBank) setPinModalOpen(false);
+        }}
+        onSubmit={verifyAndSaveBank}
+      />
+
+      <Modal
+        visible={pickerOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setPickerOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalCard,
+              {
+                backgroundColor: theme.colors.card,
+                paddingBottom: insets.bottom + 16,
+              },
+            ]}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: theme.colors.text }]}>
+                Select bank
+              </Text>
+              <TouchableOpacity onPress={() => setPickerOpen(false)}>
+                <X size={24} color={theme.colors.text} strokeWidth={2} />
+              </TouchableOpacity>
+            </View>
+            <View
+              style={[
+                styles.searchBox,
+                {
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+            >
+              <Search
+                size={18}
+                color={theme.colors.textSecondary}
+                strokeWidth={2}
+              />
+              <TextInput
+                style={[styles.searchInput, { color: theme.colors.text }]}
+                placeholder="Search banks"
+                placeholderTextColor={theme.colors.textTertiary}
+                value={bankSearch}
+                onChangeText={setBankSearch}
+                autoFocus
+              />
+            </View>
+            <FlatList
+              data={filteredBanks}
+              keyExtractor={(item) => `${item.code}-${item.name}`}
+              keyboardShouldPersistTaps="handled"
+              style={{ maxHeight: 380 }}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.bankRow,
+                    { borderBottomColor: theme.colors.border },
+                  ]}
+                  onPress={() => {
+                    setSelectedBank(item);
+                    setPickerOpen(false);
+                    setBankSearch('');
+                    setBankError(null);
+                  }}
+                >
+                  <Text style={{ color: theme.colors.text, fontSize: 16 }}>
+                    {item.name}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -541,4 +892,50 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   submitBtnText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
+  bankHint: { fontSize: 13, lineHeight: 18, marginBottom: 12 },
+  bankInput: { fontSize: 15, marginTop: 4, paddingVertical: 4 },
+  bankError: { fontSize: 13, fontWeight: '600', marginBottom: 8 },
+  verifyBankBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    marginTop: 4,
+    gap: 8,
+  },
+  verifyBankBtnText: { fontSize: 15, fontWeight: '700' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '700' },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  searchInput: { flex: 1, fontSize: 16 },
+  bankRow: {
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
 });
