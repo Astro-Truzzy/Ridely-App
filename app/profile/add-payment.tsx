@@ -1,56 +1,15 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-} from 'react-native';
+import { View, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { ArrowLeft, CreditCard, DollarSign, Wallet, Check } from 'lucide-react-native';
+import { ArrowLeft, CreditCard, Wallet } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useAuth } from '@/contexts/AuthContext';
-import { useAlert } from '@/contexts/AlertContext';
-import { supabase } from '@/lib/supabase';
-import { usePaymentMethods } from '@/hooks/usePaymentMethods';
 
 export default function AddPaymentScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
-  const { user } = useAuth();
-  const { showToast } = useAlert();
-  const { methods, refetch } = usePaymentMethods();
-  const hasCashOnDelivery = methods.some(m => m.type === 'cash' && m.label === 'Cash on Delivery');
-
-  const addCashOnDelivery = async () => {
-    if (!user?.id) return;
-    if (hasCashOnDelivery) {
-      showToast('Cash on Delivery is already in your payment methods.', 'info');
-      return;
-    }
-    try {
-      // payment_methods may not be in generated types yet
-      const { error } = await (supabase as any)
-        .from('payment_methods')
-        .insert({
-          user_id: user.id,
-          type: 'cash',
-          label: 'Cash on Delivery',
-          is_default: methods.length === 0,
-        });
-      if (error) throw error;
-      await refetch();
-      showToast('Cash on Delivery added.');
-      router.back();
-    } catch (e) {
-      showToast(
-        'Could not add. Make sure the payment_methods table exists (run the migration).',
-        'error'
-      );
-    }
-  };
 
   return (
     <SafeAreaView
@@ -92,35 +51,8 @@ export default function AddPaymentScreen() {
             </View>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[
-              styles.optionCard,
-              {
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.border,
-                opacity: hasCashOnDelivery ? 0.6 : 1,
-              },
-            ]}
-            onPress={addCashOnDelivery}
-            disabled={hasCashOnDelivery}
-          >
-            <View style={[styles.optionIcon, { backgroundColor: isDark ? theme.colors.card : '#ECFDF5' }]}>
-              <DollarSign size={24} color="#10B981" strokeWidth={2} />
-            </View>
-            <View style={styles.optionInfo}>
-              <Text style={[styles.optionTitle, { color: theme.colors.text }]}>Cash on Delivery</Text>
-              <Text style={[styles.optionSubtitle, { color: theme.colors.textSecondary }]}>
-                {hasCashOnDelivery
-                  ? 'Already in your payment methods'
-                  : 'Pay the rider when the package is delivered'}
-              </Text>
-            </View>
-            {hasCashOnDelivery && (
-              <View style={[styles.addedBadge, { backgroundColor: theme.colors.success }]}>
-                <Check size={16} color="#FFFFFF" strokeWidth={2} />
-              </View>
-            )}
-          </TouchableOpacity>
+          {/* Cash on Delivery is retired for new bookings — existing rows stay
+              visible under Payment Methods for history. */}
 
           <TouchableOpacity
             style={[styles.optionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}

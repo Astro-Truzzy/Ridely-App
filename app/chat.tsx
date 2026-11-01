@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   TouchableOpacity,
   FlatList,
@@ -14,6 +13,7 @@ import {
   Pressable,
   Linking,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import {
   SafeAreaView,
   useSafeAreaInsets,

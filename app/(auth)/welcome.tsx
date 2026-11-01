@@ -1,12 +1,12 @@
 import React from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   TouchableOpacity,
   Image,
   Pressable,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLogo } from '@/hooks/useLogo';

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
-  Text,
   Modal,
   TouchableOpacity,
   StyleSheet,
@@ -10,6 +9,7 @@ import {
   Dimensions,
   Vibration,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { MapPin, Navigation } from 'lucide-react-native';
 import { router } from 'expo-router';
 import * as Location from 'expo-location';
@@ -19,6 +19,7 @@ import { useAlert } from '@/contexts/AlertContext';
 import { useDeliveries } from '@/hooks/useDeliveries';
 import { useAvailableJobCacheVersion, getCachedAvailableJob, type AvailableJob } from '@/hooks/useAvailableJobs';
 import { rejectDelivery } from '@/lib/deliveryRejections';
+import { markJobRequestNotificationsRead } from '@/lib/riderJobAlerts';
 import { withRetry } from '@/lib/retry';
 import { tapLight, notifyWarning, notifySuccess, tapMedium } from '@/lib/haptics';
 import { supabase } from '@/lib/supabase';
@@ -134,39 +135,62 @@ export function DeliveryRequestModal({ visible, deliveryId, onClose }: DeliveryR
       return;
     }
 
+    // Paint instantly from cache when available, but ALWAYS revalidate
+    // against the server: the cached row may be stale (taken, cancelled,
+    // or already declined by this rider), which is what produced phantom
+    // "incoming job" popups for deliveries that no longer exist.
+    const requestId = ++fetchIdRef.current;
     if (prefetchedJob) {
       setDelivery(jobToDeliveryDetails(prefetchedJob));
       setLoading(false);
-      return;
+    } else {
+      setLoading(true);
     }
-
-    const requestId = ++fetchIdRef.current;
-    setLoading(true);
 
     (async () => {
       try {
-        const data = await withRetry(async () => {
-          const { data, error } = await supabase
-            .from('deliveries')
-            .select(DELIVERY_SELECT)
-            .eq('id', deliveryId)
-            .eq('status', 'pending')
-            .is('rider_id', null)
-            .maybeSingle();
-          if (error) throw error;
-          return data;
-        });
+        const [fresh, rejection] = await Promise.all([
+          withRetry(async () => {
+            const { data, error } = await supabase
+              .from('deliveries')
+              .select(DELIVERY_SELECT)
+              .eq('id', deliveryId)
+              .eq('status', 'pending')
+              .eq('payment_status', 'paid')
+              .is('rider_id', null)
+              .maybeSingle();
+            if (error) throw error;
+            return data;
+          }),
+          user?.id
+            ? (supabase as any)
+                .from('delivery_rejections')
+                .select('delivery_id')
+                .eq('rider_id', user.id)
+                .eq('delivery_id', deliveryId)
+                .maybeSingle()
+                .then((res: { data: unknown }) => res.data)
+                .catch(() => null)
+            : Promise.resolve(null),
+        ]);
 
         if (fetchIdRef.current !== requestId) return;
-        setDelivery(data ? (data as DeliveryDetails) : null);
+        // Already declined, or no longer an open job → show "no longer
+        // available" instead of a phantom offer.
+        setDelivery(!fresh || rejection ? null : ((fresh as unknown) as DeliveryDetails));
       } catch {
         if (fetchIdRef.current !== requestId) return;
-        setDelivery(null);
+        // Without cache there is nothing trustworthy to show; with cache we
+        // keep the instant paint (it will be corrected on the next sync).
+        if (!prefetchedJob) setDelivery(null);
       } finally {
         if (fetchIdRef.current === requestId) setLoading(false);
       }
     })();
-  }, [visible, deliveryId, prefetchedJob]);
+    // prefetchedJob is intentionally read once per open (see above) — keeping
+    // it out of deps avoids validation loops when the shared cache re-syncs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, deliveryId]);
 
   useEffect(() => {
     if (!visible || !delivery) return;
@@ -200,7 +224,22 @@ export function DeliveryRequestModal({ visible, deliveryId, onClose }: DeliveryR
     if (deliveryId && user?.id) {
       try {
         await rejectDelivery(user.id, deliveryId);
-      } catch {}
+      } catch (e) {
+        console.warn('Error rejecting job:', e);
+      }
+      // Clear the matching job_request notifications so a lingering unread
+      // row or system-tray push can't pop this same job again.
+      await markJobRequestNotificationsRead(user.id, deliveryId);
+    }
+    onClose();
+  };
+
+  /** Dismiss the "no longer available" state and clear its notifications too. */
+  const handleDismissUnavailable = async () => {
+    if (closedRef.current) return;
+    closedRef.current = true;
+    if (deliveryId && user?.id) {
+      await markJobRequestNotificationsRead(user.id, deliveryId);
     }
     onClose();
   };
@@ -256,6 +295,7 @@ export function DeliveryRequestModal({ visible, deliveryId, onClose }: DeliveryR
     try {
       await acceptDelivery(deliveryId);
       notifySuccess();
+      await markJobRequestNotificationsRead(user.id, deliveryId);
       const jobData = buildRiderJobPayload({
         id: delivery.id,
         total_cost: delivery.total_cost,
@@ -400,7 +440,7 @@ export function DeliveryRequestModal({ visible, deliveryId, onClose }: DeliveryR
               </Text>
               <TouchableOpacity
                 style={[styles.dismissBtn, { backgroundColor: theme.colors.primary }]}
-                onPress={onClose}
+                onPress={handleDismissUnavailable}
               >
                 <Text style={styles.dismissBtnText}>OK</Text>
               </TouchableOpacity>

@@ -28,14 +28,31 @@ APP CONTENT DECLARATIONS
 [ ] News / COVID / government / health: No
 [ ] Financial features: Yes (Paystack payments + rider payouts)
 [ ] Data deletion: working in-app path or URL
-[ ] Location permission justification, especially background location for riders
+[ ] Location permission: foreground only ("while using the app"). Ridely does NOT request
+    ACCESS_BACKGROUND_LOCATION, so no background-location declaration or video is needed.
+[ ] Foreground service declaration: FOREGROUND_SERVICE_MICROPHONE — "In-app voice calls between
+    customer and rider (LiveKit). The service runs only during an active call."
+    (The unused WebRTC screen-share / mediaProjection service is stripped from the build.)
 [ ] Photo/video permissions policy
 
 RELEASE  (Play Console → Production, or start with Internal testing / Closed testing)
+[ ] Push the EAS environment variables once (maps key, Supabase, LiveKit, Sentry, web URL):
+      node scripts/sync-eas-env.mjs
+    Check: eas env:list --environment production   (EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY must be set;
+    the production build now fails on purpose if it is missing, instead of shipping a grey map)
+[ ] Optional, for push notifications: create the Android app in Firebase, download google-services.json,
+    and upload it as an EAS file variable named GOOGLE_SERVICES_JSON (or put it in the project root)
 [ ] Build a production Android App Bundle (.aab), not an APK
       eas build --platform android --profile production
 [ ] First upload goes to Internal testing so you can install from Play and sanity-check
 [ ] Play App Signing: accept Google's signing key (EAS handles the upload key)
+[ ] AFTER THE FIRST UPLOAD: Play Console → Test and release → App integrity → copy the
+    "App signing key certificate" SHA-1, and add it (with package com.deliveryapp.ridely) to the
+    Android restriction of the Google Maps API key in Google Cloud Console. Without this, maps are
+    blank in the Play-installed app even though they work in EAS/internal APKs.
+[ ] Optional: submit from the terminal instead of uploading by hand — save a Play service-account key
+    as secrets/play-service-account.json, then: eas submit --platform android --profile production
+    (goes to the Internal testing track as a draft)
 [ ] Countries: start with Nigeria if that is the launch market
 [ ] Production release notes (example):
       "Ridely 1.0 — book local deliveries, track your rider live, pay with card or cash, or earn as a rider."
@@ -44,11 +61,10 @@ TECH CHECKS THAT BLOCK REVIEW
 [ ] Target API level meets the current Play requirement (Android 15 / API 35 as of 2025–26)
 [ ] 16 KB page-size compatibility (Android 15 devices)
 [ ] Remove unused broad storage permissions if Play flags READ/WRITE_EXTERNAL_STORAGE
-[ ] Foreground service types declared for location / microphone if those services run in background
+[ ] Foreground service type declared for microphone (see App content above)
 [ ] Privacy policy URL loads without a login
 [ ] App does not crash on first launch on a clean device
 [ ] Location, camera, mic, and notifications each have a clear in-app reason
-[ ] Rider background-location flow has a prominent disclosure
 
 EXPO / APP ICONS (already wired in app.config.js)
     assets/images/icon.png                 1024 app icon
@@ -61,9 +77,11 @@ Rebuild the native Android project after these icons (npx expo prebuild --platfo
 OPTIONAL LATER
 [ ] Promo YouTube video
 [ ] Localized listing (if you add more countries)
-[ ] Replace marketing screenshots with captures from a real device once the UI is final
-      Real screenshots convert better. Keep these graphics as a fallback.
+[ ] Swap the recreated app screens in the store art for real captures once you have a test build:
+      adb exec-out screencap -p > store/play/raw/tracking.png
+    (names: home, tracking, pricing, rider, handoff, chat), then re-run the renderer below.
 [ ] Custom store listing experiments
 
-Regenerate graphics after a brand change:
-    python scripts/generate-store-assets.py
+Regenerate all listing graphics (screenshots, tablet shots, feature graphic):
+    python store/play/render.py
+Templates live in store/play/templates/store-art.html (uses headless Edge/Chrome + Pillow).

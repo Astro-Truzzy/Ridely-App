@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   TextInput,
   Platform,
@@ -12,6 +11,7 @@ import {
   Linking,
   ActivityIndicator,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -43,6 +43,9 @@ import { supabase } from '@/lib/supabase';
 import { geocodeAddress, fetchGoogleDirections } from '@/lib/googleDirections';
 import { pickProofImage, uploadDeliveryProof } from '@/lib/deliveryProofUpload';
 import { notifySuccess } from '@/lib/haptics';
+import { haversineKm } from '@/lib/pricing';
+import { useRiderTrail } from '@/hooks/useRiderTrail';
+import { DeliveryRouteLines } from '@/components/DeliveryRouteLines';
 import {
   parseRiderJobData,
   buildRiderJobPayload,
@@ -76,11 +79,19 @@ const STEPPER_STEPS: { key: RiderStep; label: string }[] = [
 
 const DEFAULT_DELTA = { latitudeDelta: 0.05, longitudeDelta: 0.05 };
 
+// Sized for display (36x41dp pins, 40x51dp rider) with @2x/@3x variants. The Marker
+// `image` prop ignores width/height, so oversized PNGs render huge in release builds.
 const MARKER_IMAGES = {
-  rider: require('@/assets/markers/marker-rider.png'),
-  pickup: require('@/assets/markers/ridely_brand_pin_256.png'),
-  dropoff: require('@/assets/markers/ridely_dropoff_pin_green_256.png'),
+  rider: require('@/assets/markers/pin-rider.png'),
+  pickup: require('@/assets/markers/pin-pickup.png'),
+  dropoff: require('@/assets/markers/pin-dropoff.png'),
 };
+
+/** Re-query Directions only after real movement or time, not on every GPS tick. */
+const ROUTE_REFETCH_METERS = 150;
+const ROUTE_REFETCH_MS = 30000;
+
+type LatLng = { latitude: number; longitude: number };
 
 const MARKER_ANCHOR = {
   pin: { x: 0.5, y: 1 },
@@ -143,7 +154,6 @@ export default function ActiveDeliveryScreen() {
   >([]);
   const mapRef = useRef<any>(null);
   const [mapReady, setMapReady] = useState(false);
-  const didInitialFitRef = useRef(false);
   const [followMode, setFollowMode] = useState(true);
   const [riderSpeedKmh, setRiderSpeedKmh] = useState(0);
   const lastSpeedSampleRef = useRef<{
@@ -152,6 +162,7 @@ export default function ActiveDeliveryScreen() {
     ts: number;
   } | null>(null);
 
+  const { showAlert } = useAlert();
   const lastSentLocationRef = useRef<{ lat: number; lng: number } | null>(null);
   const MIN_MOVEMENT_METERS = 20;
 
@@ -160,32 +171,33 @@ export default function ActiveDeliveryScreen() {
     lon1: number,
     lat2: number,
     lon2: number,
-  ) => {
-    const R = 6371000;
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos((lat1 * Math.PI) / 180) *
-        Math.cos((lat2 * Math.PI) / 180) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-  };
+  ) => haversineKm(lat1, lon1, lat2, lon2) * 1000;
 
   // Watch and update rider's own location: throttle 3–5s, only write when movement > 20m; dual write rider_locations + riders.location
   useEffect(() => {
+    let cancelled = false;
     let locationSubscription: { remove: () => void } | undefined;
     (async () => {
+      try {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
+      if (cancelled) return;
+      if (status !== 'granted') {
+        showAlert(
+          'Location needed',
+          'Ridely needs your location to guide you and show the customer where their package is.',
+          [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Open settings', onPress: () => Linking.openSettings() },
+          ],
+        );
+        return;
+      }
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user || cancelled) return;
 
-      locationSubscription = await Location.watchPositionAsync(
+      const subscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
           timeInterval: 4000,
@@ -222,23 +234,34 @@ export default function ActiveDeliveryScreen() {
 
           if (!shouldWrite) return;
 
-          lastSentLocationRef.current = { lat: latitude, lng: longitude };
-
-          await supabase.from('rider_locations').upsert({
-            rider_id: user.id,
-            latitude,
-            longitude,
-            updated_at: new Date().toISOString(),
-          } as never);
-
-          await (supabase as any).rpc('update_rider_location', {
-            lat: latitude,
-            lng: longitude,
-          });
+          try {
+            const { error } = await supabase.from('rider_locations').upsert({
+              rider_id: user.id,
+              latitude,
+              longitude,
+              updated_at: new Date().toISOString(),
+            } as never);
+            if (error) throw error;
+            // Only mark as sent once it landed, so a failed write is retried next tick.
+            lastSentLocationRef.current = { lat: latitude, lng: longitude };
+            await (supabase as any).rpc('update_rider_location', {
+              lat: latitude,
+              lng: longitude,
+            });
+          } catch (err) {
+            console.warn('[active-delivery] location write failed', err);
+          }
         },
       );
+      // Screen closed while we were waiting on the watcher — don't leak it.
+      if (cancelled) subscription.remove();
+      else locationSubscription = subscription;
+      } catch (err) {
+        console.warn('[active-delivery] location watch failed', err);
+      }
     })();
     return () => {
+      cancelled = true;
       if (locationSubscription) locationSubscription.remove();
     };
   }, []);
@@ -246,7 +269,6 @@ export default function ActiveDeliveryScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
   const { user } = useAuth();
-  const { showAlert } = useAlert();
   const { startCall } = useVoiceCall();
   const { jobId, jobData } = useLocalSearchParams<{
     jobId: string;
@@ -287,6 +309,7 @@ export default function ActiveDeliveryScreen() {
     }
     let cancelled = false;
     (async () => {
+      try {
       const { data } = await (supabase as any)
         .from('deliveries')
         .select(
@@ -319,7 +342,11 @@ export default function ActiveDeliveryScreen() {
         );
         setDelivery({ id: data.id, status: data.status });
       }
-      setJobLoading(false);
+      } catch (err) {
+        console.warn('[active-delivery] job fetch failed', err);
+      } finally {
+        if (!cancelled) setJobLoading(false);
+      }
     })();
     return () => {
       cancelled = true;
@@ -336,14 +363,20 @@ export default function ActiveDeliveryScreen() {
     }
     if (!job?.pickupAddress || !job?.dropoffAddress) return;
     let cancelled = false;
+    // Stored coordinates are authoritative; only geocode what's missing.
+    if (job.pickupCoords?.latitude && job.dropoffCoords?.latitude) return;
     (async () => {
-      const [pickup, dropoff] = await Promise.all([
-        geocodeAddress(job.pickupAddress),
-        geocodeAddress(job.dropoffAddress),
-      ]);
-      if (cancelled) return;
-      if (pickup) setPickupCoordsState(pickup);
-      if (dropoff) setDropoffCoordsState(dropoff);
+      try {
+        const [pickup, dropoff] = await Promise.all([
+          job.pickupCoords?.latitude ? null : geocodeAddress(job.pickupAddress),
+          job.dropoffCoords?.latitude ? null : geocodeAddress(job.dropoffAddress),
+        ]);
+        if (cancelled) return;
+        if (pickup) setPickupCoordsState(pickup);
+        if (dropoff) setDropoffCoordsState(dropoff);
+      } catch (err) {
+        console.warn('[active-delivery] geocode failed', err);
+      }
     })();
     return () => {
       cancelled = true;
@@ -356,12 +389,18 @@ export default function ActiveDeliveryScreen() {
   riderCoordsRef.current = riderCoords;
   deliveryStatusRef.current = deliveryStatus;
   const routeFetchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRouteFetchRef = useRef<{
+    from: LatLng;
+    to: LatLng;
+    ts: number;
+  } | null>(null);
 
   useEffect(() => {
     const rider = riderCoordsRef.current;
     const status = deliveryStatusRef.current;
     const pickup = pickupCoordsState;
     const dropoff = dropoffCoordsState;
+    if (status === 'delivered') return;
     if (!rider || (!pickup && !dropoff)) return;
 
     const destination =
@@ -372,14 +411,44 @@ export default function ActiveDeliveryScreen() {
         : pickup;
     if (!destination) return;
 
-    const fetchRoute = async () => {
-      const result = await fetchGoogleDirections(
+    const last = lastRouteFetchRef.current;
+    const sameTarget =
+      !!last &&
+      last.to.latitude === destination.latitude &&
+      last.to.longitude === destination.longitude;
+    if (
+      last &&
+      sameTarget &&
+      Date.now() - last.ts < ROUTE_REFETCH_MS &&
+      haversineMeters(
+        last.from.latitude,
+        last.from.longitude,
         rider.latitude,
         rider.longitude,
-        destination.latitude,
-        destination.longitude,
-      );
-      if (result?.coordinates?.length) setRouteCoordinates(result.coordinates);
+      ) < ROUTE_REFETCH_METERS
+    ) {
+      return;
+    }
+
+    const fetchRoute = async () => {
+      lastRouteFetchRef.current = {
+        from: rider,
+        to: destination,
+        ts: Date.now(),
+      };
+      try {
+        const result = await fetchGoogleDirections(
+          rider.latitude,
+          rider.longitude,
+          destination.latitude,
+          destination.longitude,
+        );
+        if (result && result.coordinates.length > 1) {
+          setRouteCoordinates(result.coordinates);
+        }
+      } catch (err) {
+        console.warn('[active-delivery] route fetch failed', err);
+      }
     };
 
     if (routeFetchRef.current) clearTimeout(routeFetchRef.current);
@@ -643,22 +712,24 @@ export default function ActiveDeliveryScreen() {
     }
   };
 
-  const pickupCoords = pickupCoordsState ?? {
-    latitude: 6.5244,
-    longitude: 3.3792,
-  };
-  const dropoffCoords = dropoffCoordsState ?? {
-    latitude: 6.5244,
-    longitude: 3.3892,
-  };
-  const riderCoordsForMap = riderCoords ?? pickupCoords;
+  const riderTrail = useRiderTrail(
+    deliveryStatus === 'delivered' ? null : riderCoords,
+    jobId ?? null,
+  );
+
+  // Only real positions — never a made-up city centre, which would frame the wrong place.
+  const knownPoints = useMemo(
+    () =>
+      [riderCoords, pickupCoordsState, dropoffCoordsState].filter(
+        (p): p is LatLng => !!p,
+      ),
+    [riderCoords, pickupCoordsState, dropoffCoordsState],
+  );
+  const hasKnownPoint = knownPoints.length > 0;
 
   const mapRegion = useMemo(() => {
-    const allMapPoints = [
-      riderCoordsForMap,
-      pickupCoords,
-      dropoffCoords,
-    ].filter(Boolean);
+    const allMapPoints = knownPoints;
+    if (allMapPoints.length === 0) return null;
     if (allMapPoints.length >= 2) {
       const lats = allMapPoints.map((p) => p.latitude);
       const lngs = allMapPoints.map((p) => p.longitude);
@@ -675,32 +746,14 @@ export default function ActiveDeliveryScreen() {
       };
     }
     return {
-      latitude: riderCoordsForMap.latitude,
-      longitude: riderCoordsForMap.longitude,
+      latitude: allMapPoints[0].latitude,
+      longitude: allMapPoints[0].longitude,
       ...DEFAULT_DELTA,
     };
-  }, [
-    riderCoordsForMap.latitude,
-    riderCoordsForMap.longitude,
-    pickupCoords.latitude,
-    pickupCoords.longitude,
-    dropoffCoords.latitude,
-    dropoffCoords.longitude,
-  ]);
+    // Only the map's first frame uses this; later framing is done by the camera effects.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasKnownPoint]);
   const speedKmhRounded = Math.max(0, Math.round(riderSpeedKmh));
-
-  // Fit once to show rider, pickup, and dropoff together.
-  useEffect(() => {
-    if (!mapReady || !mapRef.current || didInitialFitRef.current) return;
-    mapRef.current.fitToCoordinates?.(
-      [riderCoordsForMap, pickupCoords, dropoffCoords],
-      {
-        edgePadding: { top: 80, right: 50, bottom: 280, left: 50 },
-        animated: false,
-      },
-    );
-    didInitialFitRef.current = true;
-  }, [mapReady, riderCoordsForMap, pickupCoords, dropoffCoords]);
 
   // Smoothly follow rider after initial fit without controlling the full region.
   useEffect(() => {
@@ -723,14 +776,21 @@ export default function ActiveDeliveryScreen() {
     riderSpeedKmh,
   ]);
 
-  // Snap to route bounds whenever route gets refreshed while follow mode is on.
+  // Overview: frame the route and stops when not following. Also covers follow mode with
+  // no GPS fix yet, so the camera never sits on an empty area.
+  const hasRiderFix = !!riderCoords;
   useEffect(() => {
-    if (!mapReady || !mapRef.current || !followMode) return;
-    const points =
-      routeCoordinates.length > 1
-        ? routeCoordinates
-        : [riderCoordsForMap, pickupCoords, dropoffCoords];
-    if (points.length < 2) return;
+    if (!mapReady || !mapRef.current) return;
+    if (followMode && hasRiderFix) return;
+    const points = [...routeCoordinates, ...knownPoints];
+    if (points.length === 0) return;
+    if (points.length === 1) {
+      mapRef.current.animateCamera?.(
+        { center: points[0], zoom: 15 },
+        { duration: 450 },
+      );
+      return;
+    }
     mapRef.current.fitToCoordinates?.(points, {
       edgePadding: { top: 80, right: 50, bottom: 280, left: 50 },
       animated: true,
@@ -738,11 +798,12 @@ export default function ActiveDeliveryScreen() {
   }, [
     mapReady,
     followMode,
+    hasRiderFix,
     routeCoordinates.length,
-    pickupCoords.latitude,
-    pickupCoords.longitude,
-    dropoffCoords.latitude,
-    dropoffCoords.longitude,
+    pickupCoordsState?.latitude,
+    pickupCoordsState?.longitude,
+    dropoffCoordsState?.latitude,
+    dropoffCoordsState?.longitude,
   ]);
 
   useEffect(() => {
@@ -804,13 +865,28 @@ export default function ActiveDeliveryScreen() {
         : Platform.OS === 'android'
           ? `google.navigation:q=${dest}`
           : `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
-    Linking.openURL(url).catch(() => {
-      Linking.openURL(
-        `https://www.google.com/maps/dir/?api=1&destination=${dest}`,
-      ).catch(() => {});
-    });
-    if (kind === 'pickup') setStartedPickupNav(true);
-    else setStartedDropoffNav(true);
+    if (!coords && !address) {
+      showAlert('Navigation', `The ${kind} location isn't available yet.`);
+      return;
+    }
+    const markStarted = () => {
+      if (kind === 'pickup') setStartedPickupNav(true);
+      else setStartedDropoffNav(true);
+    };
+    Linking.openURL(url)
+      .then(markStarted)
+      .catch(() =>
+        Linking.openURL(
+          `https://www.google.com/maps/dir/?api=1&destination=${dest}`,
+        )
+          .then(markStarted)
+          .catch(() => {
+            showAlert(
+              'Navigation',
+              'No maps app could be opened. Install Google Maps and try again.',
+            );
+          }),
+      );
   };
 
   const primaryForStep = () => {
@@ -856,7 +932,12 @@ export default function ActiveDeliveryScreen() {
       {
         text: 'Voice Call',
         onPress: () => {
-          startCall(jobId, senderName).catch(() => {});
+          startCall(jobId, senderName).catch(() => {
+            showAlert(
+              'Call failed',
+              'We could not connect the call. Please try again or send a message.',
+            );
+          });
         },
       },
       { text: 'Cancel', style: 'cancel' },
@@ -868,18 +949,9 @@ export default function ActiveDeliveryScreen() {
     );
   };
 
-  const handleContactReceiver = () => {
-    showAlert('Contact Receiver', 'Contact the package receiver', [
-      {
-        text: 'Call',
-        onPress: () => showAlert('Calling', 'Calling receiver...'),
-      },
-      {
-        text: 'Message',
-        onPress: () => showAlert('Message', 'Opening chat...'),
-      },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+  const goBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(rider)/dashboard');
   };
 
   if (jobLoading) {
@@ -908,7 +980,7 @@ export default function ActiveDeliveryScreen() {
               styles.backButton,
               { backgroundColor: theme.colors.primary },
             ]}
-            onPress={() => router.back()}
+            onPress={goBack}
           >
             <Text style={styles.backButtonText}>Go Back</Text>
           </AnimatedPressable>
@@ -932,7 +1004,7 @@ export default function ActiveDeliveryScreen() {
       <View style={[styles.header, { paddingTop: 16 + insets.top }]}>
         <AnimatedPressable
           style={styles.headerBackButton}
-          onPress={() => router.back()}
+          onPress={goBack}
         >
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </AnimatedPressable>
@@ -946,7 +1018,7 @@ export default function ActiveDeliveryScreen() {
       <View
         style={[styles.mapContainer, { backgroundColor: theme.colors.surface }]}
       >
-        {RNMaps ? (
+        {RNMaps && mapRegion ? (
           <RNMaps.default
             ref={mapRef}
             style={{ flex: 1, borderRadius: 16, overflow: 'hidden' }}
@@ -961,33 +1033,31 @@ export default function ActiveDeliveryScreen() {
               if (followMode) setFollowMode(false);
             }}
           >
-            {routeCoordinates.length > 0 && RNMaps.Polyline && (
-              <RNMaps.Polyline
-                coordinates={routeCoordinates}
-                strokeColor={theme.colors.primary ?? '#5A47FF'}
-                strokeWidth={4}
-                lineCap="round"
-                lineJoin="round"
-              />
-            )}
+            <DeliveryRouteLines
+              Polyline={RNMaps.Polyline}
+              route={deliveryStatus === 'delivered' ? [] : routeCoordinates}
+              trail={riderTrail}
+            />
             {pickupCoordsState && (
               <RNMaps.Marker
-                coordinate={pickupCoords}
+                coordinate={pickupCoordsState}
                 title="Pickup"
                 description={job?.pickupAddress}
                 image={MARKER_IMAGES.pickup}
                 anchor={MARKER_ANCHOR.pin}
                 tracksViewChanges={false}
+                zIndex={5}
               />
             )}
             {dropoffCoordsState && (
               <RNMaps.Marker
-                coordinate={dropoffCoords}
+                coordinate={dropoffCoordsState}
                 title="Dropoff"
                 description={job?.dropoffAddress}
                 image={MARKER_IMAGES.dropoff}
                 anchor={MARKER_ANCHOR.pin}
                 tracksViewChanges={false}
+                zIndex={5}
               />
             )}
             {riderCoords && (
@@ -1000,6 +1070,7 @@ export default function ActiveDeliveryScreen() {
                 image={MARKER_IMAGES.rider}
                 anchor={MARKER_ANCHOR.rider}
                 tracksViewChanges={false}
+                zIndex={10}
               />
             )}
           </RNMaps.default>
@@ -1010,20 +1081,34 @@ export default function ActiveDeliveryScreen() {
               { backgroundColor: theme.colors.surface },
             ]}
           >
-            <MapPin
-              size={48}
-              color={theme.colors.textSecondary}
-              strokeWidth={2}
-            />
-            <Text style={[styles.mapText, { color: theme.colors.text }]}>
-              Map unavailable in Expo Go
-            </Text>
-            <Text
-              style={[styles.mapSubtext, { color: theme.colors.textSecondary }]}
-            >
-              Run a development build (expo run:android / expo run:ios) for
-              maps.
-            </Text>
+            {RNMaps ? (
+              <>
+                <ActivityIndicator size="large" color={theme.colors.primary} />
+                <Text style={[styles.mapText, { color: theme.colors.text }]}>
+                  Locating delivery…
+                </Text>
+              </>
+            ) : (
+              <>
+                <MapPin
+                  size={48}
+                  color={theme.colors.textSecondary}
+                  strokeWidth={2}
+                />
+                <Text style={[styles.mapText, { color: theme.colors.text }]}>
+                  Map unavailable in Expo Go
+                </Text>
+                <Text
+                  style={[
+                    styles.mapSubtext,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  Run a development build (expo run:android / expo run:ios) for
+                  maps.
+                </Text>
+              </>
+            )}
           </View>
         )}
         {/* Status Overlay */}
@@ -1067,19 +1152,14 @@ export default function ActiveDeliveryScreen() {
           ]}
           onPress={() => {
             const next = !followMode;
-            setFollowMode(next);
-            if (next && riderCoords) {
-              mapRef.current?.animateCamera?.(
-                {
-                  center: {
-                    latitude: riderCoords.latitude,
-                    longitude: riderCoords.longitude,
-                  },
-                  zoom: getZoomForSpeed(riderSpeedKmh),
-                },
-                { duration: 450 },
+            if (next && !riderCoords) {
+              showAlert(
+                'Waiting for GPS',
+                "We don't have your location yet. Make sure location is on and try again in a moment.",
               );
             }
+            // The follow / overview camera effects do the actual move.
+            setFollowMode(next);
           }}
         >
           <Text

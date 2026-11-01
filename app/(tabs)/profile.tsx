@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
   Image,
   ActivityIndicator,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -371,7 +371,7 @@ export default function ProfileScreen() {
   });
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <ScrollView
         style={styles.scrollView}

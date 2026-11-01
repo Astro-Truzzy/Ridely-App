@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { resolveCheckoutChannels } from '../_shared/checkout.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -51,7 +52,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { amount_in_kobo, email, callback_url, metadata, channels } = body as {
+    const { amount_in_kobo, email, callback_url, metadata, channels: reqChannels } = body as {
       amount_in_kobo: number;
       email: string;
       callback_url?: string;
@@ -73,6 +74,10 @@ Deno.serve(async (req) => {
     };
     delete (safeMetadata as { userId?: string }).userId;
 
+    // Channels are restricted to the allowlist (card + bank_transfer).
+    // Card-only default preserves existing behavior.
+    const channels = resolveCheckoutChannels(reqChannels);
+
     const defaultCallback = `${supabaseUrl}/functions/v1/paystack-callback`;
 
     const res = await fetch('https://api.paystack.co/transaction/initialize', {
@@ -86,7 +91,7 @@ Deno.serve(async (req) => {
         amount: Number(amount_in_kobo),
         callback_url: callback_url || defaultCallback,
         metadata: safeMetadata,
-        channels: Array.isArray(channels) && channels.length > 0 ? channels : ['card'],
+        channels,
       }),
     });
 

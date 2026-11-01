@@ -11,7 +11,7 @@ Deno.test('card payment kobo must equal server fare', () => {
   const expectedKobo = nairaToKobo(totalCost);
   const clientTamperedKobo = nairaToKobo(100);
   assertEquals(expectedKobo === clientTamperedKobo, false);
-  assertEquals(expectedKobo, 87500);
+  assertEquals(expectedKobo, 105000);
 });
 
 Deno.test('quoted card payment may drift from server fare within tolerance', () => {

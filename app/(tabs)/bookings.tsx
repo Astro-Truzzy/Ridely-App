@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
@@ -9,6 +8,7 @@ import {
   Modal,
   TextInput,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Package, Clock, CheckCircle, XCircle, MapPin, X, Star, RotateCcw } from 'lucide-react-native';
@@ -217,7 +217,7 @@ export default function BookingsScreen() {
   // Show loading state (using inline styles since styles is defined later)
   if (loading) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['left', 'right', 'bottom']}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['left', 'right']}>
         <StatusBar style={isDark ? 'light' : 'dark'} />
         <View style={{ paddingTop: insets.top + 20, paddingHorizontal: 20, paddingBottom: 16 }}>
           <Text style={{ fontSize: 28, fontWeight: '700', color: theme.colors.text }}>Bookings</Text>
@@ -554,7 +554,7 @@ export default function BookingsScreen() {
         activeOffsetX={[-20, 20]}
         failOffsetY={[-15, 15]}
       >
-        <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+        <SafeAreaView style={styles.container} edges={['left', 'right']}>
           <StatusBar style={isDark ? 'light' : 'dark'} />
           {/* Header */}
           <View style={[styles.header, { backgroundColor: theme.colors.card, paddingTop: 20 + insets.top }]}>

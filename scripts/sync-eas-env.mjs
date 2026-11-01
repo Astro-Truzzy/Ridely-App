@@ -21,11 +21,12 @@ const names = [
   'EXPO_PUBLIC_SENTRY_DSN',
   'EXPO_PUBLIC_PAYSTACK_PUBLIC_KEY',
   'EXPO_PUBLIC_PAYSTACK_TEST_MODE',
+  'EXPO_PUBLIC_WEB_URL',
 ];
 
 const environments = ['production', 'preview', 'development'];
 
-function setVar(environment, name, value) {
+function setVar(environment, name, value, visibility = 'plaintext') {
   if (!value) {
     console.log(`skip ${environment}/${name} (empty)`);
     return true;
@@ -43,7 +44,7 @@ function setVar(environment, name, value) {
       '--value',
       value,
       '--visibility',
-      'plaintext',
+      visibility,
       '--type',
       'string',
       '--force',
@@ -61,6 +62,15 @@ for (const environment of environments) {
       ok = false;
     }
   }
+}
+
+// Sentry source-map upload runs during the EAS build and fails it without a token.
+// Push the token as a secret when we have one; otherwise turn the upload off.
+for (const environment of environments) {
+  const set = env.SENTRY_AUTH_TOKEN
+    ? setVar(environment, 'SENTRY_AUTH_TOKEN', env.SENTRY_AUTH_TOKEN, 'secret')
+    : setVar(environment, 'SENTRY_DISABLE_AUTO_UPLOAD', 'true');
+  if (!set) ok = false;
 }
 
 process.exit(ok ? 0 : 1);

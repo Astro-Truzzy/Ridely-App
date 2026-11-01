@@ -2,12 +2,10 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   TouchableOpacity,
   TextInput,
@@ -18,6 +16,7 @@ import {
   Modal,
   FlatList,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -29,40 +28,72 @@ import {
   Search,
   X,
   CheckCircle,
+  Clock,
+  Landmark,
+  History,
+  Info,
 } from 'lucide-react-native';
-import { router } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
+import { router, useFocusEffect } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAlert } from '@/contexts/AlertContext';
 import {
   useEarnings,
-  getPayoutWaitReasons,
   MIN_PAYOUT_NAIRA,
 } from '@/hooks/useEarnings';
 import { useWithdrawalPin } from '@/hooks/useWithdrawalPin';
 import { WithdrawalPinModal } from '@/components/WithdrawalPinModal';
 import {
   fetchBanks,
-  resolveBankAccount,
-  requestRiderPayout,
+  verifyRiderBank,
   type Bank,
 } from '@/lib/paystack';
 
-const MIN_NAIRA = MIN_PAYOUT_NAIRA;
 type BankWithRenderKey = Bank & { _renderKey: string };
 
-function createIdempotencyKey(): string {
-  return `rp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+const formatNaira = (amount: number) =>
+  `₦${Number(amount || 0).toLocaleString('en-NG', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
+function maskAccount(accountNumber: string | null): string {
+  if (!accountNumber || accountNumber.length < 4) return '••••';
+  return `•••• ${accountNumber.slice(-4)}`;
 }
 
+const PAYOUT_STATUS_LABEL: Record<string, { label: string; color: string }> = {
+  initiated: { label: 'Initiated', color: '#B45309' },
+  transfer_pending: { label: 'On the way', color: '#B45309' },
+  transfer_success: { label: 'Paid', color: '#10B981' },
+  transfer_failed_released: { label: 'Failed · back in balance', color: '#EF4444' },
+  transfer_reversed_released: { label: 'Reversed · back in balance', color: '#EF4444' },
+  failed: { label: 'Failed', color: '#EF4444' },
+};
+
+/**
+ * Automatic payouts (Phase 6: scheduled-only). Riders no longer request
+ * payouts manually — earnings are swept twice daily (00:00 + 18:00 WAT) to the
+ * rider's verified bank account. This screen shows the breakdown, verifies
+ * bank destinations, and lists payout history. Pending transfers are never
+ * shown as received.
+ */
 export default function RiderPayoutScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
   const { showAlert, showToast } = useAlert();
   const {
+    earnings,
+    payoutRequests,
+    riderBanks,
+    verifiedBank,
     availableAmount,
+    reservedAmount,
     inTransitAmount,
-    hasBankOnFile,
+    paidOutAmount,
+    todayGross,
+    todayCommission,
+    todayEarnings,
+    nextSettlementLabel,
     refetch: refetchEarnings,
   } = useEarnings();
   const {
@@ -75,26 +106,12 @@ export default function RiderPayoutScreen() {
   const [banksLoading, setBanksLoading] = useState(true);
   const [selectedBank, setSelectedBank] = useState<Bank | null>(null);
   const [accountNumber, setAccountNumber] = useState('');
-  const [accountName, setAccountName] = useState<string | null>(null);
-  const [resolving, setResolving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [bankSearch, setBankSearch] = useState('');
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
-  const idempotencyKeyRef = useRef<string>(createIdempotencyKey());
-
-  const waitReasons = getPayoutWaitReasons({
-    available: availableAmount,
-    inTransit: inTransitAmount,
-    hasPin,
-    hasBankOnFile: hasBankOnFile || !!selectedBank,
-  });
-  const pendingBlocked =
-    inTransitAmount > 0 ? 0 : waitReasons.length > 0 ? availableAmount : 0;
-  const availableReady =
-    pendingBlocked > 0 || inTransitAmount > 0 ? 0 : availableAmount;
 
   useFocusEffect(
     useCallback(() => {
@@ -121,30 +138,6 @@ export default function RiderPayoutScreen() {
     };
   }, []);
 
-  useEffect(() => {
-    setAccountName(null);
-    if (accountNumber.length !== 10 || !selectedBank) return;
-    let cancelled = false;
-    setResolving(true);
-    (async () => {
-      try {
-        const name = await resolveBankAccount({
-          accountNumber,
-          bankCode: selectedBank.code,
-        });
-        if (!cancelled) setAccountName(name);
-      } catch (e) {
-        if (!cancelled)
-          setError(e instanceof Error ? e.message : 'Could not verify account');
-      } finally {
-        if (!cancelled) setResolving(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [accountNumber, selectedBank]);
-
   const banksWithRenderKeys = useMemo<BankWithRenderKey[]>(() => {
     return banks.map((bank, index) => ({
       ...bank,
@@ -158,59 +151,46 @@ export default function RiderPayoutScreen() {
     return banksWithRenderKeys.filter((b) => b.name.toLowerCase().includes(q));
   }, [banksWithRenderKeys, bankSearch]);
 
-  const validateForm = (): boolean => {
-    setError(null);
-    if (availableAmount < MIN_NAIRA) {
-      setError(`Minimum payout is ₦${MIN_NAIRA}`);
-      return false;
-    }
-    if (!selectedBank) {
-      setError('Select your bank');
-      return false;
-    }
-    if (accountNumber.length !== 10) {
-      setError('Enter a valid 10-digit account number');
-      return false;
-    }
-    if (!accountName) {
-      setError('Could not verify account name. Check the details.');
-      return false;
-    }
-    return true;
-  };
-
-  const processPayout = async (withdrawalPin: string) => {
+  const verifyAndSave = async (withdrawalPin: string) => {
+    if (!selectedBank || accountNumber.length !== 10) return;
     setPinError(null);
     setSubmitting(true);
     try {
-      const result = await requestRiderPayout({
+      const result = await verifyRiderBank({
         accountNumber,
-        bankCode: selectedBank!.code,
-        idempotencyKey: idempotencyKeyRef.current,
+        bankCode: selectedBank.code,
         withdrawalPin,
       });
       if (!result.success) {
-        setPinError(result.error ?? 'Payout failed');
+        setPinError(result.error ?? 'Verification failed');
         return;
       }
       setPinModalOpen(false);
-      idempotencyKeyRef.current = createIdempotencyKey();
+      setSelectedBank(null);
+      setAccountNumber('');
       await refetchEarnings();
-      showToast(result.message ?? 'Your payout is being processed.');
-      router.back();
+      showToast(result.message ?? 'Bank account verified for automatic payouts.');
     } catch (e) {
-      setPinError(e instanceof Error ? e.message : 'Payout failed');
+      setPinError(e instanceof Error ? e.message : 'Verification failed');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleSubmit = () => {
-    if (!validateForm()) return;
+  const handleVerify = () => {
+    setError(null);
+    if (!selectedBank) {
+      setError('Select your bank');
+      return;
+    }
+    if (accountNumber.length !== 10) {
+      setError('Enter a valid 10-digit account number');
+      return;
+    }
     if (!hasPin) {
       showAlert(
         'Withdrawal PIN required',
-        'Set a 4-digit PIN before requesting a payout.',
+        'Set a 4-digit PIN before verifying a bank account.',
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -251,7 +231,7 @@ export default function RiderPayoutScreen() {
           <ArrowLeft size={24} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: theme.colors.text }]}>
-          Request payout
+          Payouts
         </Text>
         <View style={styles.placeholder} />
       </View>
@@ -264,101 +244,145 @@ export default function RiderPayoutScreen() {
           contentContainerStyle={{ padding: 24 }}
           keyboardShouldPersistTaps="handled"
         >
+          {/* Automatic payout explainer */}
           <View
             style={[
-              styles.balancePill,
+              styles.noticeCard,
               {
                 backgroundColor: isDark ? theme.colors.surface : '#F0F2FF',
-                flexDirection: 'column',
-                alignItems: 'stretch',
               },
             ]}
           >
-            <View
-              style={{
-                flexDirection: 'row',
-                justifyContent: 'space-between',
-                marginBottom: 12,
-              }}
+            <Info size={18} color={theme.colors.primary} strokeWidth={2} />
+            <Text
+              style={[styles.noticeText, { color: theme.colors.textSecondary }]}
             >
-              <Text
-                style={[
-                  styles.balancePillLabel,
-                  { color: theme.colors.textSecondary },
-                ]}
-              >
-                Available
+              Payouts are automatic — earnings are sent to your verified bank
+              account twice daily (12:00 AM & 6:00 PM WAT). Next run:{' '}
+              <Text style={{ fontWeight: '700', color: theme.colors.text }}>
+                {nextSettlementLabel}
               </Text>
-              <Text
-                style={[styles.balancePillValue, { color: theme.colors.text }]}
-              >
-                ₦
-                {availableReady.toLocaleString('en-NG', {
-                  minimumFractionDigits: 2,
-                })}
-              </Text>
-            </View>
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={[
-                    styles.balancePillLabel,
-                    { color: theme.colors.textSecondary },
-                  ]}
-                >
-                  Pending
-                </Text>
-                <Text
-                  style={[
-                    styles.balancePillValue,
-                    { color: theme.colors.text, fontSize: 15 },
-                  ]}
-                >
-                  ₦
-                  {pendingBlocked.toLocaleString('en-NG', {
-                    minimumFractionDigits: 2,
-                  })}
-                </Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={[
-                    styles.balancePillLabel,
-                    { color: theme.colors.textSecondary },
-                  ]}
-                >
-                  In transit
-                </Text>
-                <Text
-                  style={[
-                    styles.balancePillValue,
-                    { color: theme.colors.text, fontSize: 15 },
-                  ]}
-                >
-                  ₦
-                  {inTransitAmount.toLocaleString('en-NG', {
-                    minimumFractionDigits: 2,
-                  })}
-                </Text>
-              </View>
-            </View>
-            {waitReasons.length > 0 ? (
-              <View style={{ marginTop: 12 }}>
-                {waitReasons.map((reason) => (
-                  <Text
-                    key={reason}
-                    style={{
-                      color: theme.colors.textSecondary,
-                      fontSize: 13,
-                      lineHeight: 18,
-                    }}
-                  >
-                    {reason}
-                  </Text>
-                ))}
-              </View>
-            ) : null}
+            </Text>
           </View>
+
+          {/* Summary */}
+          <View
+            style={[
+              styles.summaryCard,
+              {
+                backgroundColor: theme.colors.card,
+                borderColor: theme.colors.border,
+              },
+            ]}
+          >
+            <SummaryRow
+              label="Awaiting payout"
+              value={formatNaira(availableAmount)}
+              theme={theme}
+              hint="Swept at the next run"
+            />
+            {reservedAmount > 0 ? (
+              <SummaryRow
+                label="Reserved in pending transfer"
+                value={formatNaira(reservedAmount)}
+                theme={theme}
+                hint="Confirmed only when the bank transfer succeeds"
+              />
+            ) : null}
+            {inTransitAmount > 0 ? (
+              <SummaryRow
+                label="In transit"
+                value={formatNaira(inTransitAmount)}
+                theme={theme}
+                hint="On the way — not yet received"
+              />
+            ) : null}
+            <SummaryRow
+              label="Paid to date"
+              value={formatNaira(paidOutAmount)}
+              theme={theme}
+              hint="Confirmed bank transfers only"
+            />
+          </View>
+
+          {/* Today breakdown */}
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+            Today
+          </Text>
+          <View
+            style={[
+              styles.summaryCard,
+              {
+                backgroundColor: theme.colors.card,
+                borderColor: theme.colors.border,
+              },
+            ]}
+          >
+            <SummaryRow label="Gross" value={formatNaira(todayGross)} theme={theme} />
+            <SummaryRow
+              label="Ridely commission (15%)"
+              value={formatNaira(todayCommission)}
+              theme={theme}
+            />
+            <SummaryRow label="Net" value={formatNaira(todayEarnings)} theme={theme} />
+          </View>
+
+          {/* Bank destination */}
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+            Payout bank account
+          </Text>
+          {verifiedBank ? (
+            <View
+              style={[
+                styles.bankCard,
+                {
+                  backgroundColor: theme.colors.card,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+            >
+              <Landmark size={22} color={theme.colors.primary} strokeWidth={2} />
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={[styles.bankName, { color: theme.colors.text }]}>
+                  {verifiedBank.account_name ?? 'Verified account'}
+                </Text>
+                <Text
+                  style={[
+                    styles.bankMeta,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  {maskAccount(verifiedBank.account_number)} · verified for
+                  automatic payouts
+                </Text>
+              </View>
+              <CheckCircle size={18} color="#10B981" strokeWidth={2} />
+            </View>
+          ) : (
+            <View
+              style={[
+                styles.noticeCard,
+                {
+                  backgroundColor: isDark ? theme.colors.surface : '#FEF3C7',
+                },
+              ]}
+            >
+              <Clock size={18} color="#B45309" strokeWidth={2} />
+              <Text
+                style={[styles.noticeText, { color: theme.colors.textSecondary }]}
+              >
+                No verified bank account yet — verify one below or your earnings
+                will wait for the next run after you do. Amounts under ₦
+                {MIN_PAYOUT_NAIRA} carry forward automatically.
+              </Text>
+            </View>
+          )}
+
+          {riderBanks.filter((b) => !b.verified_at).length > 0 ? (
+            <Text style={[styles.hint, { color: theme.colors.textTertiary }]}>
+              Unverified entries are never paid to — complete verification below.
+            </Text>
+          ) : null}
 
           <Text style={[styles.label, { color: theme.colors.textSecondary }]}>
             Bank
@@ -418,32 +442,6 @@ export default function RiderPayoutScreen() {
             editable={!submitting}
           />
 
-          {resolving ? (
-            <View style={styles.resolveRow}>
-              <ActivityIndicator size="small" color={theme.colors.primary} />
-              <Text
-                style={[
-                  styles.resolveText,
-                  { color: theme.colors.textSecondary },
-                ]}
-              >
-                Verifying account…
-              </Text>
-            </View>
-          ) : accountName ? (
-            <View style={styles.resolveRow}>
-              <CheckCircle size={16} color="#10B981" strokeWidth={2} />
-              <Text
-                style={[
-                  styles.resolveText,
-                  { color: '#10B981', fontWeight: '600' },
-                ]}
-              >
-                {accountName}
-              </Text>
-            </View>
-          ) : null}
-
           {error ? (
             <Text style={[styles.errorText, { color: theme.colors.error }]}>
               {error}
@@ -456,21 +454,18 @@ export default function RiderPayoutScreen() {
               { backgroundColor: theme.colors.primary },
               submitting && styles.buttonDisabled,
             ]}
-            onPress={handleSubmit}
-            disabled={
-              submitting || availableAmount < MIN_NAIRA || inTransitAmount > 0
-            }
+            onPress={handleVerify}
+            disabled={submitting}
           >
             {submitting ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.buttonText}>Confirm payout</Text>
+              <Text style={styles.buttonText}>Verify bank account</Text>
             )}
           </TouchableOpacity>
 
           <Text style={[styles.hint, { color: theme.colors.textTertiary }]}>
-            Minimum ₦{MIN_NAIRA}. You will be asked for your 4-digit withdrawal
-            PIN.{' '}
+            You will be asked for your 4-digit withdrawal PIN.{' '}
             {!pinStatusLoading && !hasPin ? (
               <Text
                 style={{ color: theme.colors.primary, fontWeight: '600' }}
@@ -480,19 +475,135 @@ export default function RiderPayoutScreen() {
               </Text>
             ) : null}
           </Text>
+
+          {/* Payout history */}
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+            Payout history
+          </Text>
+          {payoutRequests.length === 0 ? (
+            <View
+              style={[
+                styles.noticeCard,
+                {
+                  backgroundColor: isDark ? theme.colors.surface : '#F3F4F6',
+                },
+              ]}
+            >
+              <History size={18} color={theme.colors.textSecondary} strokeWidth={2} />
+              <Text
+                style={[styles.noticeText, { color: theme.colors.textSecondary }]}
+              >
+                No payouts yet. Completed earnings will appear here after the
+                first scheduled run.
+              </Text>
+            </View>
+          ) : (
+            payoutRequests.map((p) => {
+              const meta = PAYOUT_STATUS_LABEL[p.status] ?? {
+                label: p.status,
+                color: theme.colors.textSecondary,
+              };
+              return (
+                <View
+                  key={p.id}
+                  style={[
+                    styles.historyRow,
+                    {
+                      backgroundColor: theme.colors.card,
+                      borderColor: theme.colors.border,
+                    },
+                  ]}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={[styles.historyAmount, { color: theme.colors.text }]}
+                    >
+                      {formatNaira(Number(p.amount || 0))}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.historyMeta,
+                        { color: theme.colors.textSecondary },
+                      ]}
+                    >
+                      {new Date(p.created_at).toLocaleDateString('en-NG', {
+                        month: 'short',
+                        day: 'numeric',
+                      })}{' '}
+                      · {maskAccount(p.account_number)}
+                    </Text>
+                  </View>
+                  <Text style={[styles.statusPill, { color: meta.color }]}>
+                    {meta.label}
+                  </Text>
+                </View>
+              );
+            })
+          )}
+
+          {/* Earnings history */}
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+            Recent earnings
+          </Text>
+          {earnings.slice(0, 20).map((e) => (
+            <View
+              key={e.id}
+              style={[
+                styles.historyRow,
+                {
+                  backgroundColor: theme.colors.card,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+            >
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={[styles.historyAmount, { color: theme.colors.text }]}
+                >
+                  {formatNaira(Number(e.net_amount || 0))}
+                </Text>
+                <Text
+                  style={[
+                    styles.historyMeta,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  {formatNaira(Number(e.gross_amount || 0))} −{' '}
+                  {formatNaira(Number(e.ridely_fee || 0))} commission ·{' '}
+                  {new Date(e.created_at).toLocaleDateString('en-NG', {
+                    month: 'short',
+                    day: 'numeric',
+                  })}
+                </Text>
+              </View>
+              <Text
+                style={[
+                  styles.statusPill,
+                  {
+                    color:
+                      e.status === 'paid'
+                        ? '#10B981'
+                        : theme.colors.textSecondary,
+                  },
+                ]}
+              >
+                {e.status === 'paid' ? 'Paid out' : 'Awaiting payout'}
+              </Text>
+            </View>
+          ))}
         </ScrollView>
       </KeyboardAvoidingView>
 
       <WithdrawalPinModal
         visible={pinModalOpen}
-        title="Confirm payout"
+        title="Verify bank account"
         subtitle="Enter your 4-digit withdrawal PIN"
         loading={submitting}
         error={pinError}
         onClose={() => {
           if (!submitting) setPinModalOpen(false);
         }}
-        onSubmit={processPayout}
+        onSubmit={verifyAndSave}
       />
 
       <Modal
@@ -573,6 +684,36 @@ export default function RiderPayoutScreen() {
   );
 }
 
+function SummaryRow({
+  label,
+  value,
+  hint,
+  theme,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  theme: any;
+}) {
+  return (
+    <View style={styles.summaryRow}>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.summaryLabel, { color: theme.colors.textSecondary }]}>
+          {label}
+        </Text>
+        {hint ? (
+          <Text style={[styles.summaryHint, { color: theme.colors.textTertiary }]}>
+            {hint}
+          </Text>
+        ) : null}
+      </View>
+      <Text style={[styles.summaryValue, { color: theme.colors.text }]}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
@@ -592,16 +733,41 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 20, fontWeight: '700' },
   placeholder: { width: 44 },
-  balancePill: {
+  noticeCard: {
+    flexDirection: 'row',
+    gap: 10,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 20,
+    alignItems: 'flex-start',
+  },
+  noticeText: { flex: 1, fontSize: 13, lineHeight: 19 },
+  summaryCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 8,
+  },
+  summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    paddingVertical: 8,
   },
-  balancePillLabel: { fontSize: 14, fontWeight: '600' },
-  balancePillValue: { fontSize: 18, fontWeight: '800' },
+  summaryLabel: { fontSize: 14, fontWeight: '600' },
+  summaryHint: { fontSize: 12, marginTop: 2 },
+  summaryValue: { fontSize: 16, fontWeight: '800' },
+  sectionTitle: { fontSize: 17, fontWeight: '700', marginTop: 20, marginBottom: 12 },
+  bankCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 8,
+  },
+  bankName: { fontSize: 15, fontWeight: '700' },
+  bankMeta: { fontSize: 13, marginTop: 2 },
   label: { fontSize: 14, marginBottom: 8, fontWeight: '600' },
   input: {
     borderWidth: 1,
@@ -616,14 +782,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  resolveRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: -6,
-    marginBottom: 12,
-  },
-  resolveText: { fontSize: 14 },
   errorText: { fontSize: 14, marginBottom: 12 },
   button: {
     borderRadius: 14,
@@ -635,6 +793,17 @@ const styles = StyleSheet.create({
   buttonDisabled: { opacity: 0.7 },
   buttonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
   hint: { fontSize: 13, marginTop: 16, textAlign: 'center', lineHeight: 18 },
+  historyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 10,
+  },
+  historyAmount: { fontSize: 15, fontWeight: '700' },
+  historyMeta: { fontSize: 12, marginTop: 2 },
+  statusPill: { fontSize: 12, fontWeight: '700' },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',

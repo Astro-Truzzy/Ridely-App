@@ -129,7 +129,9 @@ interface ThemeProviderProps {
 
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const [themeMode, setThemeMode] = useState<ThemeMode>('system');
-  const [systemColorScheme, setSystemColorScheme] = useState<ColorSchemeName>(
+  // RN 0.86 narrowed ColorSchemeName to 'light' | 'dark' | 'unspecified', while
+  // Appearance.getColorScheme() still returns null | undefined before the first read.
+  const [systemColorScheme, setSystemColorScheme] = useState<ColorSchemeName | null | undefined>(
     Appearance.getColorScheme()
   );
 

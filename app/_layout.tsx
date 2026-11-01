@@ -10,6 +10,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { queryClient } from '@/lib/queryClient';
 import { ThemeProvider } from '@/contexts/ThemeContext';
+import { TypographyProvider } from '@/contexts/TypographyContext';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { AlertProvider } from '@/contexts/AlertContext';
 import { AppSettingsProvider } from '@/contexts/AppSettingsContext';
@@ -29,6 +30,7 @@ function RootLayout() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <QueryClientProvider client={queryClient}>
           <ThemeProvider>
+            <TypographyProvider>
             <AlertProvider>
               <AppSettingsProvider>
               <AuthProvider>
@@ -56,6 +58,7 @@ function RootLayout() {
               </AuthProvider>
               </AppSettingsProvider>
             </AlertProvider>
+            </TypographyProvider>
           </ThemeProvider>
         </QueryClientProvider>
       </GestureHandlerRootView>

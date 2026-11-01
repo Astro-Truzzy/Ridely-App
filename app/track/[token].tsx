@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   Image,
   ActivityIndicator,
   ScrollView,
   Platform,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { useLocalSearchParams } from 'expo-router';
 import { MapPin, Package, Bike, CheckCircle } from 'lucide-react-native';
 

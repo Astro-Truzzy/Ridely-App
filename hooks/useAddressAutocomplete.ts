@@ -120,7 +120,8 @@ export function useAddressAutocomplete(locationBias?: LocationBias) {
       }
       setSuggestions(formatted);
     } catch (error) {
-      if ((error as Error).name === 'AbortError') return;
+      // expo/fetch rejects with FetchRequestCanceledException rather than AbortError
+      if (signal.aborted || (error as Error).name === 'AbortError') return;
       console.error('Error fetching address suggestions:', error);
       if (lastQueryRef.current === trimmed) {
         setSuggestions([]);

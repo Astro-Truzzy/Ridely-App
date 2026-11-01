@@ -1,18 +1,20 @@
 import React from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
   Switch,
 } from 'react-native';
+import { Text } from '@/components/Text';
+import { FontSizeSetting } from '@/components/FontSizeSetting';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Bell, Moon, Globe, Zap, CircleHelp as HelpCircle, FileText, Shield, LogOut, ChevronRight, Smartphone, Receipt, MessageSquare, Sun, Monitor, FlaskConical } from 'lucide-react-native';
+import { Bell, Moon, Globe, Zap, CircleHelp as HelpCircle, FileText, Shield, LogOut, ChevronRight, Smartphone, Receipt, MessageSquare, Sun, Monitor, ChartColumn as BarChart3 } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme, ThemeMode } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useIsAdmin } from '@/hooks/useIsAdmin';
 import { useAlert } from '@/contexts/AlertContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
@@ -29,6 +31,7 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { theme, themeMode, setThemeMode, isDark } = useTheme();
   const { signOut, loading, user } = useAuth();
+  const { isAdmin } = useIsAdmin();
   const { showAlert, showToast } = useAlert();
   const { languageName } = useLanguage();
   const {
@@ -109,6 +112,17 @@ export default function SettingsScreen() {
   ];
 
   const generalSettings = [
+    ...(isAdmin
+      ? [
+          {
+            title: 'Finance (Admin)',
+            subtitle: 'Ledger totals and settlement batches',
+            icon: BarChart3,
+            onPress: () => router.push('/admin/finance'),
+            showArrow: true,
+          },
+        ]
+      : []),
     {
       title: 'Language',
       subtitle: languageName,
@@ -146,13 +160,6 @@ export default function SettingsScreen() {
     },
   ];
 
-  const handleSeedTestData = async () => {
-    showAlert(
-      'Seed unavailable',
-      'Client delivery inserts are disabled. Seed test deliveries via the SQL scripts in docs/ (service role) instead of the app.'
-    );
-  };
-
   const handleLogout = async () => {
     showAlert(
       'Logout',
@@ -178,7 +185,7 @@ export default function SettingsScreen() {
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
-      edges={['left', 'right', 'bottom']}
+      edges={['left', 'right']}
     >
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
@@ -260,6 +267,9 @@ export default function SettingsScreen() {
                 />
               </View>
             ))}
+            <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+              <FontSizeSetting />
+            </View>
           </View>
         </View>
 
@@ -289,30 +299,6 @@ export default function SettingsScreen() {
             ))}
           </View>
         </View>
-
-        {/* Development / Test data (hidden in production) */}
-        {__DEV__ ? (
-          <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Development</Text>
-            <View style={[styles.settingsContainer, { backgroundColor: theme.colors.surface }, theme.shadows.medium]}>
-              <TouchableOpacity
-                style={styles.settingItem}
-                onPress={handleSeedTestData}
-              >
-                <View style={[styles.settingIcon, { backgroundColor: `${theme.colors.warning}20` }]}>
-                  <FlaskConical size={20} color={theme.colors.warning} strokeWidth={2} />
-                </View>
-                <View style={styles.settingInfo}>
-                  <Text style={[styles.settingTitle, { color: theme.colors.text }]}>Seed test data</Text>
-                  <Text style={[styles.settingSubtitle, { color: theme.colors.textSecondary }]}>
-                    Client inserts disabled — use SQL seed docs instead
-                  </Text>
-                </View>
-                <ChevronRight size={20} color={theme.colors.textTertiary} strokeWidth={2} />
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : null}
 
         {/* App Info */}
         <View style={styles.section}>

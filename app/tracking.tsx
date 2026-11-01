@@ -1,17 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
-  View,
-  Text,
-  Image,
-  StyleSheet,
-  TouchableOpacity,
-  Dimensions,
-  ScrollView,
-  Share,
-  Linking,
-  ActivityIndicator,
-} from 'react-native';
+  View, Image, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Share, Linking, ActivityIndicator } from 'react-native';
+import { Text } from '@/components/Text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import {
@@ -20,15 +11,19 @@ import {
   Phone,
   Package,
   User,
+  UserX,
   Shield,
   MapPin,
   CreditCard,
   Crosshair,
   Share2,
   KeyRound,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Constants from 'expo-constants';
+import * as ExpoLinking from 'expo-linking';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAlert, type AlertButton } from '@/contexts/AlertContext';
 import { useVoiceCall } from '@/contexts/VoiceCallContext';
@@ -37,6 +32,9 @@ import { useAutoCancelPendingDelivery } from '@/hooks/useAutoCancelPendingDelive
 import { fetchGoogleDirections, geocodeAddress } from '@/lib/googleDirections';
 import { getDeliveryProofSignedUrl } from '@/lib/deliveryProofUpload';
 import { firstParam } from '@/lib/screenContracts';
+import { haversineKm } from '@/lib/pricing';
+import { useRiderTrail } from '@/hooks/useRiderTrail';
+import { DeliveryRouteLines } from '@/components/DeliveryRouteLines';
 
 interface RiderInfo {
   name: string;
@@ -115,10 +113,12 @@ function getProgressIndex(status: Delivery['status'] | undefined): number {
   return PROGRESS_INDEX[display];
 }
 
+// Sized for display (36x41dp pins, 40x51dp rider) with @2x/@3x variants. The Marker
+// `image` prop ignores width/height, so oversized PNGs render huge in release builds.
 const MARKER_IMAGES = {
-  rider: require('@/assets/markers/marker-rider.png'),
-  pickup: require('@/assets/markers/ridely_brand_pin_256.png'),
-  dropoff: require('@/assets/markers/ridely_dropoff_pin_green_256.png'),
+  rider: require('@/assets/markers/pin-rider.png'),
+  pickup: require('@/assets/markers/pin-pickup.png'),
+  dropoff: require('@/assets/markers/pin-dropoff.png'),
 };
 
 /** All markers are teardrop pins; the tip sits on the coordinate. */
@@ -151,6 +151,7 @@ function DeliveryMapMarkers({
           image={MARKER_IMAGES.pickup}
           anchor={MARKER_ANCHOR.pin}
           tracksViewChanges={false}
+          zIndex={5}
         />
       )}
       {dropoffCoords && (
@@ -160,6 +161,7 @@ function DeliveryMapMarkers({
           image={MARKER_IMAGES.dropoff}
           anchor={MARKER_ANCHOR.pin}
           tracksViewChanges={false}
+          zIndex={5}
         />
       )}
       {riderCoords && (
@@ -169,6 +171,7 @@ function DeliveryMapMarkers({
           image={MARKER_IMAGES.rider}
           anchor={MARKER_ANCHOR.rider}
           tracksViewChanges={false}
+          zIndex={10}
         />
       )}
     </>
@@ -211,6 +214,18 @@ const SIMPLIFIED_MAP_STYLE = [
     featureType: 'landscape',
     elementType: 'geometry',
     stylers: [{ color: '#f8f8f8' }],
+  },
+  {
+    // Building footprints — without this they render as dark blobs
+    // against the lightened landscape above.
+    featureType: 'landscape.man_made',
+    elementType: 'geometry.fill',
+    stylers: [{ color: '#ececec' }],
+  },
+  {
+    featureType: 'landscape.man_made',
+    elementType: 'geometry.stroke',
+    stylers: [{ color: '#e0e0e0' }],
   },
   {
     featureType: 'road',
@@ -289,25 +304,13 @@ const SIMPLIFIED_MAP_STYLE = [
   },
 ];
 
-const ROUTE_LINE_COLOR = '#22C55E';
-
 function haversineMeters(
   lat1: number,
   lon1: number,
   lat2: number,
   lon2: number,
 ) {
-  const R = 6371000;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+  return haversineKm(lat1, lon1, lat2, lon2) * 1000;
 }
 
 function getZoomForSpeed(speedKmh: number): number {
@@ -449,7 +452,9 @@ export default function TrackingScreen() {
     longitude: number;
   } | null>(null);
   const [fallbackCoords, setFallbackCoords] = useState<LatLng | null>(null);
-  const [followMode, setFollowMode] = useState(true);
+  // Start zoomed out to show the whole delivery; the recenter button switches to follow.
+  const [followMode, setFollowMode] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
   const [riderSpeedKmh, setRiderSpeedKmh] = useState(0);
   const [handoffCode, setHandoffCode] = useState<string | null>(null);
   const [proofPhotoUrl, setProofPhotoUrl] = useState<string | null>(null);
@@ -460,19 +465,35 @@ export default function TrackingScreen() {
   } | null>(null);
   const mapRef = useRef<any>(null);
 
+  const fitEdgePadding = {
+    top: 90,
+    right: 60,
+    bottom: detailsOpen ? 420 : 280,
+    left: 60,
+  };
+
   const handleRecenterMap = () => {
-    if (!riderCoords) return;
-    setFollowMode(true);
-    mapRef.current?.animateCamera?.(
-      {
-        center: {
-          latitude: riderCoords.latitude,
-          longitude: riderCoords.longitude,
-        },
-        zoom: getZoomForSpeed(riderSpeedKmh),
-      },
-      { duration: 450 },
+    if (riderCoords) {
+      // The follow effect below does the camera move.
+      setFollowMode(true);
+      return;
+    }
+    // No rider position yet: frame the delivery points (or the device) instead.
+    setFollowMode(false);
+    const points = [pickupCoords, dropoffCoords, fallbackCoords].filter(
+      (p): p is LatLng => !!p,
     );
+    if (points.length > 1) {
+      mapRef.current?.fitToCoordinates?.(points, {
+        edgePadding: fitEdgePadding,
+        animated: true,
+      });
+    } else if (points.length === 1) {
+      mapRef.current?.animateCamera?.(
+        { center: points[0], zoom: 15 },
+        { duration: 450 },
+      );
+    }
   };
 
   const mapRegion = useMemo(
@@ -496,24 +517,22 @@ export default function TrackingScreen() {
   const speedKmhRounded = Math.max(0, Math.round(riderSpeedKmh));
 
   useEffect(() => {
-    if (!mapRef.current) return;
-    const fitPoints =
-      routeCoordinates.length > 1
-        ? routeCoordinates
-        : [riderCoords, pickupCoords, dropoffCoords].filter(
-            (p): p is LatLng => !!p,
-          );
+    // Fitting before the native map has laid out is silently dropped on Android.
+    if (!mapReady || followMode || !mapRef.current) return;
+    const fitPoints = [
+      ...routeCoordinates,
+      ...[riderCoords, pickupCoords, dropoffCoords].filter(
+        (p): p is LatLng => !!p,
+      ),
+    ];
     if (fitPoints.length < 2) return;
     mapRef.current.fitToCoordinates?.(fitPoints, {
-      edgePadding: {
-        top: 90,
-        right: 60,
-        bottom: detailsOpen ? 420 : 280,
-        left: 60,
-      },
+      edgePadding: fitEdgePadding,
       animated: true,
     });
   }, [
+    mapReady,
+    followMode,
     detailsOpen,
     routeCoordinates.length,
     pickupCoords?.latitude,
@@ -523,7 +542,7 @@ export default function TrackingScreen() {
   ]);
 
   useEffect(() => {
-    if (!followMode || !mapRef.current || !riderCoords) return;
+    if (!mapReady || !followMode || !mapRef.current || !riderCoords) return;
     mapRef.current.animateCamera?.(
       {
         center: {
@@ -535,6 +554,7 @@ export default function TrackingScreen() {
       { duration: 500 },
     );
   }, [
+    mapReady,
     followMode,
     riderCoords?.latitude,
     riderCoords?.longitude,
@@ -593,10 +613,20 @@ export default function TrackingScreen() {
     const handleLocationPayload = (payload: {
       new?: { latitude: number; longitude: number };
     }) => {
-      if (!payload.new) return;
+      const incoming = payload.new;
+      if (
+        !incoming ||
+        !Number.isFinite(Number(incoming.latitude)) ||
+        !Number.isFinite(Number(incoming.longitude))
+      ) {
+        return;
+      }
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        const next = payload.new!;
+        const next = {
+          latitude: Number(incoming.latitude),
+          longitude: Number(incoming.longitude),
+        };
         const now = Date.now();
         const prev = lastRiderSampleRef.current;
         if (prev) {
@@ -826,18 +856,23 @@ export default function TrackingScreen() {
       setHandoffCode(null);
       return;
     }
+    let cancelled = false;
     (async () => {
-      const { data } = await (supabase as any)
-        .from('delivery_handoffs')
-        .select('code, verified')
-        .eq('delivery_id', deliveryId)
-        .maybeSingle();
-      if (data && !data.verified) {
-        setHandoffCode(data.code);
-      } else {
-        setHandoffCode(null);
+      try {
+        const { data } = await (supabase as any)
+          .from('delivery_handoffs')
+          .select('code, verified')
+          .eq('delivery_id', deliveryId)
+          .maybeSingle();
+        if (cancelled) return;
+        setHandoffCode(data && !data.verified ? data.code : null);
+      } catch (err) {
+        console.warn('[tracking] handoff code fetch failed', err);
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [deliveryId, activeDelivery?.status]);
 
   // Load proof-of-delivery photo when delivered
@@ -852,24 +887,46 @@ export default function TrackingScreen() {
     ) {
       return;
     }
+    let cancelled = false;
     (async () => {
-      const url = await getDeliveryProofSignedUrl(
-        activeDelivery.proof_photo_path!,
-      );
-      setProofPhotoUrl(url);
+      try {
+        const url = await getDeliveryProofSignedUrl(
+          activeDelivery.proof_photo_path!,
+        );
+        if (!cancelled) setProofPhotoUrl(url);
+      } catch (err) {
+        console.warn('[tracking] proof photo url failed', err);
+      }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [activeDelivery?.proof_photo_path, activeDelivery?.status]);
 
-  // Fetch route from rider to dropoff and update ETA (debounced when rider moves)
+  // Route from the rider to where they're heading next — the pickup until the package is
+  // collected, then the dropoff — and the ETA to it (debounced while the rider moves).
+  const headingToPickup = displayStatus === 'rider_assigned';
+  const routeActive = !(
+    displayStatus === 'cancelled' ||
+    displayStatus === 'delivered' ||
+    displayStatus === 'completed'
+  );
+  const routeTarget = headingToPickup ? pickupCoords : dropoffCoords;
   const riderCoordsRef = useRef(riderCoords);
-  const dropoffCoordsRef = useRef(dropoffCoords);
+  const dropoffCoordsRef = useRef(routeTarget);
   riderCoordsRef.current = riderCoords;
-  dropoffCoordsRef.current = dropoffCoords;
+  dropoffCoordsRef.current = routeTarget;
   const routeFetchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRouteFetchRef = useRef(0);
   const ROUTE_DEBOUNCE_MS = 12000;
 
   useEffect(() => {
+    // Target changed (pickup -> dropoff): fetch the new route immediately.
+    lastRouteFetchRef.current = 0;
+  }, [headingToPickup]);
+
+  useEffect(() => {
+    if (!routeActive) return;
     const drop = dropoffCoordsRef.current;
     const rider = riderCoordsRef.current;
     if (!drop || !rider) return;
@@ -884,7 +941,7 @@ export default function TrackingScreen() {
         currentDrop.latitude,
         currentDrop.longitude,
       );
-      if (!result) return;
+      if (!result || result.coordinates.length < 2) return;
       setRouteCoordinates(result.coordinates);
       const mins = Math.round(result.durationSeconds / 60);
       const etaText =
@@ -919,11 +976,27 @@ export default function TrackingScreen() {
       if (routeFetchRef.current) clearTimeout(routeFetchRef.current);
     };
   }, [
-    dropoffCoords?.latitude,
-    dropoffCoords?.longitude,
+    routeActive,
+    headingToPickup,
+    routeTarget?.latitude,
+    routeTarget?.longitude,
     riderCoords?.latitude,
     riderCoords?.longitude,
   ]);
+
+  const riderTrail = useRiderTrail(
+    routeActive ? riderCoords : null,
+    deliveryId ?? null,
+  );
+
+  const isEnded =
+    displayStatus === 'cancelled' ||
+    displayStatus === 'delivered' ||
+    displayStatus === 'completed';
+  // Once the delivery ends, freeze the timer at the moment it ended.
+  const endedAt = isEnded
+    ? (activeDelivery?.completed_at ?? activeDelivery?.updated_at ?? null)
+    : null;
 
   useEffect(() => {
     if (!activeDelivery?.created_at) {
@@ -931,13 +1004,19 @@ export default function TrackingScreen() {
       return;
     }
     const startMs = new Date(activeDelivery.created_at).getTime();
-    const tick = () => {
-      setElapsedTime(Math.max(0, Math.floor((Date.now() - startMs) / 1000)));
-    };
+    const secondsUntil = (ms: number) =>
+      Math.max(0, Math.floor((ms - startMs) / 1000));
+    if (isEnded) {
+      setElapsedTime(
+        secondsUntil(endedAt ? new Date(endedAt).getTime() : Date.now()),
+      );
+      return;
+    }
+    const tick = () => setElapsedTime(secondsUntil(Date.now()));
     tick();
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [activeDelivery?.created_at]);
+  }, [activeDelivery?.created_at, isEnded, endedAt]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -1003,7 +1082,14 @@ export default function TrackingScreen() {
       {
         text: 'In-App Call',
         onPress: () => {
-          startCall(activeDelivery.id, riderName).catch(() => {});
+          startCall(activeDelivery.id, riderName).catch(() => {
+            showAlert(
+              'Call failed',
+              rider.phone
+                ? 'We could not connect the in-app call. Try a phone call instead.'
+                : 'We could not connect the in-app call. Please try again or send a message.',
+            );
+          });
         },
       },
     ];
@@ -1012,7 +1098,13 @@ export default function TrackingScreen() {
       buttons.push({
         text: 'Phone Call',
         onPress: () => {
-          Linking.openURL(`tel:${rider.phone}`).catch(() => {});
+          const telUrl = `tel:${rider.phone.replace(/[^\d+]/g, '')}`;
+          Linking.openURL(telUrl).catch(() => {
+            showAlert(
+              'Phone Call',
+              `This device can't place calls. The rider's number is ${rider.phone}.`,
+            );
+          });
         },
       });
     }
@@ -1026,7 +1118,10 @@ export default function TrackingScreen() {
   };
 
   const handleMessage = () => {
-    if (!activeDelivery?.id || !riderId) return;
+    if (!activeDelivery?.id || !riderId) {
+      showAlert('Message Rider', 'A rider must be assigned before you can chat.');
+      return;
+    }
     router.push({
       pathname: '/chat',
       params: {
@@ -1042,17 +1137,22 @@ export default function TrackingScreen() {
       showAlert('Share', 'Tracking link is not available for this delivery.');
       return;
     }
-    const webUrl =
-      process.env.EXPO_PUBLIC_WEB_URL?.replace(/\/$/, '') ??
-      process.env.EXPO_PUBLIC_SUPABASE_URL?.replace(/\/$/, '');
-    const link = `${webUrl}/track/${activeDelivery.share_token}`;
+    // Public web tracking page when configured; otherwise an app link that opens
+    // app/track/[token].tsx for anyone with Ridely installed.
+    const webUrl = process.env.EXPO_PUBLIC_WEB_URL?.trim().replace(/\/$/, '');
+    const link = webUrl
+      ? `${webUrl}/track/${activeDelivery.share_token}`
+      : ExpoLinking.createURL(`/track/${activeDelivery.share_token}`);
     try {
       await Share.share({
         message: `Track my Ridely delivery live: ${link}`,
         url: link,
         title: 'Ridely delivery tracking',
       });
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[tracking] share failed', err);
+      showAlert('Share', 'Could not open the share sheet. Please try again.');
+    }
   };
 
   const riderFirst =
@@ -1086,11 +1186,23 @@ export default function TrackingScreen() {
       : primaryAction === 'chat'
         ? MessageCircle
         : Share2;
-  const statusTitle = isSearchingForRider
-    ? 'Finding your rider'
-    : getStatusText(displayStatus);
-  const etaLabel = isSearchingForRider
-    ? 'ETA —'
+  const cancelledWithoutRider =
+    displayStatus === 'cancelled' && isSearchingForRider;
+  const statusTitle =
+    displayStatus === 'cancelled'
+      ? activeDelivery?.status === 'cancelled_no_rider'
+        ? 'No rider found'
+        : 'Delivery cancelled'
+      : isSearchingForRider
+        ? 'Finding your rider'
+        : getStatusText(displayStatus);
+  const etaLabel =
+    displayStatus === 'cancelled'
+      ? 'This delivery was cancelled'
+      : displayStatus === 'delivered' || displayStatus === 'completed'
+        ? 'Delivered'
+        : isSearchingForRider
+          ? 'ETA —'
     : rider.estimatedArrival && rider.estimatedArrival !== 'Calculating...'
       ? `ETA ${rider.estimatedArrival}`
       : 'ETA calculating…';
@@ -1116,24 +1228,22 @@ export default function TrackingScreen() {
             style={StyleSheet.absoluteFill}
             mapType="standard"
             customMapStyle={SIMPLIFIED_MAP_STYLE}
+            showsBuildings={false}
             initialRegion={mapRegion}
             loadingEnabled
             moveOnMarkerPress={false}
             toolbarEnabled={false}
+            onMapReady={() => setMapReady(true)}
             onPanDrag={() => setFollowMode(false)}
             onTouchStart={() => {
               if (followMode) setFollowMode(false);
             }}
           >
-            {routeCoordinates.length > 0 && (
-              <RNMaps.Polyline
-                coordinates={routeCoordinates}
-                strokeColor={ROUTE_LINE_COLOR}
-                strokeWidth={4}
-                lineCap="round"
-                lineJoin="round"
-              />
-            )}
+            <DeliveryRouteLines
+              Polyline={RNMaps.Polyline}
+              route={routeActive ? routeCoordinates : []}
+              trail={riderTrail}
+            />
             <DeliveryMapMarkers
               Marker={RNMaps.Marker}
               pickupCoords={pickupCoords}
@@ -1163,20 +1273,15 @@ export default function TrackingScreen() {
         <View style={[styles.mapChrome, { paddingTop: insets.top + 8 }]}>
           <TouchableOpacity
             style={[styles.roundBtn, { backgroundColor: 'rgba(0,0,0,0.55)' }]}
-            onPress={() => router.back()}
+            onPress={() =>
+              router.canGoBack() ? router.back() : router.replace('/(tabs)')
+            }
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
             <ArrowLeft size={22} color="#FFFFFF" strokeWidth={2} />
           </TouchableOpacity>
-          {riderId ? (
-            <View style={[styles.livePill, isLive && styles.livePillActive]}>
-              <View style={[styles.liveDot, isLive && styles.liveDotActive]} />
-              <Text style={styles.liveText}>
-                {isLive ? 'Live' : 'Connecting…'}
-              </Text>
-            </View>
-          ) : (
-            <View />
-          )}
+          <View />
           <TouchableOpacity
             style={[
               styles.roundBtn,
@@ -1187,6 +1292,8 @@ export default function TrackingScreen() {
               },
             ]}
             onPress={handleRecenterMap}
+            accessibilityRole="button"
+            accessibilityLabel={riderCoords ? 'Follow rider' : 'Show delivery on map'}
           >
             <Crosshair size={20} color="#FFFFFF" strokeWidth={2} />
           </TouchableOpacity>
@@ -1234,7 +1341,16 @@ export default function TrackingScreen() {
                 {statusTitle}
               </Text>
             </View>
-            <Text style={[styles.etaText, { color: theme.colors.primary }]}>
+            <Text
+              style={[
+                styles.etaText,
+                {
+                  color: isEnded
+                    ? theme.colors.textSecondary
+                    : theme.colors.primary,
+                },
+              ]}
+            >
               {etaLabel}
             </Text>
           </View>
@@ -1321,12 +1437,33 @@ export default function TrackingScreen() {
         </View>
 
         <TouchableOpacity
+          style={styles.detailsToggle}
           onPress={() => setDetailsOpen((open) => !open)}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: detailsOpen }}
         >
-          <Text style={[styles.detailsToggle, { color: theme.colors.primary }]}>
+          <Text
+            style={[
+              styles.detailsToggleText,
+              { color: theme.colors.textSecondary },
+            ]}
+          >
             {detailsOpen ? 'Hide details' : 'Delivery details'}
           </Text>
+          {detailsOpen ? (
+            <ChevronDown
+              size={16}
+              color={theme.colors.textSecondary}
+              strokeWidth={2.25}
+            />
+          ) : (
+            <ChevronUp
+              size={16}
+              color={theme.colors.textSecondary}
+              strokeWidth={2.25}
+            />
+          )}
         </TouchableOpacity>
 
         {detailsOpen ? (
@@ -1345,18 +1482,41 @@ export default function TrackingScreen() {
                 <View
                   style={[
                     styles.riderAvatar,
-                    { backgroundColor: theme.colors.primary },
+                    {
+                      backgroundColor: cancelledWithoutRider
+                        ? theme.colors.border
+                        : theme.colors.primary,
+                    },
                   ]}
                 >
-                  <User size={22} color="#FFFFFF" strokeWidth={2} />
+                  {cancelledWithoutRider ? (
+                    <UserX size={22} color="#FFFFFF" strokeWidth={2} />
+                  ) : (
+                    <User size={22} color="#FFFFFF" strokeWidth={2} />
+                  )}
                 </View>
                 <View style={styles.riderInfo}>
                   <Text
                     style={[styles.riderName, { color: theme.colors.text }]}
                   >
-                    {isSearchingForRider ? 'Looking for a rider…' : rider.name}
+                    {cancelledWithoutRider
+                      ? 'No rider assigned'
+                      : isSearchingForRider
+                        ? 'Looking for a rider…'
+                        : rider.name}
                   </Text>
-                  {!isSearchingForRider ? (
+                  {cancelledWithoutRider ? (
+                    <Text
+                      style={[
+                        styles.riderMeta,
+                        { color: theme.colors.textSecondary },
+                      ]}
+                    >
+                      {activeDelivery?.status === 'cancelled_no_rider'
+                        ? 'No rider accepted this delivery in time'
+                        : 'Cancelled before a rider accepted'}
+                    </Text>
+                  ) : !isSearchingForRider ? (
                     <Text
                       style={[
                         styles.riderMeta,
@@ -1633,6 +1793,9 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   sheet: {
+    // Overlap the map by the corner radius so the map (not the screen
+    // background) shows behind the rounded corners.
+    marginTop: -24,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 20,
@@ -1710,10 +1873,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   detailsToggle: {
-    marginTop: 14,
+    marginTop: 6,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  detailsToggleText: {
     fontSize: 14,
     fontWeight: '600',
-    textAlign: 'center',
   },
   detailsScroll: {
     marginTop: 12,

@@ -5,13 +5,14 @@ import {
   cardPaymentMatchesQuote,
   fareQuoteWithinServerBand,
 } from '../_shared/pricing.ts';
+import { notifyRidersForDelivery } from '../_shared/dispatch.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-type PaymentMethod = 'cash' | 'card' | 'wallet';
+type PaymentMethod = 'card';
 
 type CreateDeliveryBody = {
   payment_method: PaymentMethod;
@@ -87,14 +88,17 @@ Deno.serve(async (req) => {
     return json({ error: 'Invalid JSON body' }, 400);
   }
 
+  // Cash-on-delivery is retired for new bookings (Phase 4). Cash rows remain
+  // readable for history, but no new delivery may be created unpaid.
+  // Bank transfer bookings go through payment-init, never this endpoint.
   const paymentMethod = body.payment_method;
-  if (paymentMethod !== 'cash' && paymentMethod !== 'card') {
+  if (paymentMethod !== 'card') {
     return json(
       {
         error:
-          paymentMethod === 'wallet'
-            ? 'Wallet payment for bookings is not available yet'
-            : 'payment_method must be cash or card',
+          paymentMethod === 'bank_transfer'
+            ? 'Bank transfer bookings must be created via payment-init'
+            : 'Cash on delivery is no longer supported. Please pay by card or bank transfer.',
       },
       400
     );
@@ -126,7 +130,11 @@ Deno.serve(async (req) => {
     Deno.env.get('GOOGLE_MAPS_API_KEY') ||
     null;
 
-  let serverFare: { distanceKm: number; totalCost: number };
+  let serverFare: {
+    distanceKm: number;
+    totalCost: number;
+    source: 'directions' | 'estimate';
+  };
   try {
     serverFare = await computeServerFare({
       pickupLat,
@@ -168,11 +176,30 @@ Deno.serve(async (req) => {
       ? Number(quotedDistance.toFixed(2))
       : serverFare.distanceKm;
 
+  // Observability: confirm the server key is actually reaching Google
+  // Directions. source:'estimate' means it fell back to the straight-line
+  // haversine (key missing / app-restricted / API not enabled), which reads
+  // lower than the road distance the customer was quoted.
+  console.log(
+    'create-delivery fare',
+    JSON.stringify({
+      source: serverFare.source,
+      serverDistanceKm: serverFare.distanceKm,
+      serverTotal: serverFare.totalCost,
+      quotedTotal: Number.isFinite(quotedCost) ? quotedCost : null,
+      quotedDistance: Number.isFinite(quotedDistance) ? quotedDistance : null,
+      usedQuote: useQuote,
+      storedTotal: totalCost,
+      storedDistance: distance,
+    })
+  );
+
   const admin = createClient(supabaseUrl, serviceRoleKey);
 
   let paymentStatus: 'unpaid' | 'paid' = 'unpaid';
   let paymentReference: string | null = null;
   let amountPaid: number | null = null;
+  let paidKobo = 0;
 
   if (paymentMethod === 'card') {
     const reference = (body.payment_reference || '').trim();
@@ -224,7 +251,7 @@ Deno.serve(async (req) => {
       return json({ error: 'Payment missing booking intent metadata' }, 400);
     }
 
-    const paidKobo = Number(tx.amount) || 0;
+    paidKobo = Number(tx.amount) || 0;
     // Paid amount must match the fare we are about to store (the quote when it
     // is trusted, otherwise the server figure), and that fare must sit within
     // the sane band of the server recompute.
@@ -294,51 +321,68 @@ Deno.serve(async (req) => {
     return json({ error: insertError.message || 'Failed to create delivery' }, 500);
   }
 
-  if (delivery?.id) {
-    try {
-      const { data: nearbyRiders } = await admin.rpc('find_nearby_riders', {
-        pickup_lat: pickupLat,
-        pickup_lng: pickupLng,
-        radius: 5000,
-      });
-      if (Array.isArray(nearbyRiders) && nearbyRiders.length > 0) {
-        const pickupShort = String(body.pickup_address).split(',')[0] || 'See details';
-        const notifications = nearbyRiders.map((r: { id: string }) => ({
-          user_id: authUser.id,
-          rider_id: r.id,
-          type: 'job_request',
-          title: 'New delivery request',
-          message: `Pickup: ${pickupShort} → Dropoff nearby. Tap to view.`,
-          read: false,
-          actionable: true,
-          delivery_id: delivery.id,
-        }));
-        await admin.from('notifications').insert(notifications);
+  const deliveryId = (delivery as { id: string }).id;
 
-        try {
-          await fetch(`${supabaseUrl}/functions/v1/send-push`, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${serviceRoleKey}`,
-              apikey: serviceRoleKey,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              riderIds: nearbyRiders.map((r: { id: string }) => r.id),
-              title: 'New delivery request',
-              body: `Pickup: ${pickupShort} → Dropoff nearby. Tap to accept or decline.`,
-              data: { type: 'job_request', deliveryId: delivery.id },
-              deliveryId: delivery.id,
-            }),
-          });
-        } catch (pushErr) {
-          console.warn('create-delivery push failed', pushErr);
+  // Card bookings share the Phase 2 accounting trail: a successful payments row
+  // plus the collection ledger entry. Roll back the delivery if either write
+  // fails so a paid booking is never left out of the ledger; the client retry
+  // then lands on the idempotent path above.
+  {
+    const now = new Date().toISOString();
+    const { error: paymentRowError } = await admin.from('payments').insert({
+      delivery_id: deliveryId,
+      customer_id: authUser.id,
+      provider: 'paystack',
+      method: 'card',
+      reference: paymentReference,
+      expected_amount_kobo: nairaToKobo(totalCost),
+      confirmed_amount_kobo: paidKobo,
+      status: 'successful',
+      provider_transaction_id: paymentReference,
+      confirmed_at: now,
+    });
+    if (paymentRowError) {
+      console.error('create-delivery payments insert', paymentRowError);
+      if (String((paymentRowError as { code?: string }).code) === '23505') {
+        const { data: raced } = await admin
+          .from('deliveries')
+          .select('*')
+          .eq('payment_reference', paymentReference)
+          .maybeSingle();
+        if (raced && raced.user_id === authUser.id) {
+          return json({ delivery: raced, idempotent: true });
         }
       }
-    } catch (notifyErr) {
-      console.warn('create-delivery notify failed', notifyErr);
+      await admin.from('deliveries').delete().eq('id', deliveryId);
+      return json({ error: 'Could not record payment. Please retry.' }, 500);
+    }
+
+    const { error: ledgerError } = await admin.from('ledger_entries').insert({
+      delivery_id: deliveryId,
+      amount_kobo: paidKobo,
+      type: 'collection',
+      note: `card settlement ref ${paymentReference}`,
+    });
+    if (ledgerError) {
+      console.error('create-delivery ledger insert', ledgerError);
+      await admin.from('deliveries').delete().eq('id', deliveryId);
+      await admin.from('payments').delete().eq('reference', paymentReference);
+      return json({ error: 'Could not record payment. Please retry.' }, 500);
     }
   }
+
+  // Fan out to nearby riders (shared with bank-transfer settlement in the
+  // webhook). Best-effort — notification failure never fails the booking.
+  await notifyRidersForDelivery({
+    admin,
+    supabaseUrl,
+    serviceRoleKey,
+    deliveryId,
+    customerId: authUser.id,
+    pickupLat,
+    pickupLng,
+    pickupAddress: body.pickup_address,
+  });
 
   return json({ delivery });
 });

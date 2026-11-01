@@ -1,0 +1,68 @@
+-- =============================================================================
+-- Payout settlement schedule (Phase 5) — MANUAL DEPLOY STEP, not auto-applied.
+--
+-- Prerequisites on the Supabase project (Dashboard → Database → Extensions):
+--   1. pg_cron enabled.
+--   2. pg_net enabled.
+--
+-- Secrets required on the project (Dashboard → Project Settings → Vault, or
+-- `supabase secrets set` for the function env — pg_cron needs the raw values):
+--   - SETTLEMENT_CRON_SECRET: a long random string; ALSO set as the
+--     settlement-run edge function secret (same value).
+--   - SUPABASE_URL and the service_role key are used by pg_net to call the
+--     function; prefer the Vault + a headers jsonb built at schedule time.
+--
+-- Schedule (Africa/Lagos = UTC+1, no DST):
+--   - 23:00 UTC daily  == 00:00 WAT midnight settlement
+--   - 17:00 UTC daily  == 18:00 WAT evening settlement
+-- These initiate/track transfers; bank-credit timing depends on Paystack/banks.
+--
+-- Deploy (psql / SQL editor, replace placeholders):
+-- =============================================================================
+
+-- Midnight run (00:00 WAT):
+-- SELECT cron.schedule(
+--   'ridely-settlement-midnight',
+--   '0 23 * * *',
+--   $$
+--   SELECT net.http_post(
+--     url := 'https://<PROJECT_REF>.supabase.co/functions/v1/settlement-run',
+--     headers := jsonb_build_object(
+--       'Content-Type', 'application/json',
+--       'apikey', '<SERVICE_ROLE_KEY>',
+--       'x-cron-secret', '<SETTLEMENT_CRON_SECRET>'
+--     ),
+--     body := '{}'::jsonb
+--   );
+--   $$
+-- );
+
+-- Evening run (18:00 WAT):
+-- SELECT cron.schedule(
+--   'ridely-settlement-evening',
+--   '0 17 * * *',
+--   $$
+--   SELECT net.http_post(
+--     url := 'https://<PROJECT_REF>.supabase.co/functions/v1/settlement-run',
+--     headers := jsonb_build_object(
+--       'Content-Type', 'application/json',
+--       'apikey', '<SERVICE_ROLE_KEY>',
+--       'x-cron-secret', '<SETTLEMENT_CRON_SECRET>'
+--     ),
+--     body := '{}'::jsonb
+--   );
+--   $$
+-- );
+
+-- Verify:
+--   SELECT jobid, jobname, schedule FROM cron.job;
+--   SELECT * FROM cron.job_run_details ORDER BY start_time DESC LIMIT 10;
+--
+-- Dry run without moving money (same auth, no writes, no Paystack calls):
+--   curl -X POST 'https://<PROJECT_REF>.supabase.co/functions/v1/settlement-run?dry_run=true' \
+--     -H "apikey: <SERVICE_ROLE_KEY>" \
+--     -H "x-cron-secret: <SETTLEMENT_CRON_SECRET>"
+--
+-- Unschedule (rollback):
+--   SELECT cron.unschedule('ridely-settlement-midnight');
+--   SELECT cron.unschedule('ridely-settlement-evening');

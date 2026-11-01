@@ -1,19 +1,21 @@
 import React from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
   Switch,
 } from 'react-native';
+import { Text } from '@/components/Text';
+import { FontSizeSetting } from '@/components/FontSizeSetting';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import Animated from 'react-native-reanimated';
-import { Bell, Moon, Globe, Zap, CircleHelp as HelpCircle, FileText, Shield, LogOut, ChevronRight, Smartphone, Receipt, MessageSquare, Sun, Monitor } from 'lucide-react-native';
+import { Bell, Moon, Globe, Zap, CircleHelp as HelpCircle, FileText, Shield, LogOut, ChevronRight, Smartphone, Receipt, MessageSquare, Sun, Monitor, ChartColumn as BarChart3 } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useTheme, ThemeMode } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useIsAdmin } from '@/hooks/useIsAdmin';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { useAlert } from '@/contexts/AlertContext';
@@ -32,6 +34,7 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { theme, themeMode, setThemeMode, isDark } = useTheme();
   const { signOut, loading } = useAuth();
+  const { isAdmin } = useIsAdmin();
   const { showAlert } = useAlert();
   const { languageName } = useLanguage();
   const {
@@ -111,6 +114,17 @@ export default function SettingsScreen() {
   ];
 
   const generalSettings = [
+    ...(isAdmin
+      ? [
+          {
+            title: 'Finance (Admin)',
+            subtitle: 'Ledger totals and settlement batches',
+            icon: BarChart3,
+            onPress: () => router.push('/admin/finance'),
+            showArrow: true,
+          },
+        ]
+      : []),
     {
       title: 'Language',
       subtitle: languageName,
@@ -265,6 +279,9 @@ export default function SettingsScreen() {
                 </View>
               );
             })}
+            <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+              <FontSizeSetting />
+            </View>
           </View>
         </Animated.View>
 

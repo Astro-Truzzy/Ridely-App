@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
@@ -9,6 +8,7 @@ import {
   Linking,
   ActivityIndicator,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -79,7 +79,7 @@ export default function SupportScreen() {
     {
       id: '2',
       question: 'What payment methods do you accept?',
-      answer: 'We accept credit/debit cards, cash on delivery, and Ridely wallet balance. All card payments are processed securely.',
+      answer: 'We accept credit/debit cards and bank transfers. All payments are verified before your delivery is dispatched to riders, so please complete payment in the app when booking.',
       category: 'payment',
     },
     {

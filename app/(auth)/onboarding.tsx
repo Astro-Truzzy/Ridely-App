@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   TouchableOpacity,
   FlatList,
@@ -19,6 +18,7 @@ import { useOnboarding } from '@/hooks/useOnboarding';
 const { width: screenWidth } = Dimensions.get('window');
 
 import { ImageSourcePropType } from 'react-native';
+import { Text } from '@/components/Text';
 
 interface OnboardingSlide {
   id: string;

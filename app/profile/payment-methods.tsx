@@ -1,19 +1,18 @@
 import React, { useEffect } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import {
   ArrowLeft,
   CreditCard,
   Plus,
-  DollarSign,
   Wallet,
   MoreVertical,
   Check,
@@ -65,8 +64,8 @@ export default function PaymentMethodsScreen() {
   };
 
   const handlePaymentAction = (method: PaymentMethodDisplay) => {
-    if (method.type === 'cash' || method.type === 'wallet') {
-      return; // No actions for these types
+    if (method.type === 'wallet') {
+      return; // No actions for wallet
     }
 
     showAlert(
@@ -93,8 +92,6 @@ export default function PaymentMethodsScreen() {
         return CreditCard;
       case 'wallet':
         return Wallet;
-      case 'cash':
-        return DollarSign;
       default:
         return CreditCard;
     }

@@ -1,13 +1,13 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
   Modal,
   ActivityIndicator,
 } from 'react-native';
+import { Text } from '@/components/Text';
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -21,7 +21,7 @@ import {
   CheckCircle,
   CreditCard,
   Wallet,
-  DollarSign,
+  Landmark,
   MapPin,
   Clock,
   Package,
@@ -40,7 +40,10 @@ import {
   verifyPaystackTransaction,
   chargePaystackSavedCard,
   getPaystackCallbackPath,
+  initializeBankTransferCheckout,
+  fetchPaymentStatus,
   PAYSTACK_NEW_CARD_OPTION_ID,
+  BANK_TRANSFER_OPTION_ID,
 } from '@/lib/paystack';
 import { TestPaymentsBanner } from '@/components/TestPaymentsBanner';
 import { FormError } from '@/components/FormError';
@@ -91,6 +94,13 @@ export default function ConfirmationScreen() {
   const [paystackLoading, setPaystackLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const handledPaymentRef = useRef<string | null>(null);
+  const [transferCheckout, setTransferCheckout] = useState<{
+    reference: string;
+    amount_kobo: number;
+    authorization_url: string | null;
+  } | null>(null);
+  const [transferStatus, setTransferStatus] = useState<string | null>(null);
+  const [transferChecking, setTransferChecking] = useState(false);
 
   useEffect(() => {
     addPlaceholderMethodsIfEmpty();
@@ -98,15 +108,14 @@ export default function ConfirmationScreen() {
 
   const paymentMethods: PaymentOption[] = useMemo(() => {
     const iconFor = (type: PaymentMethodDisplay['type']) => {
-      if (type === 'cash') return DollarSign;
       if (type === 'wallet') return Wallet;
       return CreditCard;
     };
 
+    // Cash-on-delivery is retired for new bookings — cash methods never appear
+    // at checkout (existing rows remain visible under Profile for history).
     const options: PaymentOption[] = savedMethods
-      .filter(
-        (m) => m.type === 'card' || m.type === 'cash',
-      )
+      .filter((m) => m.type === 'card')
       .map((m) => ({
         ...m,
         details:
@@ -141,6 +150,16 @@ export default function ConfirmationScreen() {
       });
     }
 
+    options.push({
+      id: BANK_TRANSFER_OPTION_ID,
+      type: 'bank',
+      label: 'Bank transfer',
+      details: 'Transfer to Ridely account · confirmed automatically',
+      icon: Landmark,
+      isDefault: false,
+      gatewayPaymentMethodId: null,
+    });
+
     return options;
   }, [savedMethods, walletBalance]);
 
@@ -149,19 +168,18 @@ export default function ConfirmationScreen() {
     const defaultSaved = savedMethods.find(
       (m) => m.isDefault && m.type === 'card' && m.gatewayPaymentMethodId,
     );
-    const defaultAny = savedMethods.find((m) => m.isDefault);
-    const cash = savedMethods.find((m) => m.type === 'cash');
+    const defaultAny = savedMethods.find(
+      (m) => m.isDefault && m.type === 'card',
+    );
     if (defaultSaved) setSelectedPayment(defaultSaved.id);
-    else if (defaultAny && defaultAny.type !== 'wallet')
-      setSelectedPayment(defaultAny.id);
-    else if (cash) setSelectedPayment(cash.id);
+    else if (defaultAny) setSelectedPayment(defaultAny.id);
     else
       setSelectedPayment(paymentMethods[0]?.id ?? PAYSTACK_NEW_CARD_OPTION_ID);
   }, [paymentMethods, savedMethods, selectedPayment]);
 
   const completeBooking = useCallback(
     async (opts: {
-      payment_method: 'cash' | 'card';
+      payment_method: 'card';
       payment_reference?: string | null;
     }) => {
       if (!user) return;
@@ -237,9 +255,107 @@ export default function ConfirmationScreen() {
     }
   }, [user?.id, user?.email, userProfile?.email, price]);
 
+  const checkTransferStatus = useCallback(async () => {
+    if (!transferCheckout) return;
+    setTransferChecking(true);
+    try {
+      const status = await fetchPaymentStatus(transferCheckout.reference);
+      setTransferStatus(status.status);
+      if (status.status === 'successful') {
+        showToast('Payment confirmed. We will notify you when a rider accepts.');
+        router.replace('/(tabs)/bookings');
+      } else if (status.status === 'failed' || status.status === 'expired') {
+        setFormError(
+          status.failure_reason ||
+            'This transfer could not be confirmed. Please try again or contact support.'
+        );
+      }
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : 'Could not check payment status.');
+    } finally {
+      setTransferChecking(false);
+    }
+  }, [transferCheckout, showToast]);
+
+  // Auto-refresh the waiting screen; the booking completes when the verified
+  // webhook settles the transfer (never on client claim).
+  useEffect(() => {
+    if (!transferCheckout) return;
+    const timer = setInterval(() => {
+      checkTransferStatus();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [transferCheckout, checkTransferStatus]);
+
+  const startBankTransferPayment = useCallback(async () => {
+    const email = user?.email || userProfile?.email || '';
+    if (!email) {
+      setFormError('Your account email is required for bank transfer payment.');
+      return;
+    }
+    setFormError(null);
+    setPaystackLoading(true);
+    try {
+      const init = await initializeBankTransferCheckout({
+        pickup_address: pickupAddress,
+        dropoff_address: dropoffAddress,
+        pickup_lat: pickupLat != null ? parseFloat(pickupLat) : null,
+        pickup_lng: pickupLon != null ? parseFloat(pickupLon) : null,
+        dropoff_lat: dropoffLat != null ? parseFloat(dropoffLat) : null,
+        dropoff_lng: dropoffLon != null ? parseFloat(dropoffLon) : null,
+        parcel_size: size as 'small' | 'medium' | 'large',
+        total_cost: parseFloat(price),
+        distance: parseFloat(distance),
+        estimated_time: '25-35 mins',
+        delivery_time: deliveryTime as 'now' | 'scheduled',
+        scheduled_time:
+          deliveryTime === 'scheduled' && scheduledTime ? scheduledTime : null,
+        email,
+        idempotencyKey: `booking_${user?.id ?? 'guest'}_${Date.now()}`.slice(0, 64),
+      });
+      setTransferCheckout({
+        reference: init.reference,
+        amount_kobo: init.amount_kobo,
+        authorization_url: init.authorization_url,
+      });
+      setTransferStatus('pending');
+      if (init.authorization_url) {
+        setPaystackAuthUrl(init.authorization_url);
+      }
+    } catch (e) {
+      setFormError(
+        e instanceof Error
+          ? e.message
+          : 'Could not start bank transfer checkout. Try card payment instead.'
+      );
+    } finally {
+      setPaystackLoading(false);
+    }
+  }, [
+    user,
+    userProfile?.email,
+    pickupAddress,
+    dropoffAddress,
+    pickupLat,
+    pickupLon,
+    dropoffLat,
+    dropoffLon,
+    size,
+    price,
+    distance,
+    deliveryTime,
+    scheduledTime,
+  ]);
+
   const handleBooking = async () => {
     if (!user) {
       setFormError('You must be logged in to create a booking');
+      return;
+    }
+
+    // A transfer checkout is already in flight — reopen the payment page.
+    if (transferCheckout?.authorization_url) {
+      setPaystackAuthUrl(transferCheckout.authorization_url);
       return;
     }
 
@@ -255,24 +371,12 @@ export default function ConfirmationScreen() {
     }
 
     if (selected.type === 'wallet') {
-      setFormError('Paying with Ridely Wallet is coming soon. Choose card or cash.');
+      setFormError('Paying with Ridely Wallet is coming soon. Choose card or bank transfer.');
       return;
     }
 
-    if (selected.type === 'cash') {
-      setIsBooking(true);
-      try {
-        await completeBooking({ payment_method: 'cash' });
-      } catch (error: unknown) {
-        console.error('Error creating delivery:', error);
-        setFormError(
-          error instanceof Error
-            ? error.message
-            : 'Failed to create booking. Please try again.',
-        );
-      } finally {
-        setIsBooking(false);
-      }
+    if (selected.id === BANK_TRANSFER_OPTION_ID) {
+      await startBankTransferPayment();
       return;
     }
 
@@ -725,6 +829,65 @@ export default function ConfirmationScreen() {
             })}
           </View>
 
+          {/* Bank transfer waiting state — updates only on server confirmation */}
+          {transferCheckout ? (
+            <View
+              style={[
+                styles.paymentCard,
+                { backgroundColor: theme.colors.card },
+                theme.shadows.medium,
+              ]}
+            >
+              <Text style={[styles.cardTitle, { color: theme.colors.text }]}>
+                Awaiting bank transfer
+              </Text>
+              <Text
+                style={[styles.paymentDetails, { color: theme.colors.textSecondary }]}
+              >
+                Transfer exactly ₦
+                {(transferCheckout.amount_kobo / 100).toLocaleString('en-NG', {
+                  minimumFractionDigits: 2,
+                })}{' '}
+                using the account shown on the payment page. Use reference{' '}
+                <Text style={{ fontWeight: '700', color: theme.colors.text }}>
+                  {transferCheckout.reference}
+                </Text>{' '}
+                if asked for a narration. Your booking is created and will go to
+                riders automatically once the transfer is verified — do not mark it
+                complete yourself.
+              </Text>
+              <Text
+                style={[
+                  styles.paymentDetails,
+                  { color: theme.colors.textSecondary, marginTop: 8 },
+                ]}
+              >
+                Status:{' '}
+                <Text style={{ fontWeight: '700', color: theme.colors.text }}>
+                  {transferChecking
+                    ? 'Checking…'
+                    : transferStatus === 'successful'
+                      ? 'Confirmed'
+                      : transferStatus === 'failed' || transferStatus === 'expired'
+                        ? 'Needs attention'
+                        : 'Awaiting payment'}
+                </Text>
+              </Text>
+              <TouchableOpacity
+                style={[
+                  styles.bookingButton,
+                  { backgroundColor: theme.colors.surface, marginTop: 16 },
+                ]}
+                onPress={checkTransferStatus}
+                disabled={transferChecking}
+              >
+                <Text style={[styles.bookingText, { color: theme.colors.primary }]}>
+                  {transferChecking ? 'Checking…' : 'Check payment status'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
           {/* Terms */}
           <View style={styles.termsContainer}>
             <Text
@@ -775,9 +938,8 @@ export default function ConfirmationScreen() {
                 : 'Opening payment...'
               : isBooking
                 ? 'Confirming Booking...'
-                : paymentMethods.find((m) => m.id === selectedPayment)?.type ===
-                    'cash'
-                  ? 'Confirm'
+                : transferCheckout
+                  ? 'Continue payment'
                   : `Confirm & Pay ₦${parseFloat(price || '0').toLocaleString('en-NG')}`}
           </Text>
         </TouchableOpacity>

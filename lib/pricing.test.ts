@@ -10,14 +10,14 @@ import {
 } from './pricing';
 
 describe('pricing', () => {
-  it('uses ₦250 per km', () => {
-    expect(PRICE_PER_KM).toBe(250);
-    expect(computeFareFromDistanceKm(2).totalCost).toBe(500);
+  it('uses ₦300 per km', () => {
+    expect(PRICE_PER_KM).toBe(300);
+    expect(computeFareFromDistanceKm(2).totalCost).toBe(600);
     expect(computeFareFromDistanceKm(2).distanceKm).toBe(2);
   });
 
   it('rounds fare to 2 decimal places', () => {
-    expect(computeFareFromDistanceKm(1.234).totalCost).toBe(308.5);
+    expect(computeFareFromDistanceKm(1.234).totalCost).toBe(370.2);
   });
 
   it('rejects invalid distance', () => {
