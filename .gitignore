@@ -57,3 +57,6 @@ supabase/.temp/
 
 # generated video-ad frames
 store/video-ad/frames/
+
+# generated launch-video output (brag skill artifacts)
+brag-output/
