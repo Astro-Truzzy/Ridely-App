@@ -60,3 +60,6 @@ store/video-ad/frames/
 
 # generated launch-video output (brag skill artifacts)
 brag-output/
+
+# agent worktree metadata (local-only gitlinks)
+.claude/worktrees/
