@@ -22,6 +22,6 @@
     "expo-env.d.ts",
     "types/**/*.d.ts"
   ],
-  "exclude": ["node_modules", "build", "dist"],
+  "exclude": ["node_modules", "build", "dist", "supabase/functions"],
   "extends": "./node_modules/expo/tsconfig.base.json"
 }

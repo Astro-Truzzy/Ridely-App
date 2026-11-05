@@ -26,6 +26,7 @@ describe('user screen contracts', () => {
     expect(isCustomerActiveStatus('delivered')).toBe(false);
     expect(homeActiveDeliveryBadge('nearby', false)).toBe('Nearby');
     expect(homeActiveDeliveryBadge('pending', true)).toBe('Searching for rider…');
+    expect(homeActiveDeliveryBadge('pending', false, true)).toBe('Awaiting payment');
   });
 
   it('includes completed in recent-delivery lists', () => {

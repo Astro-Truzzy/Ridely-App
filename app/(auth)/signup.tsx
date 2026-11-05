@@ -34,6 +34,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useAlert } from '@/contexts/AlertContext';
 import { useLogo } from '@/hooks/useLogo';
 import { AuthBackgroundLines } from '@/components/AuthBackgroundLines';
+import { AuthErrorBadge } from '@/components/AuthErrorBadge';
+import {
+  getAccountExistsCopy,
+  isAccountExistsError,
+} from '@/lib/authErrors';
 import { FormError } from '@/components/FormError';
 import {
   validateEmail,
@@ -87,6 +92,7 @@ export default function SignupScreen() {
     Record<string, string>
   >({});
   const [touchedFields, setTouchedFields] = useState<Set<string>>(new Set());
+  const [badgeError, setBadgeError] = useState<{ title: string; message: string } | null>(null);
 
   const passwordStrength = getPasswordStrength(formData.password);
   const enabledProviders = getEnabledOAuthProviders();
@@ -171,6 +177,7 @@ export default function SignupScreen() {
     }
 
     setIsLoading(true);
+    setBadgeError(null);
 
     try {
       const result = await signUp(
@@ -216,22 +223,9 @@ export default function SignupScreen() {
 
       // Handle specific error messages
       if (error.message) {
-        if (error.message.includes('ACCOUNT_EXISTS')) {
-          // User already has an account - show friendly message
-          showAlert(
-            'Account Already Exists',
-            'An account with this email already exists. Please sign in instead.',
-            [
-              {
-                text: 'Cancel',
-                style: 'cancel',
-              },
-              {
-                text: 'Go to Sign In',
-                onPress: () => router.replace('/(auth)/login'),
-              },
-            ],
-          );
+        if (isAccountExistsError(error.message)) {
+          // Email is already linked to another account - floating badge
+          setBadgeError(getAccountExistsCopy());
         } else if (error.message.includes('EMAIL_CONFIRMATION_REQUIRED')) {
           const goToLogin = () =>
             router.replace({
@@ -283,6 +277,7 @@ export default function SignupScreen() {
       ...prev,
       [key]: key === 'phone' ? formatPhoneNumber(value) : value,
     }));
+    if (badgeError) setBadgeError(null);
     if (validationErrors.form) {
       setValidationErrors((prev) => {
         const next = { ...prev };
@@ -317,6 +312,16 @@ export default function SignupScreen() {
       edges={['left', 'right', 'bottom']}
     >
       <StatusBar style={isDark ? 'light' : 'dark'} />
+      <AuthErrorBadge
+        visible={badgeError !== null}
+        title={badgeError?.title ?? ''}
+        message={badgeError?.message}
+        action={{
+          label: 'Go to Sign In',
+          onPress: () => router.replace('/(auth)/login'),
+        }}
+        onDismiss={() => setBadgeError(null)}
+      />
       <AuthBackgroundLines />
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}

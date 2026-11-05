@@ -84,8 +84,10 @@ export function canCustomerCancelDelivery(
 
 export function homeActiveDeliveryBadge(
   status: string,
-  searchingForRider: boolean
+  searchingForRider: boolean,
+  awaitingPayment = false
 ): string {
+  if (awaitingPayment) return 'Awaiting payment';
   if (searchingForRider) return 'Searching for rider…';
   if (status === 'nearby') return 'Nearby';
   if (status === 'picked_up' || status === 'in_transit') return 'In Transit';

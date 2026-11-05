@@ -9,8 +9,12 @@ export interface CancellationCandidate {
   created_at: string;
 }
 
-/** Stale paid/failed/legacy bookings cancel this long after creation. */
-export const STALE_MS = 2 * 60 * 1000;
+/**
+ * Stale paid/failed/legacy bookings cancel this long after creation. Rider
+ * search starts only after backend-verified payment, so only paid bookings
+ * count toward the no-rider window.
+ */
+export const STALE_MS = 5 * 60 * 1000;
 /** Bank-transfer bookings get this grace window for the bank-app round-trip. */
 export const TRANSFER_GRACE_MS = 30 * 60 * 1000;
 

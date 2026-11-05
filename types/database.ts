@@ -62,6 +62,7 @@ export interface Database {
           updated_at?: string;
           avatar_url?: string | null;
         };
+        Relationships: [];
       };
       rider_verification_documents: {
         Row: {
@@ -97,6 +98,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
       users: {
         Row: {
@@ -126,6 +128,7 @@ export interface Database {
           updated_at?: string;
           avatar_url?: string | null;
         };
+        Relationships: [];
       };
       deliveries: {
         Row: {
@@ -191,6 +194,7 @@ export interface Database {
           updated_at?: string;
           completed_at?: string | null;
         };
+        Relationships: [];
       };
       earnings: {
         Row: {
@@ -226,6 +230,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
       notifications: {
         Row: {
@@ -261,6 +266,7 @@ export interface Database {
           actionable?: boolean;
           created_at?: string;
         };
+        Relationships: [];
       };
     };
     Views: {

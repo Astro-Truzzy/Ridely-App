@@ -63,7 +63,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   useEffect(() => {
+    let cancelled = false;
+    // Safety net: supabase-js uses fetch with no timeout, so a stalled
+    // network (or a throwing storage adapter) must never leave startup stuck
+    // on the splash spinner. Force auth to settle so the app can render.
+    const safety = setTimeout(() => {
+      if (cancelled) return;
+      console.warn('[Auth] Session restore timed out; continuing without session.');
+      lockedRoleRef.current = null;
+      setSession(null);
+      setUser(null);
+      setUserProfile(null);
+      setUserType(null);
+      setLoading(false);
+    }, 20000);
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (cancelled) return;
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
@@ -71,19 +87,33 @@ export function AuthProvider({ children }: AuthProviderProps) {
         lockedRoleRef.current = jwtRole;
         if (jwtRole) {
           setUserType(jwtRole);
+          clearTimeout(safety);
           setLoading(false);
-          loadUserProfile(session.user.id); // background: fill userProfile
+          loadUserProfile(session.user.id, session.user); // background: fill userProfile
         } else {
-          const resolved = await loadUserProfile(session.user.id);
+          const resolved = await loadUserProfile(session.user.id, session.user);
+          if (cancelled) return;
           if (resolved) setUserType(resolved);
+          clearTimeout(safety);
           setLoading(false);
         }
       } else {
         lockedRoleRef.current = null;
         setUserProfile(null);
         setUserType(null);
+        clearTimeout(safety);
         setLoading(false);
       }
+    }).catch((error) => {
+      if (cancelled) return;
+      clearTimeout(safety);
+      console.error('Error restoring session:', error);
+      lockedRoleRef.current = null;
+      setSession(null);
+      setUser(null);
+      setUserProfile(null);
+      setUserType(null);
+      setLoading(false);
     });
 
     const {
@@ -97,9 +127,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (jwtRole) {
           setUserType(jwtRole);
           setLoading(false);
-          loadUserProfile(session.user.id);
+          loadUserProfile(session.user.id, session.user);
         } else {
-          const resolved = await loadUserProfile(session.user.id);
+          const resolved = await loadUserProfile(session.user.id, session.user);
           if (resolved) setUserType(resolved);
           setLoading(false);
         }
@@ -111,10 +141,74 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      clearTimeout(safety);
+      subscription.unsubscribe();
+    };
   }, []);
 
-  const loadUserProfile = async (userId: string): Promise<'user' | 'rider' | null> => {
+  const ensureProfileRow = async (
+    userId: string,
+    authUser: User | null | undefined,
+    table: 'users' | 'riders'
+  ): Promise<{ profile: any; table: 'users' | 'riders' } | null> => {
+    // Self-heal for accounts whose public profile row was never created
+    // (e.g. email-confirmation signup where the handle_new_user trigger
+    // silently failed, followed by a manual login). Without this row the
+    // profile screens show fallbacks and create-delivery/payment-init reject
+    // the user with "Only customers can create deliveries".
+    try {
+      // Preferred: SECURITY DEFINER RPC (works regardless of RLS state).
+      // Falls back to a direct insert when the migration hasn't been run yet.
+      const { data: rpcData, error: rpcError } = await (supabase as any).rpc(
+        'ensure_own_profile'
+      );
+      const rpcProfile = (rpcData as any)?.profile;
+      if (!rpcError && rpcProfile) {
+        const rpcTable =
+          (rpcData as any)?.user_type === 'rider' ? 'riders' : 'users';
+        return { profile: rpcProfile, table: rpcTable };
+      }
+
+      const meta = authUser?.user_metadata ?? {};
+      const email = authUser?.email || '';
+      const fullName =
+        meta.fullName ||
+        meta.full_name ||
+        meta.name ||
+        (email ? email.split('@')[0] : '') ||
+        'User';
+      const phone = meta.phone || '';
+      const row = {
+        id: userId,
+        email,
+        full_name: fullName,
+        phone,
+      };
+      const { error: insertError } = await (supabase as any)
+        .from(table)
+        .insert([row]);
+      // 23505 = a row appeared concurrently (trigger/late write) — treat as healed.
+      if (insertError && insertError.code !== '23505') throw insertError;
+
+      const { data, error: selectError } = await supabase
+        .from(table)
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+      if (selectError) throw selectError;
+      return data ? { profile: data, table } : null;
+    } catch (error) {
+      console.error(`Self-heal profile insert (${table}) failed:`, error);
+      return null;
+    }
+  };
+
+  const loadUserProfile = async (
+    userId: string,
+    authUser?: User | null
+  ): Promise<'user' | 'rider' | null> => {
     const locked = lockedRoleRef.current;
     try {
       if (locked !== 'user') {
@@ -129,9 +223,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
           if (!locked) setUserType('rider');
           return 'rider';
         }
+
+        if (locked === 'rider') {
+          const healed = await ensureProfileRow(userId, authUser, 'riders');
+          if (healed) {
+            const healedType = healed.table === 'riders' ? 'rider' : 'user';
+            setUserProfile(healed.profile);
+            setUserType(healedType);
+            return healedType;
+          }
+          // Heal failed (e.g. RLS / migration not applied): keep the known
+          // role so the app can navigate instead of spinning forever.
+          setUserType('rider');
+          return locked;
+        }
       }
 
-      if (locked !== 'rider') {
+      if (locked === null || locked === 'user') {
         const { data: userData, error: userError } = await supabase
           .from('users')
           .select('*')
@@ -142,6 +250,35 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setUserProfile(userData);
           if (!locked) setUserType('user');
           return 'user';
+        }
+
+        if (locked === 'user') {
+          const healed = await ensureProfileRow(userId, authUser, 'users');
+          if (healed) {
+            const healedType = healed.table === 'riders' ? 'rider' : 'user';
+            setUserProfile(healed.profile);
+            setUserType(healedType);
+            return healedType;
+          }
+          // Heal failed (e.g. RLS / migration not applied): keep the known
+          // role so the app can navigate instead of spinning forever.
+          setUserType('user');
+          return locked;
+        }
+      }
+
+      if (locked === null) {
+        // No JWT role and no profile row in either table: last resort,
+        // self-heal into the metadata-indicated table instead of leaving
+        // userType null (which strands the app on a loading spinner).
+        const metaType = authUser?.user_metadata?.userType;
+        const table: 'users' | 'riders' = metaType === 'rider' ? 'riders' : 'users';
+        const healed = await ensureProfileRow(userId, authUser, table);
+        if (healed) {
+          const healedType = healed.table === 'riders' ? 'rider' : 'user';
+          setUserProfile(healed.profile);
+          setUserType(healedType);
+          return healedType;
         }
       }
 
@@ -226,7 +363,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             }
           }
 
-          await loadUserProfile(existingUserId);
+          await loadUserProfile(existingUserId, existingSignInData.user);
           setSession(existingSignInData.session);
           setUser(existingSignInData.user);
           setLoading(false);
@@ -336,7 +473,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       // Load the newly created profile
-      await loadUserProfile(userId);
+      await loadUserProfile(userId, activeSession.user);
 
       // Update session state with the active session
       setSession(activeSession);
@@ -400,7 +537,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUser(data.user);
 
       if (data.user) {
-        let resolvedType = await loadUserProfile(data.user.id);
+        let resolvedType = await loadUserProfile(data.user.id, data.user);
 
         if (!resolvedType && data.user.user_metadata) {
           const metadata = data.user.user_metadata;
@@ -416,7 +553,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             } as any);
 
           if (!profileError) {
-            resolvedType = await loadUserProfile(data.user.id);
+            resolvedType = await loadUserProfile(data.user.id, data.user);
           }
         }
 
@@ -497,7 +634,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       // Reload profile
-      await loadUserProfile(user.id);
+      await loadUserProfile(user.id, user);
     } catch (error) {
       console.error('Update profile error:', error);
       throw error;
@@ -505,7 +642,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const refreshProfile = async () => {
-    if (user?.id) await loadUserProfile(user.id);
+    if (user?.id) await loadUserProfile(user.id, user);
   };
 
   const value: AuthContextType = {

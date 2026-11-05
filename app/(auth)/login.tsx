@@ -37,6 +37,11 @@ import {
 } from '@/lib/socialAuth';
 import { openEmailApp, resendSignupConfirmation } from '@/lib/emailInbox';
 import { FormError } from '@/components/FormError';
+import { AuthErrorBadge } from '@/components/AuthErrorBadge';
+import {
+  getSignInErrorCopy,
+  isUnconfirmedEmailError,
+} from '@/lib/authErrors';
 import { validateEmail } from '@/utils/validation';
 
 const ENTER_SPRING = { damping: 18, stiffness: 92, mass: 0.9 };
@@ -44,11 +49,7 @@ const CLOUD_WIDTH = 132;
 const CLOUD_DURATION_MS = 26000;
 
 function isEmailUnconfirmedError(message: string): boolean {
-  const lower = message.toLowerCase();
-  return (
-    lower.includes('email not confirmed') ||
-    lower.includes('confirm your email')
-  );
+  return isUnconfirmedEmailError(message);
 }
 
 export default function LoginScreen() {
@@ -71,6 +72,10 @@ export default function LoginScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [badgeError, setBadgeError] = useState<{
+    title: string;
+    message: string;
+  } | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [touched, setTouched] = useState({ email: false, password: false });
@@ -139,10 +144,12 @@ export default function LoginScreen() {
 
     if (nextEmailError || nextPasswordError) {
       setFormError(null);
+      setBadgeError(null);
       return;
     }
 
     setFormError(null);
+    setBadgeError(null);
     setIsLoading(true);
 
     try {
@@ -150,24 +157,21 @@ export default function LoginScreen() {
       // Navigation will be handled automatically by the auth state change in index.tsx
     } catch (error: any) {
       console.error('Login error:', error);
-      let errorMessage = 'Failed to sign in';
+      const rawMessage =
+        typeof error?.message === 'string' && error.message.length > 0
+          ? error.message
+          : 'Failed to sign in';
 
-      if (error.message) {
-        errorMessage = error.message;
-      } else if (
-        error.includes &&
-        error.includes('Invalid login credentials')
-      ) {
-        errorMessage =
-          'Invalid email or password. Please check your credentials and try again.';
-      } else if (error.includes && error.includes('Email not confirmed')) {
-        errorMessage = 'Please confirm your email address before signing in.';
+      if (isEmailUnconfirmedError(rawMessage)) {
+        showUnconfirmedEmailAlert();
+        return;
       }
 
-      if (isEmailUnconfirmedError(errorMessage)) {
-        showUnconfirmedEmailAlert();
+      const copy = getSignInErrorCopy(rawMessage);
+      if (copy) {
+        setBadgeError(copy);
       } else {
-        setFormError(errorMessage);
+        setFormError(rawMessage);
       }
     } finally {
       setIsLoading(false);
@@ -222,13 +226,24 @@ export default function LoginScreen() {
       if (result === 'cancel') {
         return;
       }
+      setFormError(null);
+      setBadgeError(null);
       router.replace('/');
     } catch (e) {
       const msg =
         e instanceof Error
           ? e.message
           : 'Social login could not be started. Check provider setup in Supabase.';
-      setFormError(msg);
+      if (isEmailUnconfirmedError(msg)) {
+        showUnconfirmedEmailAlert();
+      } else {
+        const copy = getSignInErrorCopy(msg);
+        if (copy) {
+          setBadgeError(copy);
+        } else {
+          setFormError(msg);
+        }
+      }
     } finally {
       setIsSocialLoading(false);
     }
@@ -239,6 +254,12 @@ export default function LoginScreen() {
       style={[styles.container, { backgroundColor: theme.colors.background }]}
     >
       <StatusBar style="light" />
+      <AuthErrorBadge
+        visible={badgeError !== null}
+        title={badgeError?.title ?? ''}
+        message={badgeError?.message}
+        onDismiss={() => setBadgeError(null)}
+      />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -347,6 +368,7 @@ export default function LoginScreen() {
                       onChangeText={(t) => {
                         setEmail(t);
                         setFormError(null);
+                        setBadgeError(null);
                         if (touched.email) {
                           setEmailError(getEmailError(t));
                         }
@@ -402,6 +424,7 @@ export default function LoginScreen() {
                       onChangeText={(t) => {
                         setPassword(t);
                         setFormError(null);
+                        setBadgeError(null);
                         if (touched.password) {
                           setPasswordError(getPasswordError(t));
                         }
